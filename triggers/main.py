@@ -1,14 +1,19 @@
+import logging
 import time
 from imap_tools import MailBox
 from shared.app_settings import load_app_settings
-from agents.src.llm_workflow import run_workflow
+from triggers.llm_workflow import run_workflow
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 def main():
     """
     Polls an IMAP inbox and creates a draft for each new email.
     It will wait until settings are configured in Redis before starting.
     """
-    print("Trigger service started.")
+    logger.info("Trigger service started.")
     last_uid = None
 
     while True:
@@ -19,7 +24,7 @@ def main():
 
             # Check if all required settings for this service are present
             if app_settings.IMAP_SERVER and app_settings.IMAP_USERNAME and app_settings.IMAP_PASSWORD:
-                print(f"Settings loaded for {app_settings.IMAP_USERNAME}. Checking for mail...")
+                logger.info(f"Settings loaded for {app_settings.IMAP_USERNAME}. Checking for mail...")
 
                 with MailBox(app_settings.IMAP_SERVER).login(app_settings.IMAP_USERNAME, app_settings.IMAP_PASSWORD, initial_folder='INBOX') as mailbox:
                     
@@ -29,25 +34,25 @@ def main():
                         uids = mailbox.uids()
                         if uids:
                             last_uid = uids[-1]
-                            print(f"Monitoring for new emails with UID greater than {last_uid}.")
+                            logger.info(f"Monitoring for new emails with UID greater than {last_uid}.")
                         else:
-                            print("No existing emails found. Monitoring for all new emails.")
+                            logger.info("No existing emails found. Monitoring for all new emails.")
 
                     query = "ALL"
                     if last_uid:
                         query = f'UID {int(last_uid) + 1}:*'
                     
                     for msg in mailbox.fetch(query):
-                        print("--------------------")
-                        print(f"New Email Received:")
-                        print(f"  UID: {msg.uid}")
-                        print(f"  From: {msg.from_}")
-                        print(f"  To: {msg.to}")
-                        print(f"  Date: {msg.date_str}")
-                        print(f"  Subject: {msg.subject}")
+                        logger.info("--------------------")
+                        logger.info(f"New Email Received:")
+                        logger.info(f"  UID: {msg.uid}")
+                        logger.info(f"  From: {msg.from_}")
+                        logger.info(f"  To: {msg.to}")
+                        logger.info(f"  Date: {msg.date_str}")
+                        logger.info(f"  Subject: {msg.subject}")
                         body = msg.text or msg.html
-                        print(f"  Body: {body[:100].strip()}...")
-                        print("--------------------")
+                        logger.info(f"  Body: {body[:100].strip()}...")
+                        logger.info("--------------------")
                         
                         # Start the LLM workflow with the email body
                         if body:
@@ -55,10 +60,10 @@ def main():
 
                         last_uid = msg.uid
             else:
-                print("IMAP settings are not fully configured in Redis. Skipping poll cycle. Will check again in 60 seconds.")
+                logger.info("IMAP settings are not fully configured in Redis. Skipping poll cycle. Will check again in 60 seconds.")
 
         except Exception as e:
-            print(f"An unexpected error occurred: {e}. Skipping poll cycle.")
+            logger.error(f"An unexpected error occurred: {e}. Skipping poll cycle.", exc_info=True)
 
         # Poll every 60 seconds
         time.sleep(60)
