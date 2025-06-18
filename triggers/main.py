@@ -18,8 +18,7 @@ def main():
 
     while True:
         try:
-            # Clear the cache to fetch the latest settings on each cycle
-            load_app_settings.cache_clear()
+            # The lru_cache was removed, so we no longer need to clear it.
             app_settings = load_app_settings()
 
             # Check if all required settings for this service are present
