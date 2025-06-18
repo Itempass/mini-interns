@@ -1,0 +1,7 @@
+Flask
+pydantic-settings
+imap-tools
+python-dotenv 
+redis
+fastapi
+uvicorn
