@@ -8,6 +8,12 @@ export interface AppSettings {
   OPENROUTER_MODEL?: string;
 }
 
+export interface AgentSettings {
+  system_prompt?: string;
+  trigger_conditions?: string;
+  user_context?: string;
+}
+
 export const getSettings = async (): Promise<AppSettings> => {
   console.log('Fetching settings...');
   try {
@@ -44,6 +50,46 @@ export const setSettings = async (settings: AppSettings) => {
     return result;
   } catch (error) {
     console.error('An error occurred while setting settings:', error);
+    return null;
+  }
+};
+
+export const getAgentSettings = async (): Promise<AgentSettings> => {
+  console.log('Fetching agent settings...');
+  try {
+    const response = await fetch(`${API_URL}/agent/settings`);
+    if (!response.ok) {
+      console.error('Failed to fetch agent settings. Status:', response.status);
+      throw new Error('Failed to fetch agent settings');
+    }
+    const data = await response.json();
+    console.log('Successfully fetched agent settings:', data);
+    return data;
+  } catch (error) {
+    console.error('An error occurred while fetching agent settings:', error);
+    return {};
+  }
+};
+
+export const setAgentSettings = async (settings: AgentSettings) => {
+  console.log('Setting agent settings:', settings);
+  try {
+    const response = await fetch(`${API_URL}/agent/settings`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(settings),
+    });
+    if (!response.ok) {
+      console.error('Failed to set agent settings. Status:', response.status);
+      throw new Error('Failed to set agent settings');
+    }
+    const result = await response.json();
+    console.log('Successfully set agent settings:', result);
+    return result;
+  } catch (error) {
+    console.error('An error occurred while setting agent settings:', error);
     return null;
   }
 };
