@@ -16,6 +16,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     supervisor \
     nodejs \
     npm \
+    iputils-ping \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy Python requirements and install packages

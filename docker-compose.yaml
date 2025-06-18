@@ -12,4 +12,6 @@ services:
     volumes:
       - ./data/db:/data/db
       - ./data/redis:/data/redis
+    dns:
+      - 8.8.8.8
     restart: unless-stopped 

@@ -1,4 +1,5 @@
 import logging
+import json
 from openai import OpenAI
 from shared.app_settings import load_app_settings
 from shared.redis.redis_client import get_redis_client
@@ -32,42 +33,47 @@ def run_workflow(email_body: str):
             logger.warning("Trigger conditions prompt not set in Redis. Skipping workflow.")
             return
         
-        # Decode from bytes to string
-        trigger_conditions_prompt = trigger_conditions_prompt.decode('utf-8')
+        with open("triggers/triggercondition_systemprompt.md", "r") as f:
+            trigger_system_prompt = f.read()
 
         # 2. First LLM call to check trigger conditions
         logger.info("Checking trigger conditions...")
+        
         trigger_response = client.chat.completions.create(
             model=app_settings.OPENROUTER_MODEL,
             messages=[
-                {"role": "system", "content": trigger_conditions_prompt},
+                {"role": "system", "content": trigger_system_prompt},
+                {"role": "user", "content": trigger_conditions_prompt},
                 {"role": "user", "content": email_body},
             ],
             temperature=0.0,
+            response_format={"type": "json_object"},
         )
 
-        decision = trigger_response.choices[0].message.content.strip().lower()
+        decision = False
+        try:
+            response_content = trigger_response.choices[0].message.content
+            decision_json = json.loads(response_content)
+            decision = decision_json.get("should_draft", False)
+        except (json.JSONDecodeError, AttributeError):
+            logger.warning(f"Could not parse decision from LLM, will not draft. Got: {response_content}")
+
         logger.info(f"Trigger decision: {decision}")
 
         # 3. If trigger is met, run the second LLM call
-        if "true" in decision:
+        if decision:
             logger.info("Trigger met. Generating draft...")
 
             if not system_prompt or not user_context:
                 logger.warning("System prompt or user context not set in Redis. Cannot generate draft.")
                 return
 
-            # Decode from bytes to string
-            system_prompt = system_prompt.decode('utf-8')
-            user_context = user_context.decode('utf-8')
-
-            # Construct the full prompt for the second call
-            final_prompt = f"{system_prompt}\n\nHere is some context about me: {user_context}\n\nPlease write a draft response to the following email:\n\n---\n{email_body}\n---"
-
             draft_response = client.chat.completions.create(
                 model=app_settings.OPENROUTER_MODEL,
                 messages=[
-                    {"role": "user", "content": final_prompt}
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": f"Here is some context: {user_context}"},
+                    {"role": "user", "content": f"Please write a draft response to the following email:\n\n---\n{email_body}\n---"}
                 ],
             )
             
