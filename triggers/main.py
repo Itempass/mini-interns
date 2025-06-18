@@ -1,6 +1,7 @@
 import time
 from imap_tools import MailBox
 from shared.app_settings import load_app_settings
+from agents.src.llm_workflow import run_workflow
 
 def main():
     """
@@ -48,6 +49,10 @@ def main():
                         print(f"  Body: {body[:100].strip()}...")
                         print("--------------------")
                         
+                        # Start the LLM workflow with the email body
+                        if body:
+                            run_workflow(body)
+
                         last_uid = msg.uid
             else:
                 print("IMAP settings are not fully configured in Redis. Skipping poll cycle. Will check again in 60 seconds.")

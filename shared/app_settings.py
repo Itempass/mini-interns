@@ -20,7 +20,6 @@ class AppSettings(BaseModel):
     OPENROUTER_API_KEY: Optional[str] = None
     OPENROUTER_MODEL: Optional[str] = None
 
-@lru_cache(maxsize=1)
 def load_app_settings() -> AppSettings:
     """
     Loads all application settings from Redis. This function does not validate,
