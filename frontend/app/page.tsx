@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { getSettings, setSettings, AppSettings, getAgentSettings, setAgentSettings as apiSetAgentSettings } from '../services/api';
 import { Copy } from 'lucide-react';
+import TopBar from '../components/TopBar';
 
 interface AgentSettings {
   systemPrompt: string;
@@ -180,7 +181,9 @@ const HomePage = () => {
   };
 
   return (
-    <div style={containerStyle}>
+    <div>
+      <TopBar />
+      <div style={containerStyle}>
       <div style={settingsSectionStyle}>
         <h2 style={{ textAlign: 'center', marginBottom: '20px' }}>Settings</h2>
         <div style={settingRowStyle}>
@@ -290,6 +293,7 @@ const HomePage = () => {
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 };

@@ -2,6 +2,7 @@
 import React, { useState } from 'react';
 import ConversationsList from '../../components/ConversationsList';
 import ConversationDetail from '../../components/ConversationDetail';
+import TopBar from '../../components/TopBar';
 
 const LogsPage = () => {
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
@@ -68,7 +69,9 @@ const LogsPage = () => {
   };
 
   return (
-    <div style={containerStyle}>
+    <div>
+      <TopBar />
+      <div style={containerStyle}>
       <h1 style={titleStyle}>Agent Logger - Conversation Logs</h1>
       
       <ConversationsList onSelectConversation={handleSelectConversation} />
@@ -83,6 +86,7 @@ const LogsPage = () => {
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 };
