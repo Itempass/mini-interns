@@ -6,6 +6,7 @@ export interface AppSettings {
   IMAP_PASSWORD?: string;
   OPENROUTER_API_KEY?: string;
   OPENROUTER_MODEL?: string;
+  DRAFT_CREATION_ENABLED?: boolean;
 }
 
 export interface AgentSettings {

@@ -4,6 +4,7 @@ class RedisKeys:
     IMAP_USERNAME = "settings:imap_username"
     IMAP_PASSWORD = "settings:imap_password"
     OPENROUTER_API_KEY = "settings:openrouter_api_key"
+    DRAFT_CREATION_ENABLED = "settings:draft_creation_enabled"
     SYSTEM_PROMPT = "agent:system_prompt"
     TRIGGER_CONDITIONS = "agent:trigger_conditions"
     USER_CONTEXT = "agent:user_context"

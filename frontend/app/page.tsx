@@ -184,10 +184,11 @@ const HomePage = () => {
     <div>
       <TopBar />
       <div style={containerStyle}>
-      <div style={settingsSectionStyle}>
-        <h2 style={{ textAlign: 'center', marginBottom: '20px' }}>Settings</h2>
-        <div style={settingRowStyle}>
-          <label style={labelStyle} htmlFor="imap-server">IMAP Server:</label>
+              <div style={settingsSectionStyle}>
+          <h2 style={{ textAlign: 'center', marginBottom: '20px' }}>Settings</h2>
+          
+          <div style={settingRowStyle}>
+          <label style={labelStyle}>IMAP Server:</label>
           <div style={{ flex: 1 }}>
             <input style={inputStyle} type="text" id="imap-server" name="IMAP_SERVER" value={settings.IMAP_SERVER || ''} onChange={handleInputChange} />
             <div style={{ display: 'flex', alignItems: 'center', marginTop: '4px' }}>
@@ -245,6 +246,33 @@ const HomePage = () => {
             </div>
           </div>
         </div>
+        
+        <div style={settingRowStyle}>
+          <label style={labelStyle}>Draft Creation:</label>
+          <div style={{ flex: 1, display: 'flex', alignItems: 'center' }}>
+            <button
+              onClick={() => handleInputChange({ target: { name: 'DRAFT_CREATION_ENABLED', value: !(settings.DRAFT_CREATION_ENABLED !== false) } } as any)}
+              style={{
+                backgroundColor: settings.DRAFT_CREATION_ENABLED !== false ? '#007acc' : '#dc3545',
+                color: 'white',
+                border: 'none',
+                padding: '6px 12px',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                fontSize: '12px',
+                fontWeight: 'bold',
+                minWidth: '70px',
+                marginRight: '10px'
+              }}
+            >
+              {settings.DRAFT_CREATION_ENABLED !== false ? 'ENABLED' : 'PAUSED'}
+            </button>
+            <span style={{ fontSize: '14px', color: '#666' }}>
+              {settings.DRAFT_CREATION_ENABLED !== false ? 'Enabled - Drafts will be created for new emails' : 'Paused - Monitoring inbox but not creating drafts'}
+            </span>
+          </div>
+        </div>
+        
         <button style={buttonStyle} onClick={handleSave}>Save Settings</button>
       </div>
 

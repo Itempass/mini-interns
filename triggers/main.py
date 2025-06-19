@@ -95,6 +95,12 @@ def process_message(msg):
     logger.info("--------------------")
     
     if body:
+        # Check if draft creation is enabled
+        app_settings = load_app_settings()
+        if not app_settings.DRAFT_CREATION_ENABLED:
+            logger.info("Draft creation is paused. Skipping workflow and draft creation.")
+            return
+        
         # Run the LLM workflow
         workflow_result = run_workflow(msg)
         
@@ -113,6 +119,8 @@ def process_message(msg):
                 logger.error(f"Failed to create draft: {draft_result['message']}")
         else:
             logger.info(f"No draft created: {workflow_result.get('message', 'Unknown reason')}")
+    else:
+        logger.info("Email has no body content. Skipping processing.")
 
 if __name__ == "__main__":
     main() 
