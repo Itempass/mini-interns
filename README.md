@@ -7,6 +7,7 @@ mini-interns/
 ├── frontend/          # Next.js web interface for configuration
 ├── api/               # FastAPI backend for settings management
 ├── triggers/          # Email monitoring and LLM processing engine
+├── agentlogger/       # Agent logging and anonymization package
 ├── shared/            # Common utilities and Redis client
 ├── data/              # Persistent storage (SQLite DB + Redis)
 └── scripts/           # Database initialization and utilities
@@ -17,6 +18,7 @@ mini-interns/
 - **`frontend/`** - Next.js TypeScript application providing a web UI for configuring IMAP settings, AI model parameters, system prompts, and trigger conditions
 - **`api/`** - FastAPI REST API that manages application settings and agent configurations, storing them in Redis for real-time access
 - **`triggers/`** - Core email processing engine that polls IMAP inbox, runs LLM workflows to analyze emails, and creates draft replies when conditions are met
+- **`agentlogger/`** - Package providing client interface for agent logging and log anonymization functionality, used by other services within the container
 - **`shared/`** - Common utilities including Redis client, configuration management, and shared data models used across all services
 - **`data/`** - Persistent data storage with SQLite database for structured data and Redis for caching and real-time configuration. Will persist when Docker image is rebuild.
 - **`scripts/`** - Database initialization scripts and other utility tools for system setup and maintenance

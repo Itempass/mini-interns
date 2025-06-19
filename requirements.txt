@@ -1,4 +1,5 @@
 Flask
+pydantic
 pydantic-settings
 imap-tools
 python-dotenv 
@@ -6,3 +7,4 @@ redis
 fastapi
 uvicorn
 openai
+httpx
