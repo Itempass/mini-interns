@@ -39,8 +39,8 @@ RUN mkdir -p /data/redis /data/db
 # Copy supervisor configuration
 COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 
-# Expose ports for frontend and backend API
-EXPOSE 3000 5001
+# Expose ports for frontend
+EXPOSE 3000
 
 # Define volumes for persistent data
 VOLUME ["/data/redis", "/data/db"]

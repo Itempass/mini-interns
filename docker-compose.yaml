@@ -8,7 +8,6 @@ services:
     container_name: mini-interns-app
     ports:
       - "3000:3000"
-      - "5001:5001"
     volumes:
       - ./data/db:/data/db
       - ./data/redis:/data/redis

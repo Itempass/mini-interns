@@ -1,4 +1,4 @@
-const API_URL = 'http://localhost:5001'; // The backend is on port 5001
+const API_URL = '/api'; // The backend is on port 5001, but we're proxying
 
 export interface AppSettings {
   IMAP_SERVER?: string;
