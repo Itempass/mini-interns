@@ -1,9 +1,12 @@
 import logging
 import json
+import asyncio
 from openai import OpenAI
 from shared.app_settings import load_app_settings
 from shared.redis.redis_client import get_redis_client
 from shared.redis.keys import RedisKeys
+from agentlogger.src.client import save_conversation
+from agentlogger.src.models import ConversationData, Message, Metadata
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -48,13 +51,15 @@ def run_workflow(msg):
         # 2. First LLM call to check trigger conditions
         logger.info("Checking trigger conditions...")
         
+        trigger_messages = [
+            {"role": "system", "content": trigger_system_prompt},
+            {"role": "user", "content": trigger_conditions_prompt},
+            {"role": "user", "content": email_body},
+        ]
+        
         trigger_response = client.chat.completions.create(
             model=app_settings.OPENROUTER_MODEL,
-            messages=[
-                {"role": "system", "content": trigger_system_prompt},
-                {"role": "user", "content": trigger_conditions_prompt},
-                {"role": "user", "content": email_body},
-            ],
+            messages=trigger_messages,
             temperature=0.0,
             response_format={"type": "json_object"},
         )
@@ -68,6 +73,16 @@ def run_workflow(msg):
             logger.warning(f"Could not parse decision from LLM, will not draft. Got: {response_content}")
 
         logger.info(f"Trigger decision: {decision}")
+        
+        # Log trigger conversation 
+        trigger_messages.append({"role": "assistant", "content": response_content})
+        try:
+            asyncio.run(save_conversation(ConversationData(
+                metadata=Metadata(conversation_id=f"trigger_{hash(email_body) % 10000}_{int(__import__('time').time())}"),
+                messages=[Message(**msg) for msg in trigger_messages]
+            )))
+        except Exception as e:
+            logger.warning(f"Failed to log trigger conversation: {e}")
 
         # 3. If trigger is met, run the second LLM call
         if decision:
@@ -77,16 +92,28 @@ def run_workflow(msg):
                 logger.warning("System prompt or user context not set in Redis. Cannot generate draft.")
                 return {"should_create_draft": False, "message": "System prompt or user context not set"}
 
+            draft_messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": f"Here is some context: {user_context}"},
+                {"role": "user", "content": f"Please write a draft response to the following email:\n\n---\n{email_body}\n---"}
+            ]
+            
             draft_response = client.chat.completions.create(
                 model=app_settings.OPENROUTER_MODEL,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": f"Here is some context: {user_context}"},
-                    {"role": "user", "content": f"Please write a draft response to the following email:\n\n---\n{email_body}\n---"}
-                ],
+                messages=draft_messages,
             )
             
             draft_email = draft_response.choices[0].message.content
+            
+            # Log draft conversation
+            draft_messages.append({"role": "assistant", "content": draft_email})
+            try:
+                asyncio.run(save_conversation(ConversationData(
+                    metadata=Metadata(conversation_id=f"draft_{hash(email_body) % 10000}_{int(__import__('time').time())}"),
+                    messages=[Message(**msg) for msg in draft_messages]
+                )))
+            except Exception as e:
+                logger.warning(f"Failed to log draft conversation: {e}")
             
             # 4. Log the outcome
             logger.info("LLM Draft Generation Complete:")

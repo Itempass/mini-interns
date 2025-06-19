@@ -1,7 +1,7 @@
 import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from api.endpoints import settings, agent
+from api.endpoints import settings, agent, agentlogger
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -19,6 +19,7 @@ app.add_middleware(
 
 app.include_router(settings.router)
 app.include_router(agent.router)
+app.include_router(agentlogger.router)
 
 @app.get("/")
 def read_root():

@@ -101,4 +101,63 @@ export const getOpenRouterModel = async () => {
 
 export const setOpenRouterModel = async (model: string) => {
   return await setSettings({ OPENROUTER_MODEL: model });
+};
+
+// Agent Logger API
+export interface ConversationData {
+  metadata: {
+    conversation_id: string;
+    [key: string]: any;
+  };
+  messages: Array<{
+    content: string;
+    role: string;
+    [key: string]: any;
+  }>;
+}
+
+export interface ConversationsResponse {
+  conversations: ConversationData[];
+  count: number;
+}
+
+export interface ConversationResponse {
+  conversation: ConversationData;
+}
+
+export const getConversations = async (): Promise<ConversationsResponse> => {
+  console.log('Fetching conversations...');
+  try {
+    const response = await fetch(`${API_URL}/agentlogger/conversations`);
+    if (!response.ok) {
+      console.error('Failed to fetch conversations. Status:', response.status);
+      throw new Error('Failed to fetch conversations');
+    }
+    const data = await response.json();
+    console.log('Successfully fetched conversations:', data);
+    return data;
+  } catch (error) {
+    console.error('An error occurred while fetching conversations:', error);
+    return { conversations: [], count: 0 };
+  }
+};
+
+export const getConversation = async (conversationId: string): Promise<ConversationData | null> => {
+  console.log('Fetching conversation:', conversationId);
+  try {
+    const response = await fetch(`${API_URL}/agentlogger/conversations/${conversationId}`);
+    if (!response.ok) {
+      console.error('Failed to fetch conversation. Status:', response.status);
+      if (response.status === 404) {
+        return null;
+      }
+      throw new Error('Failed to fetch conversation');
+    }
+    const data = await response.json();
+    console.log('Successfully fetched conversation:', data);
+    return data.conversation;
+  } catch (error) {
+    console.error('An error occurred while fetching conversation:', error);
+    return null;
+  }
 }; 
