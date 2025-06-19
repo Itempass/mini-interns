@@ -1,6 +1,7 @@
 'use client';
 import React, { useState, useEffect } from 'react';
 import { getSettings, setSettings, AppSettings, getAgentSettings, setAgentSettings as apiSetAgentSettings } from '../services/api';
+import { Copy } from 'lucide-react';
 
 interface AgentSettings {
   systemPrompt: string;
@@ -18,6 +19,25 @@ const HomePage = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingField, setEditingField] = useState<keyof AgentSettings | null>(null);
   const [modalContent, setModalContent] = useState('');
+
+  const handleCopy = (text: string) => {
+    navigator.clipboard.writeText(text).then(() => {}, (err) => {
+      console.error('Failed to copy text: ', err);
+    });
+  };
+
+  const copyButtonStyle: React.CSSProperties = {
+    background: '#f0f0f0',
+    border: '1px solid #ccc',
+    borderRadius: '50%',
+    width: '24px',
+    height: '24px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    cursor: 'pointer',
+    marginLeft: '10px',
+  };
 
   useEffect(() => {
     console.log('Component mounted. Fetching initial data.');
@@ -93,10 +113,11 @@ const HomePage = () => {
   };
 
   const inputStyle: React.CSSProperties = {
-    flex: '1',
+    width: '100%',
     padding: '8px',
     borderRadius: '4px',
     border: '1px solid #ccc',
+    boxSizing: 'border-box',
   };
 
   const buttonStyle: React.CSSProperties = {
@@ -112,8 +133,8 @@ const HomePage = () => {
   };
 
   const containerStyle: React.CSSProperties = {
-    padding: '20px',
-    maxWidth: '700px',
+    padding: '40px',
+    maxWidth: '900px',
     margin: '0 auto',
     fontFamily: 'Arial, sans-serif',
   };
@@ -164,37 +185,61 @@ const HomePage = () => {
         <h2 style={{ textAlign: 'center', marginBottom: '20px' }}>Settings</h2>
         <div style={settingRowStyle}>
           <label style={labelStyle} htmlFor="imap-server">IMAP Server:</label>
-          <input style={inputStyle} type="text" id="imap-server" name="IMAP_SERVER" value={settings.IMAP_SERVER || ''} onChange={handleInputChange} />
+          <div style={{ flex: 1 }}>
+            <input style={inputStyle} type="text" id="imap-server" name="IMAP_SERVER" value={settings.IMAP_SERVER || ''} onChange={handleInputChange} />
+            <div style={{ display: 'flex', alignItems: 'center', marginTop: '4px' }}>
+              <p style={{ margin: '0', fontSize: '12px', color: '#666' }}>example: imap.gmail.com</p>
+              <button onClick={() => handleCopy('imap.gmail.com')} style={copyButtonStyle} title="Copy">
+                <Copy size={14} />
+              </button>
+            </div>
+          </div>
         </div>
         <div style={settingRowStyle}>
           <label style={labelStyle} htmlFor="imap-user">IMAP User:</label>
-          <input style={inputStyle} type="text" id="imap-user" name="IMAP_USERNAME" value={settings.IMAP_USERNAME || ''} onChange={handleInputChange} />
+          <div style={{ flex: 1 }}>
+            <input style={inputStyle} type="text" id="imap-user" name="IMAP_USERNAME" value={settings.IMAP_USERNAME || ''} onChange={handleInputChange} />
+            <p style={{ margin: '4px 0 0', fontSize: '12px', color: '#666' }}>example@gmail.com</p>
+          </div>
         </div>
         <div style={settingRowStyle}>
           <label style={labelStyle} htmlFor="imap-password">IMAP Password:</label>
-          <input style={inputStyle} type="password" id="imap-password" name="IMAP_PASSWORD" value={settings.IMAP_PASSWORD || ''} onChange={handleInputChange} />
+          <div style={{ flex: 1 }}>
+            <input style={inputStyle} type="password" id="imap-password" name="IMAP_PASSWORD" value={settings.IMAP_PASSWORD || ''} onChange={handleInputChange} />
+            <p style={{ margin: '4px 0 0', fontSize: '12px', color: '#666' }}>for the google app password: remove the spaces</p>
+          </div>
         </div>
         <div style={settingRowStyle}>
           <label style={labelStyle} htmlFor="openrouter-api-key">Openrouter API Key:</label>
-          <input style={inputStyle} type="password" id="openrouter-api-key" name="OPENROUTER_API_KEY" value={settings.OPENROUTER_API_KEY || ''} onChange={handleInputChange} />
+          <div style={{ flex: 1 }}>
+            <input style={inputStyle} type="password" id="openrouter-api-key" name="OPENROUTER_API_KEY" value={settings.OPENROUTER_API_KEY || ''} onChange={handleInputChange} />
+          </div>
         </div>
         <div style={settingRowStyle}>
           <label style={labelStyle} htmlFor="openrouter-model">Openrouter Model:</label>
-          <div style={{ display: 'flex', alignItems: 'center', flex: 1 }}>
-            <input
-              style={inputStyle}
-              type="text"
-              id="openrouter-model"
-              name="OPENROUTER_MODEL"
-              value={settings.OPENROUTER_MODEL || ''}
-              onChange={handleInputChange}
-            />
-            <span
-              title="copy the exact model slug from openrouter's website"
-              style={{ marginLeft: '10px', cursor: 'help', fontSize: '20px', color: '#666' }}
-            >
-              &#9432;
-            </span>
+          <div style={{ flex: 1 }}>
+            <div style={{ display: 'flex', alignItems: 'center' }}>
+              <input
+                style={inputStyle}
+                type="text"
+                id="openrouter-model"
+                name="OPENROUTER_MODEL"
+                value={settings.OPENROUTER_MODEL || ''}
+                onChange={handleInputChange}
+              />
+              <span
+                title="copy the exact model slug from openrouter's website"
+                style={{ marginLeft: '10px', cursor: 'help', fontSize: '20px', color: '#666' }}
+              >
+                &#9432;
+              </span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', marginTop: '4px' }}>
+              <p style={{ margin: '0', fontSize: '12px', color: '#666' }}>example: google/gemini-2.5-flash-preview-05-20:thinking</p>
+              <button onClick={() => handleCopy('google/gemini-2.5-flash-preview-05-20:thinking')} style={copyButtonStyle} title="Copy">
+                <Copy size={14} />
+              </button>
+            </div>
           </div>
         </div>
         <button style={buttonStyle} onClick={handleSave}>Save Settings</button>
@@ -228,8 +273,6 @@ const HomePage = () => {
         </div>
       </div>
 
-      <h1>Hello, Next.js!</h1>
-      <p>This is a placeholder frontend using App Router.</p>
       
       {isModalOpen && (
         <div style={modalOverlayStyle}>

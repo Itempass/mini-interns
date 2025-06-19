@@ -1,11 +1,39 @@
 import logging
 from fastapi import APIRouter, HTTPException
+from functools import lru_cache
 from shared.redis.redis_client import get_redis_client
 from shared.redis.keys import RedisKeys
 from api.types.api_models.agent import AgentSettings
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+@lru_cache(maxsize=1)
+def get_default_system_prompt():
+    """
+    Loads the default system prompt from a file.
+    Caches the result to avoid repeated file I/O.
+    """
+    try:
+        # Assuming the app runs from the project root
+        with open("api/defaults/systemprompt_default.md", "r") as f:
+            return f.read()
+    except FileNotFoundError:
+        logger.warning("default system prompt file not found. Using a fallback default.")
+        raise Exception("default system prompt file not found")
+
+@lru_cache(maxsize=1)
+def get_default_trigger_conditions():
+    """
+    Loads the default trigger conditions from a file.
+    Caches the result to avoid repeated file I/O.
+    """
+    try:
+        with open("api/defaults/triggerconditions_default.md", "r") as f:
+            return f.read()
+    except FileNotFoundError:
+        logger.warning("default trigger conditions file not found. Using a fallback default.")
+        raise Exception("default trigger conditions file not found")
 
 @router.get("/agent/settings", response_model=AgentSettings)
 def get_agent_settings():
@@ -23,8 +51,8 @@ def get_agent_settings():
         results = pipeline.execute()[0]
         
         settings = AgentSettings(
-            system_prompt=results[0],
-            trigger_conditions=results[1],
+            system_prompt=results[0] or get_default_system_prompt(),
+            trigger_conditions=results[1] or get_default_trigger_conditions(),
             user_context=results[2]
         )
         return settings
