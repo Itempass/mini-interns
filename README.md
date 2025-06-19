@@ -41,3 +41,4 @@ The host machine port that the Docker container maps to can be customized using 
 ```bash
 FRONTEND_HOST_PORT=3001 docker compose up -d
 ```
+
