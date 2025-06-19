@@ -12,3 +12,11 @@ This setup ensures that:
 - External users can only access the frontend interface
 - All API communication happens internally within the Docker container
 - The backend remains completely isolated from external network access
+
+## Port Configuration
+
+The host machine port that the Docker container maps to can be customized using the `FRONTEND_HOST_PORT` environment variable (defaults to 3000). This is useful when running multiple instances to avoid port conflicts:
+
+```bash
+FRONTEND_HOST_PORT=3001 docker compose up -d
+```
