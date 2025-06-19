@@ -7,7 +7,7 @@ services:
       dockerfile: Dockerfile
     container_name: mini-interns-app
     ports:
-      - "3000:3000"
+      - "${FRONTEND_HOST_PORT:-3000}:3000"
     volumes:
       - ./data/db:/data/db
       - ./data/redis:/data/redis
