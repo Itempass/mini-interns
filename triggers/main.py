@@ -6,6 +6,9 @@ from shared.redis.keys import RedisKeys
 from shared.redis.redis_client import get_redis_client
 from triggers.llm_workflow import run_workflow
 from triggers.draft_handler import create_draft_reply
+from triggers.rules import passes_filter
+from api.types.api_models.agent import AgentSettings, FilterRules
+import json
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -93,7 +96,16 @@ def process_message(msg):
     body = msg.text or msg.html
     logger.info(f"  Body: {body[:100].strip()}...")
     logger.info("--------------------")
-    
+
+    # Load agent settings to get filter rules
+    redis_client = get_redis_client()
+    filter_rules_json = redis_client.get(RedisKeys.FILTER_RULES)
+    filter_rules = FilterRules.model_validate_json(filter_rules_json) if filter_rules_json else FilterRules()
+
+    # Check against filter rules
+    if not passes_filter(msg.from_, filter_rules):
+        return # Stop processing if filters are not passed
+
     if body:
         # Check if draft creation is enabled
         app_settings = load_app_settings()

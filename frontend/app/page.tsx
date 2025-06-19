@@ -1,6 +1,6 @@
 'use client';
 import React, { useState, useEffect } from 'react';
-import { getSettings, setSettings, AppSettings, getAgentSettings, setAgentSettings as apiSetAgentSettings } from '../services/api';
+import { getSettings, setSettings, AppSettings, getAgentSettings, setAgentSettings as apiSetAgentSettings, FilterRules } from '../services/api';
 import { Copy } from 'lucide-react';
 import TopBar from '../components/TopBar';
 
@@ -8,6 +8,7 @@ interface AgentSettings {
   systemPrompt: string;
   triggerConditions: string;
   userContext: string;
+  filterRules: FilterRules;
 }
 
 const HomePage = () => {
@@ -16,10 +17,28 @@ const HomePage = () => {
     systemPrompt: '',
     triggerConditions: '',
     userContext: '',
+    filterRules: {
+      email_blacklist: [],
+      email_whitelist: [],
+      domain_blacklist: [],
+      domain_whitelist: [],
+    },
   });
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [editingField, setEditingField] = useState<keyof AgentSettings | null>(null);
+  const [editingField, setEditingField] = useState<keyof Omit<AgentSettings, 'filterRules'> | null>(null);
   const [modalContent, setModalContent] = useState('');
+  const [filterErrors, setFilterErrors] = useState({
+    email_blacklist: '',
+    email_whitelist: '',
+    domain_blacklist: '',
+    domain_whitelist: '',
+  });
+  const [filterRuleStrings, setFilterRuleStrings] = useState({
+    email_blacklist: '',
+    email_whitelist: '',
+    domain_blacklist: '',
+    domain_whitelist: '',
+  });
 
   const handleCopy = (text: string) => {
     navigator.clipboard.writeText(text).then(() => {}, (err) => {
@@ -52,6 +71,18 @@ const HomePage = () => {
         systemPrompt: fetchedAgentSettings.system_prompt || '',
         triggerConditions: fetchedAgentSettings.trigger_conditions || '',
         userContext: fetchedAgentSettings.user_context || '',
+        filterRules: fetchedAgentSettings.filter_rules || {
+          email_blacklist: [],
+          email_whitelist: [],
+          domain_blacklist: [],
+          domain_whitelist: [],
+        },
+      });
+      setFilterRuleStrings({
+        email_blacklist: fetchedAgentSettings.filter_rules?.email_blacklist.join(', ') || '',
+        email_whitelist: fetchedAgentSettings.filter_rules?.email_whitelist.join(', ') || '',
+        domain_blacklist: fetchedAgentSettings.filter_rules?.domain_blacklist.join(', ') || '',
+        domain_whitelist: fetchedAgentSettings.filter_rules?.domain_whitelist.join(', ') || '',
       });
     };
     fetchSettings();
@@ -69,9 +100,9 @@ const HomePage = () => {
     setSettingsState(prev => ({ ...prev, [name]: value }));
   };
 
-  const handleEdit = (field: keyof AgentSettings) => {
+  const handleEdit = (field: keyof Omit<AgentSettings, 'filterRules'>) => {
     setEditingField(field);
-    setModalContent(agentSettings[field]);
+    setModalContent(agentSettings[field] as string);
     setIsModalOpen(true);
   };
 
@@ -83,6 +114,7 @@ const HomePage = () => {
         system_prompt: newSettings.systemPrompt,
         trigger_conditions: newSettings.triggerConditions,
         user_context: newSettings.userContext,
+        filter_rules: newSettings.filterRules,
       });
     }
     setIsModalOpen(false);
@@ -90,6 +122,56 @@ const HomePage = () => {
 
   const handleModalClose = () => {
     setIsModalOpen(false);
+  };
+
+  const validateFilterInput = (name: keyof FilterRules, value: string) => {
+    const items = value.split(',').map(item => item.trim()).filter(Boolean);
+    let error = '';
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    const domainRegex = /^([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}$/;
+
+    for (const item of items) {
+      if (name.includes('email') && !emailRegex.test(item)) {
+        error = `"${item}" is not a valid email.`;
+        break;
+      }
+      if (name.includes('domain') && !domainRegex.test(item)) {
+        error = `"${item}" is not a valid domain.`;
+        break;
+      }
+    }
+    setFilterErrors(prev => ({ ...prev, [name]: error }));
+  };
+
+  const handleFilterRuleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const { name, value } = e.target as { name: keyof FilterRules; value: string };
+    setFilterRuleStrings(prev => ({
+      ...prev,
+      [name]: value,
+    }));
+    validateFilterInput(name, value);
+  };
+
+  const handleFilterRulesSave = async () => {
+    if (Object.values(filterErrors).some(err => err)) {
+      alert('Please fix the validation errors before saving.');
+      return;
+    }
+    
+    const newFilterRules: FilterRules = {
+      email_blacklist: filterRuleStrings.email_blacklist.split(',').map(item => item.trim()).filter(Boolean),
+      email_whitelist: filterRuleStrings.email_whitelist.split(',').map(item => item.trim()).filter(Boolean),
+      domain_blacklist: filterRuleStrings.domain_blacklist.split(',').map(item => item.trim()).filter(Boolean),
+      domain_whitelist: filterRuleStrings.domain_whitelist.split(',').map(item => item.trim()).filter(Boolean),
+    };
+    
+    setAgentSettings(prev => ({ ...prev, filterRules: newFilterRules }));
+
+    await apiSetAgentSettings({
+        filter_rules: newFilterRules,
+    });
+    alert('Filter rules saved!');
   };
 
   const settingsSectionStyle: React.CSSProperties = {
@@ -180,6 +262,18 @@ const HomePage = () => {
     justifyContent: 'flex-end',
   };
 
+  const descriptionStyle: React.CSSProperties = {
+    fontSize: '12px',
+    color: '#666',
+    margin: '4px 0 0',
+  };
+
+  const errorStyle: React.CSSProperties = {
+    fontSize: '12px',
+    color: 'red',
+    margin: '4px 0 0',
+  };
+
   return (
     <div>
       <TopBar />
@@ -200,27 +294,31 @@ const HomePage = () => {
           </div>
         </div>
         <div style={settingRowStyle}>
-          <label style={labelStyle} htmlFor="imap-user">IMAP User:</label>
+          <label style={labelStyle} htmlFor="imap-username">IMAP Username:</label>
           <div style={{ flex: 1 }}>
-            <input style={inputStyle} type="text" id="imap-user" name="IMAP_USERNAME" value={settings.IMAP_USERNAME || ''} onChange={handleInputChange} />
-            <p style={{ margin: '4px 0 0', fontSize: '12px', color: '#666' }}>example@gmail.com</p>
+            <input style={inputStyle} type="text" id="imap-username" name="IMAP_USERNAME" value={settings.IMAP_USERNAME || ''} onChange={handleInputChange} />
+            <div style={{ display: 'flex', alignItems: 'center', marginTop: '4px' }}>
+              <p style={{ margin: '0', fontSize: '12px', color: '#666' }}>example: your.email@gmail.com</p>
+              <button onClick={() => handleCopy('your.email@gmail.com')} style={copyButtonStyle} title="Copy">
+                <Copy size={14} />
+              </button>
+            </div>
           </div>
         </div>
         <div style={settingRowStyle}>
           <label style={labelStyle} htmlFor="imap-password">IMAP Password:</label>
           <div style={{ flex: 1 }}>
             <input style={inputStyle} type="password" id="imap-password" name="IMAP_PASSWORD" value={settings.IMAP_PASSWORD || ''} onChange={handleInputChange} />
-            <p style={{ margin: '4px 0 0', fontSize: '12px', color: '#666' }}>for the google app password: remove the spaces</p>
           </div>
         </div>
         <div style={settingRowStyle}>
-          <label style={labelStyle} htmlFor="openrouter-api-key">Openrouter API Key:</label>
+          <label style={labelStyle} htmlFor="openrouter-api-key">OpenRouter API Key:</label>
           <div style={{ flex: 1 }}>
             <input style={inputStyle} type="password" id="openrouter-api-key" name="OPENROUTER_API_KEY" value={settings.OPENROUTER_API_KEY || ''} onChange={handleInputChange} />
           </div>
         </div>
         <div style={settingRowStyle}>
-          <label style={labelStyle} htmlFor="openrouter-model">Openrouter Model:</label>
+          <label style={labelStyle} htmlFor="openrouter-model">OpenRouter Model:</label>
           <div style={{ flex: 1 }}>
             <div style={{ display: 'flex', alignItems: 'center' }}>
               <input
@@ -239,8 +337,8 @@ const HomePage = () => {
               </span>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', marginTop: '4px' }}>
-              <p style={{ margin: '0', fontSize: '12px', color: '#666' }}>example: google/gemini-2.5-flash-preview-05-20:thinking</p>
-              <button onClick={() => handleCopy('google/gemini-2.5-flash-preview-05-20:thinking')} style={copyButtonStyle} title="Copy">
+              <p style={{ margin: '0', fontSize: '12px', color: '#666' }}>example: google/gemini-flash-1.5</p>
+              <button onClick={() => handleCopy('google/gemini-flash-1.5')} style={copyButtonStyle} title="Copy">
                 <Copy size={14} />
               </button>
             </div>
@@ -274,6 +372,48 @@ const HomePage = () => {
         </div>
         
         <button style={buttonStyle} onClick={handleSave}>Save Settings</button>
+      </div>
+
+      <div style={settingsSectionStyle}>
+        <h2 style={{ textAlign: 'center', marginBottom: '20px' }}>Filtering Rules</h2>
+        <p style={{ textAlign: 'center', fontSize: '14px', color: '#666', marginBottom: '20px' }}>
+          Add comma-separated emails or domains to filter incoming messages.
+        </p>
+
+        <div style={settingRowStyle}>
+          <label style={labelStyle}>Email Blacklist:</label>
+          <div style={{ flex: 1 }}>
+            <textarea style={inputStyle} name="email_blacklist" value={filterRuleStrings.email_blacklist} onChange={handleFilterRuleChange} />
+            <p style={descriptionStyle}>Stop processing emails from these specific addresses. Ex: spam@example.com, junk@mail.net</p>
+            {filterErrors.email_blacklist && <p style={errorStyle}>{filterErrors.email_blacklist}</p>}
+          </div>
+        </div>
+        <div style={settingRowStyle}>
+          <label style={labelStyle}>Email Whitelist:</label>
+          <div style={{ flex: 1 }}>
+            <textarea style={inputStyle} name="email_whitelist" value={filterRuleStrings.email_whitelist} onChange={handleFilterRuleChange} />
+            <p style={descriptionStyle}>If used, only emails from these addresses will proceed to the LLM trigger check. Ex: boss@mycompany.com</p>
+            {filterErrors.email_whitelist && <p style={errorStyle}>{filterErrors.email_whitelist}</p>}
+          </div>
+        </div>
+        <div style={settingRowStyle}>
+          <label style={labelStyle}>Domain Blacklist:</label>
+          <div style={{ flex: 1 }}>
+            <textarea style={inputStyle} name="domain_blacklist" value={filterRuleStrings.domain_blacklist} onChange={handleFilterRuleChange} />
+            <p style={descriptionStyle}>Stop processing emails from these domains. Ex: evil-corp.com, bad-actors.org</p>
+            {filterErrors.domain_blacklist && <p style={errorStyle}>{filterErrors.domain_blacklist}</p>}
+          </div>
+        </div>
+        <div style={settingRowStyle}>
+          <label style={labelStyle}>Domain Whitelist:</label>
+          <div style={{ flex: 1 }}>
+            <textarea style={inputStyle} name="domain_whitelist" value={filterRuleStrings.domain_whitelist} onChange={handleFilterRuleChange} />
+            <p style={descriptionStyle}>If used, only emails from these domains will proceed to the LLM trigger check. Ex: mycompany.com, important-client.com</p>
+            {filterErrors.domain_whitelist && <p style={errorStyle}>{filterErrors.domain_whitelist}</p>}
+          </div>
+        </div>
+
+        <button style={buttonStyle} onClick={handleFilterRulesSave}>Save Filtering Rules</button>
       </div>
 
       <div style={settingsSectionStyle}>

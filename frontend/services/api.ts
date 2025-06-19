@@ -9,10 +9,18 @@ export interface AppSettings {
   DRAFT_CREATION_ENABLED?: boolean;
 }
 
+export interface FilterRules {
+  email_blacklist: string[];
+  email_whitelist: string[];
+  domain_blacklist: string[];
+  domain_whitelist: string[];
+}
+
 export interface AgentSettings {
   system_prompt?: string;
   trigger_conditions?: string;
   user_context?: string;
+  filter_rules?: FilterRules;
 }
 
 export const getSettings = async (): Promise<AppSettings> => {

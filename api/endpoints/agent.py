@@ -1,9 +1,10 @@
 import logging
+import json
 from fastapi import APIRouter, HTTPException
 from functools import lru_cache
 from shared.redis.redis_client import get_redis_client
 from shared.redis.keys import RedisKeys
-from api.types.api_models.agent import AgentSettings
+from api.types.api_models.agent import AgentSettings, FilterRules
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -46,14 +47,19 @@ def get_agent_settings():
         pipeline.mget(
             RedisKeys.SYSTEM_PROMPT,
             RedisKeys.TRIGGER_CONDITIONS,
-            RedisKeys.USER_CONTEXT
+            RedisKeys.USER_CONTEXT,
+            RedisKeys.FILTER_RULES
         )
         results = pipeline.execute()[0]
         
+        filter_rules_json = results[3]
+        filter_rules = FilterRules.model_validate_json(filter_rules_json) if filter_rules_json else FilterRules()
+
         settings = AgentSettings(
             system_prompt=results[0] or get_default_system_prompt(),
             trigger_conditions=results[1] or get_default_trigger_conditions(),
-            user_context=results[2]
+            user_context=results[2],
+            filter_rules=filter_rules
         )
         return settings
     except Exception as e:
@@ -75,6 +81,8 @@ def set_agent_settings(settings: AgentSettings):
             pipeline.set(RedisKeys.TRIGGER_CONDITIONS, settings.trigger_conditions)
         if settings.user_context is not None:
             pipeline.set(RedisKeys.USER_CONTEXT, settings.user_context)
+        if settings.filter_rules is not None:
+            pipeline.set(RedisKeys.FILTER_RULES, settings.filter_rules.json())
             
         pipeline.execute()
         return {"message": "Agent settings updated successfully"}
