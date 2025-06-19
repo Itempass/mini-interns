@@ -27,9 +27,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Copy the built frontend from the builder stage
-COPY --from=frontend-builder /app/frontend/.next ./frontend/.next
-COPY --from=frontend-builder /app/frontend/node_modules ./frontend/node_modules
-COPY --from=frontend-builder /app/frontend/public ./frontend/public
+COPY --from=frontend-builder /app/frontend ./frontend
 
 # Make entrypoint script executable
 COPY entrypoint.sh .

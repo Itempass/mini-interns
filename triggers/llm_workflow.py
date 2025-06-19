@@ -8,15 +8,24 @@ from shared.redis.keys import RedisKeys
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def run_workflow(email_body: str):
+def run_workflow(msg):
     """
     Runs the LLM workflow to process an email using the OpenAI SDK configured for OpenRouter.
+    
+    Args:
+        msg: The email message object from imap_tools
+        
+    Returns:
+        Dict with workflow results including draft content if generated
     """
     try:
         app_settings = load_app_settings()
         if not all([app_settings.OPENROUTER_API_KEY, app_settings.OPENROUTER_MODEL]):
             logger.warning("OpenRouter API key or model is not configured. Skipping workflow.")
-            return
+            return {"should_create_draft": False, "message": "OpenRouter not configured"}
+        
+        # Extract email body from message
+        email_body = msg.text or msg.html
 
         client = OpenAI(
             base_url="https://openrouter.ai/api/v1",
@@ -31,7 +40,7 @@ def run_workflow(email_body: str):
 
         if not trigger_conditions_prompt:
             logger.warning("Trigger conditions prompt not set in Redis. Skipping workflow.")
-            return
+            return {"should_create_draft": False, "message": "Trigger conditions prompt not set"}
         
         with open("triggers/triggercondition_systemprompt.md", "r") as f:
             trigger_system_prompt = f.read()
@@ -66,7 +75,7 @@ def run_workflow(email_body: str):
 
             if not system_prompt or not user_context:
                 logger.warning("System prompt or user context not set in Redis. Cannot generate draft.")
-                return
+                return {"should_create_draft": False, "message": "System prompt or user context not set"}
 
             draft_response = client.chat.completions.create(
                 model=app_settings.OPENROUTER_MODEL,
@@ -82,9 +91,18 @@ def run_workflow(email_body: str):
             # 4. Log the outcome
             logger.info("LLM Draft Generation Complete:")
             logger.info(f"----- DRAFT EMAIL -----\n{draft_email}\n-----------------------")
+            
+            return {
+                "should_create_draft": True,
+                "draft_content": draft_email,
+                "original_message": msg,
+                "message": "Draft generated successfully"
+            }
 
         else:
             logger.info("Trigger not met. No draft will be generated.")
+            return {"should_create_draft": False, "message": "Trigger conditions not met"}
 
     except Exception as e:
-        logger.error(f"An error occurred in the LLM workflow: {e}", exc_info=True) 
+        logger.error(f"An error occurred in the LLM workflow: {e}", exc_info=True)
+        return {"should_create_draft": False, "message": f"Error in workflow: {str(e)}"} 
