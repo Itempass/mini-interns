@@ -1,5 +1,6 @@
 import logging
 import time
+import requests
 from imap_tools import MailBox, A
 from shared.app_settings import load_app_settings
 from shared.redis.keys import RedisKeys
@@ -7,6 +8,7 @@ from shared.redis.redis_client import get_redis_client
 from triggers.rules import passes_filter
 from api.types.api_models.agent import FilterRules
 from triggers.agent import EmailAgent
+from shared.config import settings
 import json
 
 # Configure logging
@@ -33,6 +35,10 @@ def main():
 
     while True:
         try:
+            # Quick MCP server health check
+            try: requests.get(f"http://localhost:{settings.CONTAINERPORT_MCP_IMAP}/mcp", timeout=2)
+            except: continue
+            
             app_settings = load_app_settings()
 
             if app_settings.IMAP_SERVER and app_settings.IMAP_USERNAME and app_settings.IMAP_PASSWORD:
