@@ -2,9 +2,9 @@
 FROM node:18-alpine AS frontend-builder
 WORKDIR /app/frontend
 
-# Accept API_PORT as a build argument and set it as an environment variable
-ARG API_PORT
-ENV API_PORT=${API_PORT}
+# Accept CONTAINERPORT_API as a build argument and set it as an environment variable
+ARG CONTAINERPORT_API
+ENV CONTAINERPORT_API=${CONTAINERPORT_API}
 
 COPY frontend/package*.json ./
 RUN npm install && npm install zod
