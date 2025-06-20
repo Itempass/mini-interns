@@ -88,7 +88,7 @@ def main():
         except Exception as e:
             logger.error(f"An unexpected error occurred: {e}. Skipping poll cycle.", exc_info=True)
 
-        time.sleep(60)
+        time.sleep(30)
 
 def process_message(msg):
     logger.info("--------------------")

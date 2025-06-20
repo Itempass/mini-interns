@@ -14,8 +14,9 @@ class Settings(BaseSettings):
     CONTAINERPORT_MCP_IMAP: int
     CONTAINERPORT_API: int
     CONTAINERPORT_QDRANT: int
-    VECTOR_SIZE: int
-    OPENAI_API_KEY: Optional[str] = None
+    EMBEDDING_VECTOR_SIZE: int
+    EMBEDDING_MODEL_NAME: str
+    EMBEDDING_OPENAI_API_KEY: Optional[str] = None
 
     
     model_config = SettingsConfigDict(env_file=(".env", ".env.local"), extra='ignore')

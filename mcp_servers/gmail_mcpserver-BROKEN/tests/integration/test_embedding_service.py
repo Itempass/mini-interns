@@ -5,7 +5,7 @@ from src.services.embedding_service import EmbeddingService
 # Get the expected dimension from the environment variable, default to 1536 for text-embedding-3-small
 EXPECTED_DIMENSION = int(os.getenv("OPENAI_EMBEDDING_DIMENSION", 1536))
 
-@pytest.mark.skipif(not os.getenv("OPENAI_API_KEY"), reason="OPENAI_API_KEY is not set, skipping live API test.")
+@pytest.mark.skipif(not os.getenv("EMBEDDING_OPENAI_API_KEY"), reason="EMBEDDING_OPENAI_API_KEY is not set, skipping live API test.")
 def test_create_embedding_live():
     """
     Tests the EmbeddingService's create_embedding method with a live API call.

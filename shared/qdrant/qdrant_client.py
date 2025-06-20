@@ -30,7 +30,7 @@ def get_qdrant_client():
     """
     try:
         # The vector size is determined by the embedding model.
-        vector_size = settings.VECTOR_SIZE 
+        vector_size = settings.EMBEDDING_VECTOR_SIZE 
         _ensure_collection_exists(qdrant_client, "emails", vector_size)
         logger.info("Successfully connected to Qdrant and ensured 'emails' collection exists.")
         return qdrant_client

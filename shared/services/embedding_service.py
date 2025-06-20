@@ -10,11 +10,11 @@ class EmbeddingService:
 
     def __init__(self):
         """Initializes the EmbeddingService."""
-        self.api_key = settings.OPENAI_API_KEY
-        self.embedding_model = "text-embedding-3-small" # Or get from settings if we add it
+        self.api_key = settings.EMBEDDING_OPENAI_API_KEY
+        self.embedding_model = settings.EMBEDDING_MODEL_NAME
         
         if not self.api_key:
-            raise ValueError("OPENAI_API_KEY is not configured in settings.")
+            raise ValueError("EMBEDDING_OPENAI_API_KEY is not configured in settings.")
         
         self.client = OpenAI(api_key=self.api_key)
         logger.info(f"EmbeddingService initialized with model: {self.embedding_model}")
