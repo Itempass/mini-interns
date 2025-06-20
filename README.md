@@ -10,7 +10,7 @@ mini-interns/
 ├── agentlogger/       # Agent logging and anonymization package
 ├── mcp_servers/       # MCP server implementations for different email providers
 ├── shared/            # Common utilities and Redis client
-├── data/              # Persistent storage (SQLite DB + Redis)
+├── data/              # Persistent storage (SQLite DB, Redis, Qdrant)
 └── scripts/           # Database initialization and utilities
 ```
 
@@ -22,7 +22,7 @@ mini-interns/
 - **`agentlogger/`** - Package providing client interface for agent logging and log anonymization functionality, used by other services within the container
 - **`mcp_servers/`** - MCP (Model Context Protocol) server implementations for different email providers (IMAP, Gmail) with tools for email processing and management
 - **`shared/`** - Common utilities including Redis client, configuration management, and shared data models used across all services
-- **`data/`** - Persistent data storage with SQLite database for structured data and Redis for caching and real-time configuration. Will persist when Docker image is rebuild.
+- **`data/`** - Persistent data storage with SQLite database for structured data, Redis for caching and real-time configuration, and Qdrant for vector storage. Will persist when Docker image is rebuild.
 - **`scripts/`** - Database initialization scripts and other utility tools for system setup and maintenance
 
 ## Keeping everything internal: only exposing the frontend
@@ -67,5 +67,13 @@ The application includes a visual MCP Inspector for testing and debugging MCP se
   CONTAINERPORT_MCP_IMAP=8080
   # Add other MCP server ports as needed
   ```
+
+## Vector Database
+
+This project uses Qdrant as a vector database. It runs as a separate service `qdrant` in the `docker-compose.yaml`.
+
+- **Ports**: gRPC on 6333 and REST API on 6334 are exposed to the host machine.
+- **Data persistence**: Qdrant data is stored in `./data/qdrant` on the host and mounted into the container.
+- **Connection**: The application can connect to Qdrant using the hostname `qdrant` and port `6333` (gRPC) or `6334` (REST) from within the Docker network.
 
 
