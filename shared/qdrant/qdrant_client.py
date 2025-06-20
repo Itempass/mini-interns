@@ -4,12 +4,13 @@ from typing import List, Dict, Any
 
 from qdrant_client import QdrantClient, models
 from fastembed.embedding import DefaultEmbedding
+from shared.config import settings
 
 logger = logging.getLogger(__name__)
 
 # Global instances for embedding model and Qdrant client
 embedding_model = DefaultEmbedding()
-qdrant_client = QdrantClient(host="qdrant", port=6333)
+qdrant_client = QdrantClient(host="qdrant", port=settings.CONTAINERPORT_QDRANT)
 
 def _ensure_collection_exists(client: QdrantClient, collection_name: str, vector_size: int):
     """Ensures a collection exists, creating it if necessary."""

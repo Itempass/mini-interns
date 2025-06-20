@@ -10,13 +10,11 @@ from typing import List, Optional, Dict, Any, Union
 
 from ..mcp_builder import mcp_builder
 from ..services.imap_service import IMAPService
-from ..services.qdrant_service import QdrantService
 from ..types.imap_models import RawEmail
 from shared.qdrant.qdrant_client import semantic_search
 
 # Instantiate the services that the tools will use
 imap_service = IMAPService()
-qdrant_service = QdrantService()
 logger = logging.getLogger(__name__)
 
 def _format_email_as_markdown(msg: email.message.Message, email_id: str) -> str:

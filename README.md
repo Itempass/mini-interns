@@ -72,8 +72,7 @@ The application includes a visual MCP Inspector for testing and debugging MCP se
 
 This project uses Qdrant as a vector database. It runs as a separate service `qdrant` in the `docker-compose.yaml`.
 
-- **Ports**: gRPC on 6333 and REST API on 6334 are exposed to the host machine.
 - **Data persistence**: Qdrant data is stored in `./data/qdrant` on the host and mounted into the container.
-- **Connection**: The application can connect to Qdrant using the hostname `qdrant` and port `6333` (gRPC) or `6334` (REST) from within the Docker network.
+- **Connection**: The application can connect to Qdrant using the hostname `qdrant` and port `6333` (gRPC) from within the Docker network.
 
 

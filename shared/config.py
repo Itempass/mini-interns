@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     AGENTLOGGER_OPENROUTER_ANONIMIZER_MODEL: Optional[str] = None
     CONTAINERPORT_MCP_IMAP: int
     CONTAINERPORT_API: int
+    CONTAINERPORT_QDRANT: int
 
     
     model_config = SettingsConfigDict(env_file=(".env", ".env.local"), extra='ignore')
