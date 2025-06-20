@@ -92,7 +92,7 @@ Here is some additional context about the user you are assisting:
                     
                     messages = [
                         {"role": "system", "content": full_system_prompt},
-                        {"role": "user", "content": f"Here is the email to analyze:\n\n---\n{email_body}\n---"}
+                        {"role": "user", "content": f"Here is the email to analyze (messageId: {original_message.uid}):\n\n---\n{email_body}\n---"}
                     ]
                     logger.info(f"Initial messages prepared with {len(messages)} messages")
 
@@ -136,9 +136,7 @@ Here is some additional context about the user you are assisting:
                         for tool_call in response_message.tool_calls:
                             tool_name = tool_call.function.name
                             function_args = json.loads(tool_call.function.arguments)
-                            function_args["messageId"] = original_message.uid
-                            logger.info(f"Executing tool: {tool_name} with messageId: {original_message.uid}")
-                            logger.debug(f"Tool arguments: {function_args}")
+                            logger.info(f"Executing tool: {tool_name} with arguments: {function_args}")
                             tasks.append(client.call_tool(tool_name, function_args))
                         
                         tool_results = await asyncio.gather(*tasks)
