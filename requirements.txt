@@ -8,3 +8,4 @@ fastapi
 uvicorn
 openai
 httpx
+fastmcp

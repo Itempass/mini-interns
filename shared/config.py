@@ -11,6 +11,8 @@ class Settings(BaseSettings):
     AGENTLOGGER_ENABLE_ANONIMIZER: bool = True
     AGENTLOGGER_OPENROUTER_ANONIMIZER_API_KEY: Optional[str] = None
     AGENTLOGGER_OPENROUTER_ANONIMIZER_MODEL: Optional[str] = None
+    CONTAINERPORT_MCP_IMAP: int
+    CONTAINERPORT_API: int
 
     
     model_config = SettingsConfigDict(env_file=(".env", ".env.local"), extra='ignore')

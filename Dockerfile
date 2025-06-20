@@ -1,8 +1,13 @@
 # Stage 1: Build the Next.js frontend
 FROM node:18-alpine AS frontend-builder
 WORKDIR /app/frontend
+
+# Accept API_PORT as a build argument and set it as an environment variable
+ARG API_PORT
+ENV API_PORT=${API_PORT}
+
 COPY frontend/package*.json ./
-RUN npm install
+RUN npm install && npm install zod
 COPY frontend ./
 RUN npm run build
 

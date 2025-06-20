@@ -24,7 +24,7 @@ export interface AgentSettings {
 }
 
 export const getSettings = async (): Promise<AppSettings> => {
-  console.log('Fetching settings...');
+  console.log('Fetching settings from URL:', `${API_URL}/settings`);
   try {
     const response = await fetch(`${API_URL}/settings`);
     if (!response.ok) {
@@ -64,7 +64,7 @@ export const setSettings = async (settings: AppSettings) => {
 };
 
 export const getAgentSettings = async (): Promise<AgentSettings> => {
-  console.log('Fetching agent settings...');
+  console.log('Fetching agent settings from URL:', `${API_URL}/agent/settings`);
   try {
     const response = await fetch(`${API_URL}/agent/settings`);
     if (!response.ok) {
