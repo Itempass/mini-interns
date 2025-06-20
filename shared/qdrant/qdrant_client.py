@@ -3,13 +3,12 @@ from functools import lru_cache
 from typing import List, Dict, Any
 
 from qdrant_client import QdrantClient, models
-from fastembed.embedding import DefaultEmbedding
 from shared.config import settings
+from shared.services.embedding_service import get_embedding
 
 logger = logging.getLogger(__name__)
 
-# Global instances for embedding model and Qdrant client
-embedding_model = DefaultEmbedding()
+# Global instances for Qdrant client
 qdrant_client = QdrantClient(host="qdrant", port=settings.CONTAINERPORT_QDRANT)
 
 def _ensure_collection_exists(client: QdrantClient, collection_name: str, vector_size: int):
@@ -31,8 +30,7 @@ def get_qdrant_client():
     """
     try:
         # The vector size is determined by the embedding model.
-        # For DefaultEmbedding ("BAAI/bge-small-en-v1.5"), the size is 384.
-        vector_size = 384 
+        vector_size = settings.VECTOR_SIZE 
         _ensure_collection_exists(qdrant_client, "emails", vector_size)
         logger.info("Successfully connected to Qdrant and ensured 'emails' collection exists.")
         return qdrant_client
@@ -48,7 +46,7 @@ def semantic_search(
     """
     client = get_qdrant_client()
     
-    query_vector = list(embedding_model.embed(query))[0].tolist()
+    query_vector = get_embedding(query)
 
     qdrant_filter = models.Filter(
         must=[models.FieldCondition(key="user_email", match=models.MatchValue(value=user_email))]

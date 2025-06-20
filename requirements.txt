@@ -10,5 +10,4 @@ openai
 httpx
 fastmcp
 qdrant-client
-fastembed
 python-dateutil
