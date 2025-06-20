@@ -125,7 +125,7 @@ async def search_emails(query: str, maxResults: int = 10) -> List[Dict[str, Any]
     return await imap_service.search_emails(query=query, max_results=maxResults)
 
 @mcp_builder.tool()
-async def draft_reply(messageId: str, body: str, cc: Optional[List[str]] = None, bcc: Optional[List[str]] = None) -> Union[Dict[str, Any], str]:
+async def draft_reply(messageId: str, body: str, cc: Optional[List[str]] = None, bcc: Optional[List[str]] = None) -> Dict[str, Any]:
     """Creates a draft email in response to an existing email."""
     return await imap_service.draft_reply(message_id=messageId, body=body, cc=cc, bcc=bcc)
 
