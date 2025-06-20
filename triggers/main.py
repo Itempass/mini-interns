@@ -4,10 +4,9 @@ from imap_tools import MailBox, A
 from shared.app_settings import load_app_settings
 from shared.redis.keys import RedisKeys
 from shared.redis.redis_client import get_redis_client
-from triggers.llm_workflow import run_workflow
-from triggers.draft_handler import create_draft_reply
 from triggers.rules import passes_filter
-from api.types.api_models.agent import AgentSettings, FilterRules
+from api.types.api_models.agent import FilterRules
+from triggers.agent import EmailAgent
 import json
 
 # Configure logging
@@ -113,24 +112,30 @@ def process_message(msg):
             logger.info("Draft creation is paused. Skipping workflow and draft creation.")
             return
         
-        # Run the LLM workflow
-        workflow_result = run_workflow(msg)
+        # 1. Fetch prompts from Redis
+        trigger_conditions = redis_client.get(RedisKeys.TRIGGER_CONDITIONS)
+        system_prompt = redis_client.get(RedisKeys.SYSTEM_PROMPT)
+        user_context = redis_client.get(RedisKeys.USER_CONTEXT)
+
+        if not all([trigger_conditions, system_prompt, user_context]):
+            logger.warning("Trigger conditions, system prompt, or user context not set in Redis. Skipping agent.")
+            return
+
+        # Run the Agent
+        agent = EmailAgent(
+            app_settings=app_settings,
+            trigger_conditions=trigger_conditions,
+            system_prompt=system_prompt,
+            user_context=user_context
+        )
+        agent_result = agent.run(msg)
         
         # Check if we should create a draft
-        if workflow_result and workflow_result.get("should_create_draft"):
-            logger.info("Creating draft reply...")
-            draft_result = create_draft_reply(
-                workflow_result["original_message"], 
-                workflow_result["draft_content"]
-            )
-            
-            if draft_result["success"]:
-                logger.info("Draft created successfully!")
-                logger.info(draft_result["message"])
-            else:
-                logger.error(f"Failed to create draft: {draft_result['message']}")
+        if agent_result and agent_result.get("success"):
+            logger.info("Agent created draft successfully!")
+            logger.info(agent_result["message"])
         else:
-            logger.info(f"No draft created: {workflow_result.get('message', 'Unknown reason')}")
+            logger.error(f"Agent failed to create draft: {agent_result.get('message', 'Unknown reason')}")
     else:
         logger.info("Email has no body content. Skipping processing.")
 
