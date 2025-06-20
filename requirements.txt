@@ -9,4 +9,5 @@ uvicorn
 openai
 httpx
 fastmcp
-pinecone
+qdrant-client
+fastembed

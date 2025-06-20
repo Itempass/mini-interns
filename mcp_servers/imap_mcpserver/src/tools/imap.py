@@ -10,10 +10,12 @@ from typing import List, Optional, Dict, Any, Union
 
 from ..mcp_builder import mcp_builder
 from ..services.imap_service import IMAPService
+from ..services.qdrant_service import QdrantService
 from ..types.imap_models import RawEmail
 
-# Instantiate the service that the tools will use
+# Instantiate the services that the tools will use
 imap_service = IMAPService()
+qdrant_service = QdrantService()
 logger = logging.getLogger(__name__)
 
 def _format_email_as_markdown(msg: email.message.Message, email_id: str) -> str:
@@ -132,10 +134,14 @@ async def draft_reply(messageId: str, body: str, cc: Optional[List[str]] = None,
 # They can be moved to a different service/tool file later if needed.
 
 @mcp_builder.tool()
-async def semantic_search_emails(query: str, top_k: Optional[int] = 10) -> List[Dict[str, Any]]:
+async def semantic_search_emails(query: str, top_k: Optional[int] = 10, user_email: Optional[str] = None) -> List[Dict[str, Any]]:
     """Performs a semantic search on emails and returns conversational context."""
-    # This would likely call a different service (e.g., a vector search service)
-    pass
+    if not user_email:
+        # In a real scenario, you might get the user's email from the session
+        # or require it as a parameter. For now, we'll raise an error.
+        raise ValueError("user_email must be provided for semantic search.")
+        
+    return qdrant_service.search(query=query, user_email=user_email, top_k=top_k or 10)
 
 @mcp_builder.tool()
 async def find_similar_emails(messageId: str, top_k: Optional[int] = 5) -> List[Dict[str, Any]]:
