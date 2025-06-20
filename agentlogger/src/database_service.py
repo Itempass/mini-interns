@@ -65,6 +65,11 @@ class DatabaseService:
         """
         try:
             conversation_id = conversation.metadata.conversation_id
+            
+            # Ensure timestamp is present
+            if not conversation.metadata.timestamp:
+                conversation.metadata.timestamp = datetime.now().isoformat()
+                
             conversation_json = json.dumps(conversation.model_dump())
             
             with sqlite3.connect(self.db_path) as conn:

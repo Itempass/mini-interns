@@ -152,13 +152,13 @@ async def find_similar_emails(messageId: str, top_k: Optional[int] = 5) -> List[
     pass
 
 # --- Non-Gmail/IMAP tools ---
-@mcp_builder.tool()
+#@mcp_builder.tool()
 async def get_available_languages_for_tone_of_voice() -> Dict[str, Any]:
     """Gets a list of all available language profiles for the user's account's tone of voice."""
     # This would call a ToneService
     pass
 
-@mcp_builder.tool()
+#@mcp_builder.tool()
 async def get_tone_of_voice(language: str) -> Union[Dict[str, Any], str]:
     """Gets the user's tone of voice description for a given language profile."""
     # This would call a ToneService

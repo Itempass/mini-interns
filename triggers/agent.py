@@ -71,7 +71,7 @@ Here is some additional context about the user you are assisting:
             )
             
             response_message = response.choices[0].message
-            messages.append(response_message)
+            messages.append(response_message.model_dump())
 
             tool_calls = response_message.tool_calls
             if tool_calls:
@@ -89,7 +89,7 @@ Here is some additional context about the user you are assisting:
                         try:
                             asyncio.run(save_conversation(ConversationData(
                                 metadata=Metadata(conversation_id=f"agent_{original_message.uid}"),
-                                messages=[Message(role=m["role"], content=str(m["content"]) if m.get("content") else json.dumps(m.get("tool_calls"))) for m in messages]
+                                messages=[Message(**m) for m in messages]
                             )))
                         except Exception as e:
                             logger.warning(f"Failed to log agent conversation: {e}")

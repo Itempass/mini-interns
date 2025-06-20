@@ -113,9 +113,7 @@ const ConversationDetail: React.FC<ConversationDetailProps> = ({ conversationId 
         <div style={metadataRowStyle}>
           <span style={labelStyle}>Timestamp:</span>
           <span>
-            {conversation.metadata.timestamp 
-              ? new Date(conversation.metadata.timestamp).toLocaleString() 
-              : 'N/A'}
+            {conversation.metadata.timestamp ? new Date(conversation.metadata.timestamp).toLocaleString() : 'N/A'}
           </span>
         </div>
         {/* Show any additional metadata fields */}
