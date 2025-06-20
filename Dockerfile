@@ -24,6 +24,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     iputils-ping \
     && rm -rf /var/lib/apt/lists/*
 
+# Install MCP Inspector globally
+RUN npm install -g @modelcontextprotocol/inspector@0.14.3
+
 # Copy Python requirements and install packages
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt

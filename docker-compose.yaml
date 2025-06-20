@@ -12,9 +12,11 @@ services:
     container_name: mini-interns-app
     ports:
       - "${FRONTEND_HOST_PORT:-3000}:3000"
+      - "6274:6274"  # MCP Inspector Web UI
+      - "6277:6277"  # MCP Inspector Proxy Server
     volumes:
       - ./data/db:/data/db
       - ./data/redis:/data/redis
     dns:
       - 8.8.8.8
-    restart: unless-stopped 
+    restart: unless-stopped

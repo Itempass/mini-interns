@@ -21,12 +21,12 @@ log_format = '%(asctime)s - [imap_mcp_server] - %(name)s - %(levelname)s - %(mes
 logging.basicConfig(level=getattr(logging, log_level), format=log_format)
 logger = logging.getLogger(__name__)
 
-# Create the main FastAPI application
-app = FastAPI()
-
 # Create and mount the MCP application
 # This exposes all registered tools under the /mcp path.
 mcp_app = mcp_builder.http_app(path="/", transport="streamable-http")
+
+# Create the main FastAPI application with FastMCP lifespan
+app = FastAPI(lifespan=mcp_app.lifespan)
 app.mount("/mcp", mcp_app)
 
 @app.get("/health")
