@@ -8,6 +8,7 @@ mini-interns/
 ├── api/               # FastAPI backend for settings management
 ├── triggers/          # Email monitoring and LLM processing engine
 ├── agentlogger/       # Agent logging and anonymization package
+├── mcp_servers/       # MCP server implementations for different email providers
 ├── shared/            # Common utilities and Redis client
 ├── data/              # Persistent storage (SQLite DB + Redis)
 └── scripts/           # Database initialization and utilities
@@ -19,6 +20,7 @@ mini-interns/
 - **`api/`** - FastAPI REST API that manages application settings and agent configurations, storing them in Redis for real-time access
 - **`triggers/`** - Core email processing engine that polls IMAP inbox, runs LLM workflows to analyze emails, and creates draft replies when conditions are met
 - **`agentlogger/`** - Package providing client interface for agent logging and log anonymization functionality, used by other services within the container
+- **`mcp_servers/`** - MCP (Model Context Protocol) server implementations for different email providers (IMAP, Gmail) with tools for email processing and management
 - **`shared/`** - Common utilities including Redis client, configuration management, and shared data models used across all services
 - **`data/`** - Persistent data storage with SQLite database for structured data and Redis for caching and real-time configuration. Will persist when Docker image is rebuild.
 - **`scripts/`** - Database initialization scripts and other utility tools for system setup and maintenance
