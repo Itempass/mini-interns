@@ -270,7 +270,7 @@ class IMAPService:
         # Placeholder for searching emails
         pass
 
-    async def draft_reply(self, message_id: str, body: str, cc: Optional[List[str]] = None, bcc: Optional[List[str]] = None) -> Dict[str, Any]:
+    async def draft_reply(self, message_id: str, body: str) -> Dict[str, Any]:
         if not self.mail:
             try:
                 await asyncio.get_running_loop().run_in_executor(None, self.connect)
@@ -306,8 +306,22 @@ class IMAPService:
                 reply_message["Subject"] = reply_subject
                 reply_message["From"] = self.settings.IMAP_USERNAME
                 reply_message["To"] = to_email
-                if cc:
-                    reply_message["Cc"] = ", ".join(cc)
+                
+                original_cc = original_msg.get('Cc')
+                logger.info(f"Original email Cc: {original_cc}")
+                if original_cc:
+                    # getaddresses returns a list of (realname, email-address) tuples
+                    cc_emails = [
+                        email_address for _, email_address 
+                        in email.utils.getaddresses([original_cc]) 
+                        if email_address
+                    ]
+                    logger.info(f"Parsed Cc emails: {cc_emails}")
+                    if cc_emails:
+                        reply_message['Cc'] = ', '.join(cc_emails)
+                        logger.info(f"Set Cc header on reply to: {reply_message['Cc']}")
+                else:
+                    logger.info("No Cc header found in the original email.")
                 
                 # Add threading headers
                 if original_msg.get('Message-ID'):

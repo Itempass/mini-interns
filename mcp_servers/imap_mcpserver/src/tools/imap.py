@@ -120,19 +120,22 @@ async def get_full_thread_for_email(messageId: str) -> Union[str, Dict[str, Any]
     return formatted_thread
 
 @mcp_builder.tool()
-async def search_emails(query: str, maxResults: int = 10) -> List[Dict[str, Any]]:
+async def search_emails(query: str, max_results: int = 10) -> List[Dict[str, Any]]:
     """Searches for emails matching a query."""
-    return await imap_service.search_emails(query=query, max_results=maxResults)
+    return await imap_service.search_emails(query=query, max_results=max_results)
 
 @mcp_builder.tool()
-async def draft_reply(messageId: str, body: str, cc: Optional[List[str]] = None, bcc: Optional[List[str]] = None) -> Dict[str, Any]:
-    """Creates a draft email in response to an existing email."""
-    return await imap_service.draft_reply(message_id=messageId, body=body, cc=cc, bcc=bcc)
+async def draft_reply(messageId: str, body: str) -> Dict[str, Any]:
+    """
+    Drafts a reply to a given email and saves it in the drafts folder.
+    It does NOT send the email.
+    """
+    return await imap_service.draft_reply(message_id=messageId, body=body)
 
 # The following tools are not directly related to IMAP but are often used in the same context.
 # They can be moved to a different service/tool file later if needed.
 
-@mcp_builder.tool()
+#@mcp_builder.tool()
 async def semantic_search_emails(query: str, top_k: Optional[int] = 10, user_email: Optional[str] = None) -> List[Dict[str, Any]]:
     """Performs a semantic search on emails and returns conversational context."""
     if not user_email:
@@ -145,7 +148,7 @@ async def semantic_search_emails(query: str, top_k: Optional[int] = 10, user_ema
         top_k=top_k or 10
     )
 
-@mcp_builder.tool()
+#@mcp_builder.tool()
 async def find_similar_emails(messageId: str, top_k: Optional[int] = 5) -> List[Dict[str, Any]]:
     """Finds emails with similar content to a given email and returns their conversational context."""
     # This would also likely call a different service
