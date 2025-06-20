@@ -2,8 +2,9 @@ import os
 import logging
 from typing import List, Dict, Any
 
-from qdrant_client import QdrantClient, models
+from qdrant_client import models
 from fastembed.embedding import DefaultEmbedding
+from shared.qdrant.qdrant_client import get_qdrant_client
 
 logger = logging.getLogger(__name__)
 
@@ -14,14 +15,8 @@ class QdrantService:
         """Initializes the QdrantService."""
         self.collection_name = collection_name
         self.embedding_model = DefaultEmbedding()
-
-        try:
-            self.client = QdrantClient(host="qdrant", port=6333)
-            logger.info("[QdrantService] Connected to Qdrant.")
-            self._ensure_collection_exists()
-        except Exception as e:
-            logger.error(f"[QdrantService] Failed to initialize Qdrant: {e}")
-            raise RuntimeError("Could not connect to Qdrant.") from e
+        self.client = get_qdrant_client()
+        self._ensure_collection_exists()
 
     def _ensure_collection_exists(self):
         """Ensures that the specified collection exists in Qdrant, creating it if necessary."""
