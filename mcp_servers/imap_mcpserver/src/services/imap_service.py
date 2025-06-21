@@ -9,12 +9,16 @@ import email
 import imaplib
 import logging
 import re
+from collections import Counter
 from email.header import decode_header
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 import email.utils
+from email_reply_parser import EmailReplyParser
+import functools
+from bs4 import BeautifulSoup
 from shared.app_settings import load_app_settings, AppSettings
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from ..types.imap_models import RawEmail
 from .threading_service import ThreadingService
 from ..utils.contextual_id import create_contextual_id, parse_contextual_id
@@ -154,6 +158,164 @@ class IMAPService:
             logger.info(f"Using default sent folder: {selected_folder}")
             
         return selected_folder
+
+    @staticmethod
+    def _find_best_signature(email_bodies: List[Dict[str, str]]) -> Tuple[Optional[str], Optional[str]]:
+        """
+        Analyzes a list of email bodies to find the most common plain text and HTML signatures.
+        """
+        # --- Part 1: Determine Plain Text Signature ---
+        plain_replies = [EmailReplyParser.parse_reply(b['text']).strip() for b in email_bodies if b['text']]
+
+        if len(plain_replies) < 2:
+            logger.info("Not enough sent emails with content to determine a signature pattern.")
+            return None, None
+
+        best_plain_signature = ""
+        last_plain_score = -1
+        
+        for line_count in range(2, 8): # Check for signatures from 2 to 7 lines long
+            candidates = [ "\n".join(reply.splitlines()[-line_count:]) for reply in plain_replies if len(reply.splitlines()) >= line_count]
+            if not candidates:
+                continue
+            
+            most_common_candidate, _ = Counter(candidates).most_common(1)[0]
+            current_score = sum(1 for reply in plain_replies if reply.endswith(most_common_candidate))
+
+            if current_score < last_plain_score:
+                break
+            
+            best_plain_signature = most_common_candidate
+            last_plain_score = current_score
+            if current_score < 2:
+                break
+        
+        final_plain_signature = None
+        if last_plain_score >= 2:
+            final_plain_signature = best_plain_signature.strip()
+            logger.info(f"Final confirmed plain-text signature (Score: {last_plain_score}): '{final_plain_signature}'")
+        else:
+            logger.info("No consistent plain-text signature pattern found.")
+            return None, None
+
+        # --- Part 2: Determine HTML Signature ---
+        # Use the plain text signature to find "golden" emails that definitely contain a signature.
+        golden_emails = [b for b in email_bodies if b['html'] and b['text'] and EmailReplyParser.parse_reply(b['text']).strip().endswith(final_plain_signature)]
+        logger.info(f"Found {len(golden_emails)} golden emails to check for an HTML signature.")
+
+        if len(golden_emails) < 2:
+            return final_plain_signature, None
+
+        # Parse all golden emails with BeautifulSoup
+        parsed_bodies = [BeautifulSoup(email['html'], 'lxml') for email in golden_emails]
+
+        # New approach: Find the plain-text signature in the HTML and walk up the tree
+        # to find the common parent.
+        signature_parents = []
+        for soup in parsed_bodies:
+            # Find all text nodes that contain parts of the signature
+            # We use a simplified version of the signature for searching
+            search_text = final_plain_signature.split('\n')[0]
+            text_nodes = soup.find_all(string=re.compile(search_text))
+            
+            if not text_nodes:
+                continue
+
+            # For this example, we'll work with the first found text node.
+            # A more robust solution might check all nodes.
+            node = text_nodes[0]
+            
+            # Walk up the tree to find a significant block-level parent
+            # or a common ancestor. For simplicity, we'll go up a few levels.
+            parent = node.find_parent('div') or node.find_parent('p') or node.find_parent('td')
+            if parent:
+                signature_parents.append(parent)
+
+        if not signature_parents:
+            logger.info("Could not find common HTML parent for signature.")
+            return final_plain_signature, None
+
+        # Now, find the most common parent structure.
+        # We serialize the parent to a string to make it hashable for Counter.
+        parent_strings = [str(p) for p in signature_parents]
+        if not parent_strings:
+            return final_plain_signature, None
+
+        most_common_html_str, count = Counter(parent_strings).most_common(1)[0]
+        
+        final_html_signature = None
+        if count >= 2:
+            final_html_signature = most_common_html_str.strip()
+            logger.info(f"Final confirmed HTML signature (Score: {count}): '{final_html_signature[:150]}...'")
+        else:
+            logger.info("No consistent HTML signature pattern found.")
+
+        return final_plain_signature, final_html_signature
+
+    @functools.lru_cache(maxsize=1)
+    def get_user_signature(self) -> Tuple[Optional[str], Optional[str]]:
+        """
+        Fetches the user's email signature by analyzing the last 10 sent emails.
+        It determines the plain text signature first, then uses that to find the
+        corresponding HTML signature.
+        The result is cached.
+        """
+        if not self.mail:
+            logger.warning("Cannot get user signature, not connected to IMAP.")
+            return None, None
+
+        logger.info("Attempting to determine user signature from sent emails.")
+        sent_folder = self._find_sent_folder()
+        try:
+            status, _ = self.mail.select(f'"{sent_folder}"')
+            if status != 'OK':
+                logger.error(f"Failed to select sent folder '{sent_folder}'.")
+                return None, None
+            
+            typ, data = self.mail.uid('search', None, 'ALL')
+            if typ != 'OK':
+                logger.error(f"Failed to search sent folder '{sent_folder}'.")
+                return None, None
+            
+            email_uids = data[0].split()
+            if not email_uids:
+                logger.info("No emails found in sent folder.")
+                return None, None
+
+            latest_email_uids = email_uids[-10:]
+            logger.info(f"Analyzing last {len(latest_email_uids)} emails for signature.")
+            
+            email_bodies = []
+            for uid in latest_email_uids:
+                typ, data = self.mail.uid('fetch', uid, '(RFC822)')
+                if typ != 'OK':
+                    logger.warning(f"Failed to fetch email with UID {uid.decode()}.")
+                    continue
+
+                for response_part in data:
+                    if isinstance(response_part, tuple):
+                        msg = email.message_from_bytes(response_part[1])
+                        plain_body = ""
+                        html_body = ""
+                        if msg.is_multipart():
+                            for part in msg.walk():
+                                ctype = part.get_content_type()
+                                cdisp = str(part.get('Content-Disposition'))
+                                if ctype == 'text/plain' and 'attachment' not in cdisp:
+                                    plain_body = part.get_payload(decode=True).decode(part.get_content_charset() or 'utf-8', errors='ignore')
+                                elif ctype == 'text/html' and 'attachment' not in cdisp:
+                                    html_body = part.get_payload(decode=True).decode(part.get_content_charset() or 'utf-8', errors='ignore')
+                        else:
+                            plain_body = msg.get_payload(decode=True).decode(msg.get_content_charset() or 'utf-8', errors='ignore')
+                        
+                        if plain_body:
+                            email_bodies.append({'text': plain_body, 'html': html_body})
+
+            return self._find_best_signature(email_bodies)
+
+        except Exception as e:
+            logger.error(f"An unexpected error occurred while getting user signature: {e}", exc_info=True)
+            return None, None
 
     # --- Placeholder methods for tool implementations ---
     # These will be implemented later to provide the functionality
@@ -413,13 +575,32 @@ class IMAPService:
                 
                 reply_message["Date"] = email.utils.formatdate(localtime=True)
 
-                # 4. Create body parts
-                part1 = MIMEText(body, "plain")
-                part2 = MIMEText(_markdown_to_html(body), "html")
+                # 4. Get signature and append to body
+                plain_signature, html_signature = self.get_user_signature()
+
+                # Prepare plain part
+                full_plain_body = body
+                if plain_signature:
+                    full_plain_body = f"{body}\n\n{plain_signature}"
+
+                # Prepare HTML part
+                html_body = _markdown_to_html(body)
+                if html_signature:
+                    # If we have a native HTML signature, use it.
+                    # It's a full fragment, so we just append it.
+                    full_html_body = f"{html_body}{html_signature}"
+                elif plain_signature:
+                    # If not, convert the plain text signature to HTML as a fallback.
+                    html_fallback_sig = f"-- <br>{_markdown_to_html(plain_signature.replace('--', ''))}"
+                    full_html_body = f"{html_body}<br><br>{html_fallback_sig}"
+
+                # 5. Create body parts
+                part1 = MIMEText(full_plain_body, "plain")
+                part2 = MIMEText(full_html_body, "html")
                 reply_message.attach(part1)
                 reply_message.attach(part2)
 
-                # 5. Find drafts folder and save
+                # 6. Find drafts folder and save
                 drafts_folder = self._find_drafts_folder()
                 logger.info(f"Saving draft reply to folder: {drafts_folder}")
                 

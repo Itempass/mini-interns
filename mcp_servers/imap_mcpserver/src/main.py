@@ -24,7 +24,7 @@ from mcp_servers.imap_mcpserver.src.mcp_builder import mcp_builder
 import mcp_servers.imap_mcpserver.src.tools
 
 # Configure logging
-log_level = os.getenv('LOG_LEVEL', 'INFO').upper()
+log_level = os.getenv('LOG_LEVEL', 'DEBUG').upper()
 log_format = '%(asctime)s - [imap_mcp_server] - %(name)s - %(levelname)s - %(message)s'
 logging.basicConfig(level=getattr(logging, log_level), format=log_format)
 logger = logging.getLogger(__name__)

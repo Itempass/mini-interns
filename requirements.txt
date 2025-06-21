@@ -21,3 +21,8 @@ google-auth-oauthlib
 # embedding
 tiktoken
 email-reply-parser
+requests
+fastembed
+email-reply-parser
+beautifulsoup4
+lxml
