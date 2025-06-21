@@ -73,7 +73,7 @@ def count_points(collection_name: str) -> int:
         return 0
 
 def semantic_search(
-    collection_name: str, query: str, user_email: str, top_k: int = 5
+    collection_name: str, query: str, top_k: int = 5
 ) -> List[Dict[str, Any]]:
     """
     Performs a semantic search in a Qdrant collection.
@@ -82,9 +82,7 @@ def semantic_search(
     
     query_vector = get_embedding(query)
 
-    qdrant_filter = models.Filter(
-        must=[models.FieldCondition(key="user_email", match=models.MatchValue(value=user_email))]
-    )
+    qdrant_filter = models.Filter()
 
     try:
         search_result = client.search(
@@ -96,8 +94,43 @@ def semantic_search(
         )
         return [{"score": hit.score, **hit.payload} for hit in search_result]
     except Exception as e:
-        logger.error(f"Error querying Qdrant for user '{user_email}': {e}")
+        logger.error(f"Error querying Qdrant: {e}")
         raise Exception("Failed to query Qdrant.") from e
+
+def search_by_vector(
+    collection_name: str,
+    query_vector: List[float],
+    top_k: int = 5,
+    exclude_contextual_id: str = None,
+) -> List[Dict[str, Any]]:
+    """
+    Performs a vector search in a Qdrant collection, with an option to exclude a specific contextual ID.
+    """
+    client = get_qdrant_client()
+
+    qdrant_filter = None
+    if exclude_contextual_id:
+        qdrant_filter = models.Filter(
+            must_not=[
+                models.FieldCondition(
+                    key="contextual_id",
+                    match=models.MatchValue(value=exclude_contextual_id),
+                )
+            ]
+        )
+
+    try:
+        search_result = client.search(
+            collection_name=collection_name,
+            query_vector=query_vector,
+            query_filter=qdrant_filter,
+            limit=top_k,
+            with_payload=True,
+        )
+        return [{"score": hit.score, **hit.payload} for hit in search_result]
+    except Exception as e:
+        logger.error(f"Error querying Qdrant with vector: {e}")
+        raise Exception("Failed to query Qdrant by vector.") from e
 
 # Initialize the client and collection on module load
 get_qdrant_client()

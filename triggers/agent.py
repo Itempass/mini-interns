@@ -49,7 +49,7 @@ class EmailAgent:
         self.user_context = user_context.replace("<<CURRENT_DATE>> YYYY-MM-DD", current_date)
         self.agent_steps = agent_steps.replace("<<CURRENT_DATE>> YYYY-MM-DD", current_date)
         self.agent_instructions = agent_instructions.replace("<<CURRENT_DATE>> YYYY-MM-DD", current_date)
-        
+        s
         self.client = OpenAI(
             base_url="https://openrouter.ai/api/v1",
             api_key=self.app_settings.OPENROUTER_API_KEY,

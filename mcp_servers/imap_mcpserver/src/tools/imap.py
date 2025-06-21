@@ -7,11 +7,13 @@ import logging
 import dateutil.parser
 from email.header import decode_header
 from typing import List, Optional, Dict, Any, Union
+from email_reply_parser import EmailReplyParser
 
 from ..mcp_builder import mcp_builder
 from ..services.imap_service import IMAPService
 from ..types.imap_models import RawEmail
-from shared.qdrant.qdrant_client import semantic_search
+from shared.qdrant.qdrant_client import semantic_search, search_by_vector
+from shared.services.embedding_service import get_embedding
 
 # Instantiate the services that the tools will use
 imap_service = IMAPService()
@@ -71,6 +73,38 @@ def _format_email_as_markdown(msg: email.message.Message, email_id: str) -> str:
         f"* date: {date}\n\n"
         f"{body.strip()}"
     )
+
+def _get_cleaned_email_body(raw_email: RawEmail) -> str:
+    """Extracts and cleans the plain text body from a RawEmail object."""
+    msg = raw_email.msg
+    body = ""
+    if msg.is_multipart():
+        for part in msg.walk():
+            ctype = part.get_content_type()
+            cdispo = str(part.get('Content-Disposition'))
+
+            if ctype == 'text/plain' and 'attachment' not in cdispo:
+                try:
+                    charset = part.get_content_charset() or 'utf-8'
+                    payload = part.get_payload(decode=True)
+                    if payload:
+                        body = payload.decode(charset, errors='ignore')
+                        break
+                except Exception as e:
+                    logger.warning(f"Could not decode body part for email: {e}")
+                    body = "[Could not decode body]"
+
+    else:
+        try:
+            charset = msg.get_content_charset() or 'utf-8'
+            payload = msg.get_payload(decode=True)
+            if payload:
+                body = payload.decode(charset, errors='ignore')
+        except Exception as e:
+            logger.warning(f"Could not decode body for email: {e}")
+            body = "[Could not decode body]"
+
+    return EmailReplyParser.parse_reply(body)
 
 # --- Tool Implementations ---
 
@@ -135,24 +169,54 @@ async def draft_reply(messageId: str, body: str) -> Dict[str, Any]:
 # The following tools are not directly related to IMAP but are often used in the same context.
 # They can be moved to a different service/tool file later if needed.
 
-#@mcp_builder.tool()
-async def semantic_search_emails(query: str, top_k: Optional[int] = 10, user_email: Optional[str] = None) -> List[Dict[str, Any]]:
+@mcp_builder.tool()
+async def semantic_search_emails(query: str, top_k: Optional[int] = 10) -> List[Dict[str, Any]]:
     """Performs a semantic search on emails and returns conversational context."""
-    if not user_email:
-        raise ValueError("user_email must be provided for semantic search.")
-    
-    return semantic_search(
+    search_hits = semantic_search(
         collection_name="emails",
         query=query,
-        user_email=user_email,
         top_k=top_k or 10
     )
 
-#@mcp_builder.tool()
+    searched_emails = []
+    for hit in search_hits:
+        contextual_id = hit.get("contextual_id")
+        if contextual_id:
+            email_data = await imap_service.get_email(message_id=contextual_id)
+            if email_data:
+                searched_emails.append(_format_email_as_markdown(email_data.msg, email_data.uid))
+    
+    return {"search_results": searched_emails, "llm_instructions": "Use get_full_thread_for_email to get the full thread of a search result email."}
+
+@mcp_builder.tool()
 async def find_similar_emails(messageId: str, top_k: Optional[int] = 5) -> List[Dict[str, Any]]:
     """Finds emails with similar content to a given email and returns their conversational context."""
-    # This would also likely call a different service
-    pass
+    source_email = await imap_service.get_email(message_id=messageId)
+    if not source_email:
+        return {"error": f"Email with ID {messageId} not found."}
+
+    cleaned_body = _get_cleaned_email_body(source_email)
+    if not cleaned_body:
+        return {"error": f"Could not extract a clean body from email {messageId}."}
+
+    embedding = get_embedding(cleaned_body)
+
+    similar_hits = search_by_vector(
+        collection_name="emails",
+        query_vector=embedding,
+        top_k=top_k or 5,
+        exclude_contextual_id=messageId,
+    )
+
+    similar_emails = []
+    for hit in similar_hits:
+        contextual_id = hit.get("contextual_id")
+        if contextual_id:
+            email_data = await imap_service.get_email(message_id=contextual_id)
+            if email_data:
+                similar_emails.append(_format_email_as_markdown(email_data.msg, email_data.uid))
+
+    return {"similar_emails": similar_emails, "llm_instructions": "Use get_full_thread_for_email to get the full thread of a similar email."}
 
 # --- Non-Gmail/IMAP tools ---
 #@mcp_builder.tool()
