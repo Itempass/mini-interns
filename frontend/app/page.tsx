@@ -214,15 +214,15 @@ const HomePage = () => {
             </div>
 
             <div className="border border-gray-300 p-4 mb-5 rounded-lg bg-gray-50">
-              <h2 className="text-center mb-5 text-2xl font-bold">Filtering Rules</h2>
+              <h2 className="text-center mb-5 text-2xl font-bold">Trigger: New Incoming Email</h2>
               <p className="text-center text-sm text-gray-600 mb-5">
-                Add comma-separated emails or domains to filter incoming messages.
+                The agent is triggered for every new incoming email. Customize trigger settings below.
               </p>
 
               <div className="flex items-center mb-3">
                 <label className="mr-2 w-48 text-right font-bold">Email Blacklist:</label>
                 <div className="flex-1">
-                  <textarea className="w-full p-2 rounded border border-gray-300 box-border" name="email_blacklist" value={filterRuleStrings.email_blacklist} onChange={handleFilterRuleChange} />
+                  <textarea className="w-full p-2 rounded border border-gray-300 box-border" name="email_blacklist" value={filterRuleStrings.email_blacklist} onChange={handleFilterRuleChange} rows={1} />
                   <p className="text-xs text-gray-600 mt-1">Stop processing emails from these specific addresses. Ex: spam@example.com, junk@mail.net</p>
                   {filterErrors.email_blacklist && <p className="text-xs text-red-600 mt-1">{filterErrors.email_blacklist}</p>}
                 </div>
@@ -230,7 +230,7 @@ const HomePage = () => {
               <div className="flex items-center mb-3">
                 <label className="mr-2 w-48 text-right font-bold">Email Whitelist:</label>
                 <div className="flex-1">
-                  <textarea className="w-full p-2 rounded border border-gray-300 box-border" name="email_whitelist" value={filterRuleStrings.email_whitelist} onChange={handleFilterRuleChange} />
+                  <textarea className="w-full p-2 rounded border border-gray-300 box-border" name="email_whitelist" value={filterRuleStrings.email_whitelist} onChange={handleFilterRuleChange} rows={1} />
                   <p className="text-xs text-gray-600 mt-1">If used, only emails from these addresses will proceed to the LLM trigger check. Ex: boss@mycompany.com</p>
                   {filterErrors.email_whitelist && <p className="text-xs text-red-600 mt-1">{filterErrors.email_whitelist}</p>}
                 </div>
@@ -238,7 +238,7 @@ const HomePage = () => {
               <div className="flex items-center mb-3">
                 <label className="mr-2 w-48 text-right font-bold">Domain Blacklist:</label>
                 <div className="flex-1">
-                  <textarea className="w-full p-2 rounded border border-gray-300 box-border" name="domain_blacklist" value={filterRuleStrings.domain_blacklist} onChange={handleFilterRuleChange} />
+                  <textarea className="w-full p-2 rounded border border-gray-300 box-border" name="domain_blacklist" value={filterRuleStrings.domain_blacklist} onChange={handleFilterRuleChange} rows={1} />
                   <p className="text-xs text-gray-600 mt-1">Stop processing emails from these domains. Ex: evil-corp.com, bad-actors.org</p>
                   {filterErrors.domain_blacklist && <p className="text-xs text-red-600 mt-1">{filterErrors.domain_blacklist}</p>}
                 </div>
@@ -246,13 +246,13 @@ const HomePage = () => {
               <div className="flex items-center mb-3">
                 <label className="mr-2 w-48 text-right font-bold">Domain Whitelist:</label>
                 <div className="flex-1">
-                  <textarea className="w-full p-2 rounded border border-gray-300 box-border" name="domain_whitelist" value={filterRuleStrings.domain_whitelist} onChange={handleFilterRuleChange} />
+                  <textarea className="w-full p-2 rounded border border-gray-300 box-border" name="domain_whitelist" value={filterRuleStrings.domain_whitelist} onChange={handleFilterRuleChange} rows={1} />
                   <p className="text-xs text-gray-600 mt-1">If used, only emails from these domains will proceed to the LLM trigger check. Ex: mycompany.com, important-client.com</p>
                   {filterErrors.domain_whitelist && <p className="text-xs text-red-600 mt-1">{filterErrors.domain_whitelist}</p>}
                 </div>
               </div>
 
-              <button className="py-2 px-5 border-none rounded bg-blue-500 text-white cursor-pointer text-base block mx-auto" onClick={handleFilterRulesSave}>Save Filtering Rules</button>
+              <button className="py-2 px-5 border-none rounded bg-blue-500 text-white cursor-pointer text-base block mx-auto" onClick={handleFilterRulesSave}>Save Trigger Settings</button>
             </div>
 
             <div className="border border-gray-300 p-4 mb-5 rounded-lg bg-gray-50">

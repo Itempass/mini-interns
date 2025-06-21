@@ -124,8 +124,10 @@ def process_message(msg, contextual_uid: str):
         trigger_conditions = redis_client.get(RedisKeys.TRIGGER_CONDITIONS)
         system_prompt = redis_client.get(RedisKeys.SYSTEM_PROMPT)
         user_context = redis_client.get(RedisKeys.USER_CONTEXT)
+        agent_steps = redis_client.get(RedisKeys.AGENT_STEPS)
+        agent_instructions = redis_client.get(RedisKeys.AGENT_INSTRUCTIONS)
 
-        if not all([trigger_conditions, system_prompt, user_context]):
+        if not all([trigger_conditions, system_prompt, user_context, agent_steps, agent_instructions]):
             logger.warning("Trigger conditions, system prompt, or user context not set in Redis. Skipping agent.")
             return
 
@@ -134,7 +136,9 @@ def process_message(msg, contextual_uid: str):
             app_settings=app_settings,
             trigger_conditions=trigger_conditions,
             system_prompt=system_prompt,
-            user_context=user_context
+            user_context=user_context,
+            agent_steps=agent_steps,
+            agent_instructions=agent_instructions
         )
         agent_result = agent.run(msg, contextual_uid)
         

@@ -37,11 +37,13 @@ def _format_mcp_tools_for_openai(tools: list[Tool]) -> list[dict]:
     return formatted_tools
 
 class EmailAgent:
-    def __init__(self, app_settings: AppSettings, trigger_conditions: str, system_prompt: str, user_context: str):
+    def __init__(self, app_settings: AppSettings, trigger_conditions: str, system_prompt: str, user_context: str, agent_steps: str, agent_instructions: str):
         self.app_settings = app_settings
         self.trigger_conditions = trigger_conditions
         self.system_prompt = system_prompt
         self.user_context = user_context
+        self.agent_steps = agent_steps
+        self.agent_instructions = agent_instructions
         self.client = OpenAI(
             base_url="https://openrouter.ai/api/v1",
             api_key=self.app_settings.OPENROUTER_API_KEY,
@@ -75,24 +77,35 @@ class EmailAgent:
                     
                     tools = _format_mcp_tools_for_openai(mcp_tools)
 
-                    agent_system_prompt = self.system_prompt.replace("`create_draft_reply`", "`draft_reply`")
-                    full_system_prompt = f"""
-You are an intelligent email assistant. Your task is to analyze an incoming email and decide if a draft reply is warranted based on the following rules:
-{self.trigger_conditions}
+                    system_prompt = f"""
+                        You are an agent that should follow the user instructions and execute tasks, using the tools provided to you.
 
-If and only if a draft is warranted, you MUST call the `draft_reply` tool.
-When generating the draft content, follow these instructions:
-{agent_system_prompt}
+                        The user will provide you with instructions on what to do. Follow these dilligently. 
+                    """
 
-Here is some additional context about the user you are assisting:
-{self.user_context}
-"""
-                    logger.info("System prompt prepared")
-                    logger.debug(f"Full system prompt: {full_system_prompt}")
+                    agent_steps_prompt = f"""
+                        These are the steps you must follow:
+                        {self.agent_steps}
+                    """
+
+                    input_prompt = f"""
+                        Here is the email to analyze:
+                        UID: {original_message.uid}
+                        From: {original_message.from_}
+                        To: {original_message.to}
+                        Date: {original_message.date_str}
+                        Subject: {original_message.subject}
+                        Body:
+                        {email_body}
+                    """
+
+              
                     
                     messages = [
-                        {"role": "system", "content": full_system_prompt},
-                        {"role": "user", "content": f"Here is the email to analyze (messageId: {contextual_uid}):\n\n---\n{email_body}\n---"}
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": self.agent_instructions},
+                        {"role": "user", "content": agent_steps_prompt},
+                        {"role": "user", "content": input_prompt}
                     ]
                     logger.info(f"Initial messages prepared with {len(messages)} messages")
 
