@@ -8,6 +8,7 @@ import asyncio
 from fastmcp import Client
 from mcp.types import Tool, TextContent
 from shared.config import settings  
+import httpx
 
 logger = logging.getLogger(__name__)
 
@@ -48,8 +49,8 @@ class EmailAgent:
             base_url="https://openrouter.ai/api/v1",
             api_key=self.app_settings.OPENROUTER_API_KEY,
         )
-        self.mcp_client = Client(f"http://localhost:{settings.CONTAINERPORT_MCP_IMAP}/mcp")
-        logger.info(f"EmailAgent initialized with MCP client at: http://localhost:{settings.CONTAINERPORT_MCP_IMAP}/mcp")
+        self.mcp_client = None  # Will be initialized dynamically
+        logger.info("EmailAgent initialized without a pre-configured MCP client.")
 
     def run(self, original_message, contextual_uid: str):
         """Runs the complete agent cycle asynchronously to improve performance."""
@@ -65,9 +66,38 @@ class EmailAgent:
             logger.debug(f"Email body content: {email_body[:200]}...")
 
             try:
+                # Dynamically discover and select an MCP server
+                mcp_server_url = None
+                try:
+                    # The API is running on port 5001 inside the container
+                    api_url = f"http://localhost:{settings.CONTAINERPORT_API}/mcp/servers"
+                    logger.info(f"Discovering MCP servers from API at {api_url}...")
+                    async with httpx.AsyncClient() as http_client:
+                        response = await http_client.get(api_url)
+                        response.raise_for_status()
+                        servers = response.json()
+                        if servers:
+                            # For now, just use the first available server.
+                            # This can be expanded with more sophisticated selection logic.
+                            selected_server = servers[0]
+                            mcp_server_url = selected_server.get("url")
+                            logger.info(f"Selected MCP server: {selected_server.get('name')} at {mcp_server_url}")
+                        else:
+                            logger.error("No MCP servers discovered. Cannot proceed.")
+                            return {"success": False, "message": "No MCP servers available."}
+                except Exception as e:
+                    logger.error(f"Failed to discover MCP servers: {e}", exc_info=True)
+                    return {"success": False, "message": f"Failed to discover MCP servers: {e}"}
+
+                if not mcp_server_url:
+                    logger.error("MCP server URL not found after discovery. Cannot proceed.")
+                    return {"success": False, "message": "MCP server URL not found."}
+
+                self.mcp_client = Client(mcp_server_url)
+
                 async with self.mcp_client as client:
                     # Initial setup: list tools and prepare prompts
-                    logger.info("Listing tools from MCP server...")
+                    logger.info(f"Listing tools from MCP server at {mcp_server_url}...")
                     mcp_tools = await client.list_tools()
                     logger.info(f"Retrieved {len(mcp_tools)} tools from MCP server")
                     
