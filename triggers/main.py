@@ -38,7 +38,7 @@ def passes_trigger_conditions_check(msg, trigger_conditions: str, app_settings) 
     logger.info("Performing LLM-based trigger check...")
     
     current_date = datetime.now().strftime('%Y-%m-%d')
-    trigger_conditions = trigger_conditions.replace("<<CURRENT_DATE>>", current_date)
+    trigger_conditions = trigger_conditions.replace("<<CURRENT_DATE>> YYYY-MM-DD", current_date)
 
     email_body = msg.text or msg.html
     if not email_body:
@@ -80,8 +80,7 @@ Body:
             model=app_settings.OPENROUTER_MODEL,
             messages=messages,
             response_format={"type": "json_object"},
-            temperature=0.1,
-            max_tokens=150,
+            temperature=0.1
         )
 
         logger.info(f"LLM trigger check response: {completion.choices[0]}")
