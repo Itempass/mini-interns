@@ -2,7 +2,6 @@
 import React, { useState, useEffect } from 'react';
 import { getAgentSettings, setAgentSettings as apiSetAgentSettings, FilterRules } from '../services/api';
 import TopBar from '../components/TopBar';
-import ChatWindow from '../components/ChatWindow';
 
 interface AgentSettings {
   systemPrompt: string;
