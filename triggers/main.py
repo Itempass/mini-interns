@@ -14,6 +14,7 @@ from mcp_servers.imap_mcpserver.src.utils.contextual_id import create_contextual
 from openai import OpenAI
 from agentlogger.src.client import save_conversation_sync
 from agentlogger.src.models import ConversationData, Message, Metadata
+from datetime import datetime
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -36,6 +37,9 @@ def passes_trigger_conditions_check(msg, trigger_conditions: str, app_settings) 
     """
     logger.info("Performing LLM-based trigger check...")
     
+    current_date = datetime.now().strftime('%Y-%m-%d')
+    trigger_conditions = trigger_conditions.replace("<<CURRENT_DATE>>", current_date)
+
     email_body = msg.text or msg.html
     if not email_body:
         logger.info("Email has no body, skipping LLM trigger check and returning False.")
@@ -58,12 +62,14 @@ Respond with a single JSON object in the format: {{"should_process": true}} or {
 
     user_prompt = f"""
 This is the email to be processed:
+UID: {msg.uid}
 From: {msg.from_}
+To: {msg.to}
+Date: {msg.date_str}
 Subject: {msg.subject}
 Body:
 {email_body[:4000]}
 """
-
     messages=[
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_prompt}

@@ -215,6 +215,7 @@ const HomePage = () => {
                     rows={6}
                   />
                   <p className="text-xs text-gray-600 mt-1">Provide detailed instructions for the Trigger LLM. It will use these to decide whether to start the Execution Agent.</p>
+                  <p className="text-xs text-gray-500 mt-1">You can use <code>{'<<CURRENT_DATE>>'}</code> which will be replaced with the current date (YYYY-MM-DD).</p>
                 </div>
               </div>
 
@@ -231,7 +232,7 @@ const HomePage = () => {
                 Set up your agent here.
               </p>
               
-              <div className="flex items-start mb-3">
+              {/*<div className="flex items-start mb-3">
                 <label className="mr-2 w-48 text-right font-bold pt-2">Agent Steps:</label>
                 <div className="flex-1">
                   <textarea 
@@ -242,8 +243,9 @@ const HomePage = () => {
                     rows={3}
                   />
                   <p className="text-xs text-gray-600 mt-1">Define the steps for the agent.</p>
+                  <p className="text-xs text-gray-500 mt-1">You can use <code>{'<<CURRENT_DATE>>'}</code> which will be replaced with the current date (YYYY-MM-DD).</p>
                 </div>
-              </div>
+              </div>*/}
 
               <div className="flex items-start mb-3">
                 <label className="mr-2 w-48 text-right font-bold pt-2">Agent Instructions:</label>
@@ -256,6 +258,7 @@ const HomePage = () => {
                     rows={6}
                   />
                   <p className="text-xs text-gray-600 mt-1">Provide detailed instructions for the agent.</p>
+                  <p className="text-xs text-gray-500 mt-1">You can use <code>{'<<CURRENT_DATE>>'}</code> which will be replaced with the current date (YYYY-MM-DD).</p>
                 </div>
               </div>
 
@@ -307,6 +310,7 @@ const HomePage = () => {
               value={modalContent}
               onChange={(e) => setModalContent(e.target.value)}
             />
+            <p className="text-xs text-gray-500 -mt-1 mb-2">You can use <code>{'<<CURRENT_DATE>>'}</code> which will be replaced with the current date (YYYY-MM-DD).</p>
             <div className="flex justify-end">
               <button className="py-2 px-5 mr-2 border-none rounded bg-blue-500 text-white cursor-pointer" onClick={handleModalSave}>Save</button>
               <button className="py-2 px-5 border-none rounded bg-gray-500 text-white cursor-pointer" onClick={handleModalClose}>Cancel</button>

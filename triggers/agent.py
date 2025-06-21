@@ -9,6 +9,7 @@ from fastmcp import Client
 from mcp.types import Tool, TextContent
 from shared.config import settings  
 import httpx
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -40,11 +41,15 @@ def _format_mcp_tools_for_openai(tools: list[Tool]) -> list[dict]:
 class EmailAgent:
     def __init__(self, app_settings: AppSettings, trigger_conditions: str, system_prompt: str, user_context: str, agent_steps: str, agent_instructions: str):
         self.app_settings = app_settings
-        self.trigger_conditions = trigger_conditions
-        self.system_prompt = system_prompt
-        self.user_context = user_context
-        self.agent_steps = agent_steps
-        self.agent_instructions = agent_instructions
+        
+        current_date = datetime.now().strftime('%Y-%m-%d')
+        
+        self.trigger_conditions = trigger_conditions.replace("<<CURRENT_DATE>>", current_date)
+        self.system_prompt = system_prompt.replace("<<CURRENT_DATE>>", current_date)
+        self.user_context = user_context.replace("<<CURRENT_DATE>>", current_date)
+        self.agent_steps = agent_steps.replace("<<CURRENT_DATE>>", current_date)
+        self.agent_instructions = agent_instructions.replace("<<CURRENT_DATE>>", current_date)
+        
         self.client = OpenAI(
             base_url="https://openrouter.ai/api/v1",
             api_key=self.app_settings.OPENROUTER_API_KEY,
@@ -134,7 +139,7 @@ class EmailAgent:
                     messages = [
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": self.agent_instructions},
-                        {"role": "user", "content": agent_steps_prompt},
+                        #{"role": "user", "content": agent_steps_prompt},
                         {"role": "user", "content": input_prompt}
                     ]
                     logger.info(f"Initial messages prepared with {len(messages)} messages")
