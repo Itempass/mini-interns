@@ -165,7 +165,7 @@ const HomePage = () => {
     <div className="flex flex-col h-screen">
       <TopBar />
       <div className="flex flex-1 overflow-hidden">
-        <div className="w-2/3 p-10 font-sans overflow-y-auto">
+        <div className="w-full p-10 font-sans overflow-y-auto">
           <div className="max-w-4xl mx-auto">
             <div className="border border-gray-300 p-4 mb-5 rounded-lg bg-gray-50">
               <h2 className="text-center mb-5 text-2xl font-bold">Agent V2</h2>
@@ -283,9 +283,6 @@ const HomePage = () => {
               </div>
             </div>
           </div>
-        </div>
-        <div className="w-1/3 h-full">
-          <ChatWindow />
         </div>
       </div>
 
