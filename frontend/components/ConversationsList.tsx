@@ -2,6 +2,30 @@
 import React, { useState, useEffect } from 'react';
 import { getConversations, ConversationData } from '../services/api';
 
+interface ToolCall {
+  id: string;
+  function: {
+    name: string;
+  };
+}
+
+interface Message {
+  role: 'assistant' | 'user' | 'system' | 'tool';
+  tool_calls?: ToolCall[];
+}
+
+const getToolChain = (messages: Message[]): { id: string; name: string }[] => {
+  const toolChain: { id: string; name: string }[] = [];
+  messages.forEach((message) => {
+    if (message.role === 'assistant' && message.tool_calls) {
+      message.tool_calls.forEach((toolCall) => {
+        toolChain.push({ id: toolCall.id, name: toolCall.function.name });
+      });
+    }
+  });
+  return toolChain;
+};
+
 interface ConversationsListProps {
   onSelectConversation?: (conversationId: string) => void;
 }
@@ -68,6 +92,7 @@ const ConversationsList: React.FC<ConversationsListProps> = ({ onSelectConversat
             <th style={thStyle}>Email Subject</th>
             <th style={thStyle}>Messages</th>
             <th style={thStyle}>Timestamp</th>
+            <th style={thStyle}>Tool Chain</th>
           </tr>
         </thead>
         <tbody>
@@ -86,6 +111,30 @@ const ConversationsList: React.FC<ConversationsListProps> = ({ onSelectConversat
                 {conversation.metadata.timestamp 
                   ? new Date(conversation.metadata.timestamp).toLocaleString() 
                   : 'N/A'}
+              </td>
+              <td style={tdStyle}>
+                <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center' }}>
+                  {getToolChain(conversation.messages as Message[]).map((tool, index, arr) => (
+                    <div key={tool.id} style={{ display: 'flex', alignItems: 'center', marginRight: '4px', marginBottom: '4px' }}>
+                      <span
+                        style={{
+                          padding: '2px 8px',
+                          fontSize: '0.75rem',
+                          borderRadius: '9999px',
+                          backgroundColor: '#DBEAFE', // bg-blue-100 from example
+                          color: '#1E40AF', // text-blue-800 from example
+                          fontWeight: 500,
+                        }}
+                        title={`Tool: ${tool.name}`}
+                      >
+                        {tool.name}
+                      </span>
+                      {index < arr.length - 1 && (
+                        <span style={{ color: '#9CA3AF', margin: '0 6px' }}>→</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
               </td>
             </tr>
           ))}
