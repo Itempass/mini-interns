@@ -1,7 +1,6 @@
 'use client';
 import React, { useState, useEffect } from 'react';
-import { getSettings, setSettings, AppSettings, getAgentSettings, setAgentSettings as apiSetAgentSettings, FilterRules, initializeInbox, getInboxInitializationStatus } from '../services/api';
-import { Copy } from 'lucide-react';
+import { getAgentSettings, setAgentSettings as apiSetAgentSettings, FilterRules } from '../services/api';
 import TopBar from '../components/TopBar';
 
 interface AgentSettings {
@@ -12,7 +11,6 @@ interface AgentSettings {
 }
 
 const HomePage = () => {
-  const [settings, setSettingsState] = useState<AppSettings>({});
   const [agentSettings, setAgentSettings] = useState<AgentSettings>({
     systemPrompt: '',
     triggerConditions: '',
@@ -39,33 +37,9 @@ const HomePage = () => {
     domain_blacklist: '',
     domain_whitelist: '',
   });
-  const [inboxStatus, setInboxStatus] = useState<string | null>(null);
-
-  const handleCopy = (text: string) => {
-    navigator.clipboard.writeText(text).then(() => {}, (err) => {
-      console.error('Failed to copy text: ', err);
-    });
-  };
-
-  const copyButtonStyle: React.CSSProperties = {
-    background: '#f0f0f0',
-    border: '1px solid #ccc',
-    borderRadius: '50%',
-    width: '24px',
-    height: '24px',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    cursor: 'pointer',
-    marginLeft: '10px',
-  };
 
   useEffect(() => {
     console.log('Component mounted. Fetching initial data.');
-    const fetchSettings = async () => {
-      const fetchedSettings = await getSettings();
-      setSettingsState(fetchedSettings);
-    };
     const fetchAgentSettings = async () => {
       const fetchedAgentSettings = await getAgentSettings();
       setAgentSettings({
@@ -86,44 +60,8 @@ const HomePage = () => {
         domain_whitelist: fetchedAgentSettings.filter_rules?.domain_whitelist.join(', ') || '',
       });
     };
-    fetchSettings();
     fetchAgentSettings();
   }, []);
-
-  useEffect(() => {
-    // Fire-and-forget request to initialize the inbox on component mount
-    initializeInbox();
-  }, []);
-
-  useEffect(() => {
-    const fetchStatus = async () => {
-      const status = await getInboxInitializationStatus();
-      setInboxStatus(status);
-      return status;
-    };
-
-    fetchStatus(); // Initial fetch
-
-    const interval = setInterval(async () => {
-      const status = await fetchStatus();
-      if (status === 'completed' || status === 'failed') {
-        clearInterval(interval);
-      }
-    }, 5000); // Poll every 5 seconds
-
-    return () => clearInterval(interval); // Cleanup on unmount
-  }, []);
-
-  const handleSave = async () => {
-    console.log('Save button clicked. Saving settings:', settings);
-    await setSettings(settings);
-    alert('Settings saved!');
-  };
-
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value } = e.target;
-    setSettingsState(prev => ({ ...prev, [name]: value }));
-  };
 
   const handleEdit = (field: keyof Omit<AgentSettings, 'filterRules'>) => {
     setEditingField(field);
@@ -199,321 +137,97 @@ const HomePage = () => {
     alert('Filter rules saved!');
   };
 
-  const settingsSectionStyle: React.CSSProperties = {
-    border: '1px solid #ccc',
-    padding: '16px',
-    marginBottom: '20px',
-    borderRadius: '8px',
-    backgroundColor: '#f9f9f9',
-  };
-
-  const settingRowStyle: React.CSSProperties = {
-    display: 'flex',
-    alignItems: 'center',
-    marginBottom: '12px',
-  };
-
-  const labelStyle: React.CSSProperties = {
-    marginRight: '10px',
-    width: '180px',
-    textAlign: 'right',
-    fontWeight: 'bold',
-  };
-
-  const inputStyle: React.CSSProperties = {
-    width: '100%',
-    padding: '8px',
-    borderRadius: '4px',
-    border: '1px solid #ccc',
-    boxSizing: 'border-box',
-  };
-
-  const buttonStyle: React.CSSProperties = {
-    padding: '10px 20px',
-    border: 'none',
-    borderRadius: '4px',
-    backgroundColor: '#007bff',
-    color: 'white',
-    cursor: 'pointer',
-    fontSize: '16px',
-    display: 'block',
-    margin: '0 auto',
-  };
-
-  const containerStyle: React.CSSProperties = {
-    padding: '40px',
-    maxWidth: '900px',
-    margin: '0 auto',
-    fontFamily: 'Arial, sans-serif',
-  };
-
-  const modalOverlayStyle: React.CSSProperties = {
-    position: 'fixed',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    display: 'flex',
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: 1000,
-  };
-
-  const modalContentStyle: React.CSSProperties = {
-    backgroundColor: 'white',
-    padding: '20px',
-    borderRadius: '8px',
-    width: '800px',
-    maxHeight: '80vh',
-    display: 'flex',
-    flexDirection: 'column',
-    boxShadow: '0 4px 8px rgba(0,0,0,0.1)',
-  };
-
-  const modalTextAreaStyle: React.CSSProperties = {
-    width: '100%',
-    minHeight: '400px',
-    marginBottom: '10px',
-    padding: '8px',
-    borderRadius: '4px',
-    border: '1px solid #ccc',
-    boxSizing: 'border-box',
-    resize: 'vertical',
-  };
-
-  const modalButtonsStyle: React.CSSProperties = {
-    display: 'flex',
-    justifyContent: 'flex-end',
-  };
-
-  const descriptionStyle: React.CSSProperties = {
-    fontSize: '12px',
-    color: '#666',
-    margin: '4px 0 0',
-  };
-
-  const errorStyle: React.CSSProperties = {
-    fontSize: '12px',
-    color: 'red',
-    margin: '4px 0 0',
-  };
-
-  const statusIndicatorStyle: React.CSSProperties = {
-    padding: '10px',
-    margin: '0 40px 20px 40px',
-    borderRadius: '8px',
-    textAlign: 'center',
-    fontWeight: 'bold',
-    color: 'white',
-    backgroundColor: '#6c757d', // Default gray
-  };
-
-  const getStatusStyle = (status: string | null) => {
-    switch (status) {
-      case 'running':
-        return { ...statusIndicatorStyle, backgroundColor: '#007bff' }; // Blue for running
-      case 'completed':
-        return { ...statusIndicatorStyle, backgroundColor: '#28a745' }; // Green for completed
-      case 'failed':
-        return { ...statusIndicatorStyle, backgroundColor: '#dc3545' }; // Red for failed
-      case 'not_started':
-        return { ...statusIndicatorStyle, backgroundColor: '#ffc107', color: 'black' }; // Yellow for not started
-      default:
-        return statusIndicatorStyle;
-    }
-  };
-
   return (
     <div>
       <TopBar />
-      <div style={getStatusStyle(inboxStatus)}>
-        Inbox Vectorization Status: {inboxStatus ? inboxStatus.charAt(0).toUpperCase() + inboxStatus.slice(1).replace('_', ' ') : 'Loading...'}
-      </div>
-      <div style={containerStyle}>
-              <div style={settingsSectionStyle}>
-          <h2 style={{ textAlign: 'center', marginBottom: '20px' }}>Settings</h2>
+      <div className="p-10 max-w-4xl mx-auto font-sans">
+        <div className="border border-gray-300 p-4 mb-5 rounded-lg bg-gray-50">
+          <h2 className="text-center mb-5 text-2xl font-bold">Filtering Rules</h2>
+          <p className="text-center text-sm text-gray-600 mb-5">
+            Add comma-separated emails or domains to filter incoming messages.
+          </p>
+
+          <div className="flex items-center mb-3">
+            <label className="mr-2 w-48 text-right font-bold">Email Blacklist:</label>
+            <div className="flex-1">
+              <textarea className="w-full p-2 rounded border border-gray-300 box-border" name="email_blacklist" value={filterRuleStrings.email_blacklist} onChange={handleFilterRuleChange} />
+              <p className="text-xs text-gray-600 mt-1">Stop processing emails from these specific addresses. Ex: spam@example.com, junk@mail.net</p>
+              {filterErrors.email_blacklist && <p className="text-xs text-red-600 mt-1">{filterErrors.email_blacklist}</p>}
+            </div>
+          </div>
+          <div className="flex items-center mb-3">
+            <label className="mr-2 w-48 text-right font-bold">Email Whitelist:</label>
+            <div className="flex-1">
+              <textarea className="w-full p-2 rounded border border-gray-300 box-border" name="email_whitelist" value={filterRuleStrings.email_whitelist} onChange={handleFilterRuleChange} />
+              <p className="text-xs text-gray-600 mt-1">If used, only emails from these addresses will proceed to the LLM trigger check. Ex: boss@mycompany.com</p>
+              {filterErrors.email_whitelist && <p className="text-xs text-red-600 mt-1">{filterErrors.email_whitelist}</p>}
+            </div>
+          </div>
+          <div className="flex items-center mb-3">
+            <label className="mr-2 w-48 text-right font-bold">Domain Blacklist:</label>
+            <div className="flex-1">
+              <textarea className="w-full p-2 rounded border border-gray-300 box-border" name="domain_blacklist" value={filterRuleStrings.domain_blacklist} onChange={handleFilterRuleChange} />
+              <p className="text-xs text-gray-600 mt-1">Stop processing emails from these domains. Ex: evil-corp.com, bad-actors.org</p>
+              {filterErrors.domain_blacklist && <p className="text-xs text-red-600 mt-1">{filterErrors.domain_blacklist}</p>}
+            </div>
+          </div>
+          <div className="flex items-center mb-3">
+            <label className="mr-2 w-48 text-right font-bold">Domain Whitelist:</label>
+            <div className="flex-1">
+              <textarea className="w-full p-2 rounded border border-gray-300 box-border" name="domain_whitelist" value={filterRuleStrings.domain_whitelist} onChange={handleFilterRuleChange} />
+              <p className="text-xs text-gray-600 mt-1">If used, only emails from these domains will proceed to the LLM trigger check. Ex: mycompany.com, important-client.com</p>
+              {filterErrors.domain_whitelist && <p className="text-xs text-red-600 mt-1">{filterErrors.domain_whitelist}</p>}
+            </div>
+          </div>
+
+          <button className="py-2 px-5 border-none rounded bg-blue-500 text-white cursor-pointer text-base block mx-auto" onClick={handleFilterRulesSave}>Save Filtering Rules</button>
+        </div>
+
+        <div className="border border-gray-300 p-4 mb-5 rounded-lg bg-gray-50">
+          <h2 className="text-center mb-5 text-2xl font-bold">Agent</h2>
+          <p className="text-center -mt-4 mb-5 text-gray-600">
+            The agent will trigger each time a new email is received
+          </p>
           
-          <div style={settingRowStyle}>
-          <label style={labelStyle}>IMAP Server:</label>
-          <div style={{ flex: 1 }}>
-            <input style={inputStyle} type="text" id="imap-server" name="IMAP_SERVER" value={settings.IMAP_SERVER || ''} onChange={handleInputChange} />
-            <div style={{ display: 'flex', alignItems: 'center', marginTop: '4px' }}>
-              <p style={{ margin: '0', fontSize: '12px', color: '#666' }}>example: imap.gmail.com</p>
-              <button onClick={() => handleCopy('imap.gmail.com')} style={copyButtonStyle} title="Copy">
-                <Copy size={14} />
-              </button>
+          <div className="flex items-center mb-3">
+            <label className="mr-2 w-48 text-right font-bold">System Prompt:</label>
+            <div className="flex-1">
+              <button className="py-1 px-2 text-sm m-0 border-none rounded bg-blue-500 text-white cursor-pointer" onClick={() => handleEdit('systemPrompt')}>Edit</button>
+            </div>
+          </div>
+
+          <div className="flex items-center mb-3">
+            <label className="mr-2 w-48 text-right font-bold">Trigger Conditions:</label>
+            <div className="flex-1">
+              <button className="py-1 px-2 text-sm m-0 border-none rounded bg-blue-500 text-white cursor-pointer" onClick={() => handleEdit('triggerConditions')}>Edit</button>
+            </div>
+          </div>
+
+          <div className="flex items-center mb-3">
+            <label className="mr-2 w-48 text-right font-bold">User Context:</label>
+            <div className="flex-1">
+              <button className="py-1 px-2 text-sm m-0 border-none rounded bg-blue-500 text-white cursor-pointer" onClick={() => handleEdit('userContext')}>Edit</button>
             </div>
           </div>
         </div>
-        <div style={settingRowStyle}>
-          <label style={labelStyle} htmlFor="imap-username">IMAP Username:</label>
-          <div style={{ flex: 1 }}>
-            <input style={inputStyle} type="text" id="imap-username" name="IMAP_USERNAME" value={settings.IMAP_USERNAME || ''} onChange={handleInputChange} />
-            <div style={{ display: 'flex', alignItems: 'center', marginTop: '4px' }}>
-              <p style={{ margin: '0', fontSize: '12px', color: '#666' }}>example: your.email@gmail.com</p>
-              <button onClick={() => handleCopy('your.email@gmail.com')} style={copyButtonStyle} title="Copy">
-                <Copy size={14} />
-              </button>
-            </div>
-          </div>
-        </div>
-        <div style={settingRowStyle}>
-          <label style={labelStyle} htmlFor="imap-password">IMAP Password:</label>
-          <div style={{ flex: 1 }}>
-            <input style={inputStyle} type="password" id="imap-password" name="IMAP_PASSWORD" value={settings.IMAP_PASSWORD || ''} onChange={handleInputChange} />
-          </div>
-        </div>
-        <div style={settingRowStyle}>
-          <label style={labelStyle} htmlFor="openrouter-api-key">OpenRouter API Key:</label>
-          <div style={{ flex: 1 }}>
-            <input style={inputStyle} type="password" id="openrouter-api-key" name="OPENROUTER_API_KEY" value={settings.OPENROUTER_API_KEY || ''} onChange={handleInputChange} />
-          </div>
-        </div>
-        <div style={settingRowStyle}>
-          <label style={labelStyle} htmlFor="openrouter-model">OpenRouter Model:</label>
-          <div style={{ flex: 1 }}>
-            <div style={{ display: 'flex', alignItems: 'center' }}>
-              <input
-                style={inputStyle}
-                type="text"
-                id="openrouter-model"
-                name="OPENROUTER_MODEL"
-                value={settings.OPENROUTER_MODEL || ''}
-                onChange={handleInputChange}
+
+        
+        {isModalOpen && (
+          <div className="fixed top-0 left-0 right-0 bottom-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
+            <div className="bg-white p-5 rounded-lg w-[800px] max-h-[80vh] flex flex-col shadow-lg">
+              <h3 className="mt-0 text-xl font-bold mb-4">Edit {editingField && (editingField.charAt(0).toUpperCase() + editingField.slice(1)).replace(/([A-Z])/g, ' $1').trim()}</h3>
+              <textarea
+                className="w-full min-h-[400px] mb-2 p-2 rounded border border-gray-300 box-border resize-y"
+                value={modalContent}
+                onChange={(e) => setModalContent(e.target.value)}
               />
-              <span
-                title="copy the exact model slug from openrouter's website"
-                style={{ marginLeft: '10px', cursor: 'help', fontSize: '20px', color: '#666' }}
-              >
-                &#9432;
-              </span>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', marginTop: '4px' }}>
-              <p style={{ margin: '0', fontSize: '12px', color: '#666' }}>example: google/gemini-flash-1.5</p>
-              <button onClick={() => handleCopy('google/gemini-flash-1.5')} style={copyButtonStyle} title="Copy">
-                <Copy size={14} />
-              </button>
+              <div className="flex justify-end">
+                <button className="py-2 px-5 mr-2 border-none rounded bg-blue-500 text-white cursor-pointer" onClick={handleModalSave}>Save</button>
+                <button className="py-2 px-5 border-none rounded bg-gray-500 text-white cursor-pointer" onClick={handleModalClose}>Cancel</button>
+              </div>
             </div>
           </div>
-        </div>
-        
-        <div style={settingRowStyle}>
-          <label style={labelStyle}>Draft Creation:</label>
-          <div style={{ flex: 1, display: 'flex', alignItems: 'center' }}>
-            <button
-              onClick={() => handleInputChange({ target: { name: 'DRAFT_CREATION_ENABLED', value: !(settings.DRAFT_CREATION_ENABLED !== false) } } as any)}
-              style={{
-                backgroundColor: settings.DRAFT_CREATION_ENABLED !== false ? '#007acc' : '#dc3545',
-                color: 'white',
-                border: 'none',
-                padding: '6px 12px',
-                borderRadius: '4px',
-                cursor: 'pointer',
-                fontSize: '12px',
-                fontWeight: 'bold',
-                minWidth: '70px',
-                marginRight: '10px'
-              }}
-            >
-              {settings.DRAFT_CREATION_ENABLED !== false ? 'ENABLED' : 'PAUSED'}
-            </button>
-            <span style={{ fontSize: '14px', color: '#666' }}>
-              {settings.DRAFT_CREATION_ENABLED !== false ? 'Enabled - Drafts will be created for new emails' : 'Paused - Monitoring inbox but not creating drafts'}
-            </span>
-          </div>
-        </div>
-        
-        <button style={buttonStyle} onClick={handleSave}>Save Settings</button>
-      </div>
-
-      <div style={settingsSectionStyle}>
-        <h2 style={{ textAlign: 'center', marginBottom: '20px' }}>Filtering Rules</h2>
-        <p style={{ textAlign: 'center', fontSize: '14px', color: '#666', marginBottom: '20px' }}>
-          Add comma-separated emails or domains to filter incoming messages.
-        </p>
-
-        <div style={settingRowStyle}>
-          <label style={labelStyle}>Email Blacklist:</label>
-          <div style={{ flex: 1 }}>
-            <textarea style={inputStyle} name="email_blacklist" value={filterRuleStrings.email_blacklist} onChange={handleFilterRuleChange} />
-            <p style={descriptionStyle}>Stop processing emails from these specific addresses. Ex: spam@example.com, junk@mail.net</p>
-            {filterErrors.email_blacklist && <p style={errorStyle}>{filterErrors.email_blacklist}</p>}
-          </div>
-        </div>
-        <div style={settingRowStyle}>
-          <label style={labelStyle}>Email Whitelist:</label>
-          <div style={{ flex: 1 }}>
-            <textarea style={inputStyle} name="email_whitelist" value={filterRuleStrings.email_whitelist} onChange={handleFilterRuleChange} />
-            <p style={descriptionStyle}>If used, only emails from these addresses will proceed to the LLM trigger check. Ex: boss@mycompany.com</p>
-            {filterErrors.email_whitelist && <p style={errorStyle}>{filterErrors.email_whitelist}</p>}
-          </div>
-        </div>
-        <div style={settingRowStyle}>
-          <label style={labelStyle}>Domain Blacklist:</label>
-          <div style={{ flex: 1 }}>
-            <textarea style={inputStyle} name="domain_blacklist" value={filterRuleStrings.domain_blacklist} onChange={handleFilterRuleChange} />
-            <p style={descriptionStyle}>Stop processing emails from these domains. Ex: evil-corp.com, bad-actors.org</p>
-            {filterErrors.domain_blacklist && <p style={errorStyle}>{filterErrors.domain_blacklist}</p>}
-          </div>
-        </div>
-        <div style={settingRowStyle}>
-          <label style={labelStyle}>Domain Whitelist:</label>
-          <div style={{ flex: 1 }}>
-            <textarea style={inputStyle} name="domain_whitelist" value={filterRuleStrings.domain_whitelist} onChange={handleFilterRuleChange} />
-            <p style={descriptionStyle}>If used, only emails from these domains will proceed to the LLM trigger check. Ex: mycompany.com, important-client.com</p>
-            {filterErrors.domain_whitelist && <p style={errorStyle}>{filterErrors.domain_whitelist}</p>}
-          </div>
-        </div>
-
-        <button style={buttonStyle} onClick={handleFilterRulesSave}>Save Filtering Rules</button>
-      </div>
-
-      <div style={settingsSectionStyle}>
-        <h2 style={{ textAlign: 'center', marginBottom: '20px' }}>Agent</h2>
-        <p style={{ textAlign: 'center', marginTop: '-15px', marginBottom: '20px', color: '#666' }}>
-          The agent will trigger each time a new email is received
-        </p>
-        
-        <div style={settingRowStyle}>
-          <label style={labelStyle}>System Prompt:</label>
-          <div style={{ flex: '1' }}>
-            <button style={{...buttonStyle, padding: '5px 10px', fontSize: '14px', margin: '0' }} onClick={() => handleEdit('systemPrompt')}>Edit</button>
-          </div>
-        </div>
-
-        <div style={settingRowStyle}>
-          <label style={labelStyle}>Trigger Conditions:</label>
-          <div style={{ flex: '1' }}>
-            <button style={{...buttonStyle, padding: '5px 10px', fontSize: '14px', margin: '0' }} onClick={() => handleEdit('triggerConditions')}>Edit</button>
-          </div>
-        </div>
-
-        <div style={settingRowStyle}>
-          <label style={labelStyle}>User Context:</label>
-          <div style={{ flex: '1' }}>
-            <button style={{...buttonStyle, padding: '5px 10px', fontSize: '14px', margin: '0' }} onClick={() => handleEdit('userContext')}>Edit</button>
-          </div>
-        </div>
-      </div>
-
-      
-      {isModalOpen && (
-        <div style={modalOverlayStyle}>
-          <div style={modalContentStyle}>
-            <h3 style={{marginTop: 0}}>Edit {editingField && (editingField.charAt(0).toUpperCase() + editingField.slice(1)).replace(/([A-Z])/g, ' $1').trim()}</h3>
-            <textarea
-              style={modalTextAreaStyle}
-              value={modalContent}
-              onChange={(e) => setModalContent(e.target.value)}
-            />
-            <div style={modalButtonsStyle}>
-              <button style={{...buttonStyle, marginRight: '10px'}} onClick={handleModalSave}>Save</button>
-              <button style={{...buttonStyle, backgroundColor: '#6c757d'}} onClick={handleModalClose}>Cancel</button>
-            </div>
-          </div>
-        </div>
-      )}
+        )}
       </div>
     </div>
   );

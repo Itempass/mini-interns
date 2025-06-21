@@ -1,0 +1,193 @@
+'use client';
+import React, { useState, useEffect } from 'react';
+import { getSettings, setSettings, AppSettings, initializeInbox, getInboxInitializationStatus } from '../../services/api';
+import { Copy } from 'lucide-react';
+import TopBar from '../../components/TopBar';
+
+const SettingsPage = () => {
+  const [settings, setSettingsState] = useState<AppSettings>({});
+  const [inboxStatus, setInboxStatus] = useState<string | null>(null);
+
+  const handleCopy = (text: string) => {
+    navigator.clipboard.writeText(text).then(() => {}, (err) => {
+      console.error('Failed to copy text: ', err);
+    });
+  };
+
+  const copyButtonStyle = "bg-gray-100 border border-gray-300 rounded-full w-6 h-6 flex items-center justify-center cursor-pointer ml-2";
+
+  useEffect(() => {
+    console.log('Component mounted. Fetching initial data.');
+    const fetchSettings = async () => {
+      const fetchedSettings = await getSettings();
+      setSettingsState(fetchedSettings);
+    };
+    fetchSettings();
+  }, []);
+
+  useEffect(() => {
+    const fetchStatus = async () => {
+      const status = await getInboxInitializationStatus();
+      setInboxStatus(status);
+      return status;
+    };
+
+    fetchStatus(); // Initial fetch
+
+    const interval = setInterval(async () => {
+      const status = await fetchStatus();
+      if (status === 'completed' || status === 'failed') {
+        clearInterval(interval);
+      }
+    }, 5000); // Poll every 5 seconds
+
+    return () => clearInterval(interval); // Cleanup on unmount
+  }, []);
+
+  const handleSave = async () => {
+    console.log('Save button clicked. Saving settings:', settings);
+    await setSettings(settings);
+    alert('Settings saved!');
+  };
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = e.target;
+    setSettingsState(prev => ({ ...prev, [name]: value }));
+  };
+
+  const handleVectorize = async () => {
+    await initializeInbox();
+    const status = await getInboxInitializationStatus();
+    setInboxStatus(status);
+  };
+
+  const getStatusClasses = (status: string | null): string => {
+    const baseClasses = 'font-bold';
+    switch (status) {
+      case 'running':
+        return `${baseClasses} text-yellow-500`;
+      case 'completed':
+        return `${baseClasses} text-green-500`;
+      case 'failed':
+      case 'not_started':
+        return `${baseClasses} text-red-500`;
+      default:
+        return baseClasses;
+    }
+  };
+  
+  const settingsSectionClasses = "border border-gray-300 p-4 mb-5 rounded-lg bg-gray-50";
+  const settingRowClasses = "flex items-center mb-3";
+  const labelClasses = "mr-2 w-48 text-right font-bold";
+  const inputClasses = "w-full p-2 rounded border border-gray-300 box-border";
+  const buttonClasses = "py-2 px-5 border-none rounded bg-blue-500 text-white cursor-pointer text-base block mx-auto";
+
+  return (
+    <div>
+      <TopBar />
+      <div className="p-10 max-w-4xl mx-auto font-sans">
+        <div className={settingsSectionClasses}>
+          <h2 className="text-center mb-5 text-2xl font-bold">Inbox Vectorization</h2>
+          <p className="text-center text-sm text-gray-600 mb-5">
+            To enable semantic search over your emails, they need to be vectorized and stored. This process can take a few minutes.
+          </p>
+          <div className="text-center mb-5">
+            <span>Inbox Vectorization Status: </span>
+            <span className={getStatusClasses(inboxStatus)}>
+              {inboxStatus ? inboxStatus.charAt(0).toUpperCase() + inboxStatus.slice(1).replace('_', ' ') : 'Loading...'}
+            </span>
+          </div>
+          <button className={buttonClasses} onClick={handleVectorize}>Start Inbox Vectorization</button>
+        </div>
+        <div className={settingsSectionClasses}>
+          <h2 className="text-center mb-5 text-2xl font-bold">Connection Settings</h2>
+          
+          <div className={settingRowClasses}>
+          <label className={labelClasses}>IMAP Server:</label>
+          <div className="flex-1">
+            <input className={inputClasses} type="text" id="imap-server" name="IMAP_SERVER" value={settings.IMAP_SERVER || ''} onChange={handleInputChange} />
+            <div className="flex items-center mt-1">
+              <p className="m-0 text-xs text-gray-600">example: imap.gmail.com</p>
+              <button onClick={() => handleCopy('imap.gmail.com')} className={copyButtonStyle} title="Copy">
+                <Copy size={14} />
+              </button>
+            </div>
+          </div>
+        </div>
+        <div className={settingRowClasses}>
+          <label className={labelClasses} htmlFor="imap-username">IMAP Username:</label>
+          <div className="flex-1">
+            <input className={inputClasses} type="text" id="imap-username" name="IMAP_USERNAME" value={settings.IMAP_USERNAME || ''} onChange={handleInputChange} />
+            <div className="flex items-center mt-1">
+              <p className="m-0 text-xs text-gray-600">example: your.email@gmail.com</p>
+              <button onClick={() => handleCopy('your.email@gmail.com')} className={copyButtonStyle} title="Copy">
+                <Copy size={14} />
+              </button>
+            </div>
+          </div>
+        </div>
+        <div className={settingRowClasses}>
+          <label className={labelClasses} htmlFor="imap-password">IMAP Password:</label>
+          <div className="flex-1">
+            <input className={inputClasses} type="password" id="imap-password" name="IMAP_PASSWORD" value={settings.IMAP_PASSWORD || ''} onChange={handleInputChange} />
+          </div>
+        </div>
+        <div className={settingRowClasses}>
+          <label className={labelClasses} htmlFor="openrouter-api-key">OpenRouter API Key:</label>
+          <div className="flex-1">
+            <input className={inputClasses} type="password" id="openrouter-api-key" name="OPENROUTER_API_KEY" value={settings.OPENROUTER_API_KEY || ''} onChange={handleInputChange} />
+          </div>
+        </div>
+        <div className={settingRowClasses}>
+          <label className={labelClasses} htmlFor="openrouter-model">OpenRouter Model:</label>
+          <div className="flex-1">
+            <div className="flex items-center">
+              <input
+                className={inputClasses}
+                type="text"
+                id="openrouter-model"
+                name="OPENROUTER_MODEL"
+                value={settings.OPENROUTER_MODEL || ''}
+                onChange={handleInputChange}
+              />
+              <span
+                title="copy the exact model slug from openrouter's website"
+                className="ml-2 cursor-help text-xl text-gray-600"
+              >
+                &#9432;
+              </span>
+            </div>
+            <div className="flex items-center mt-1">
+              <p className="m-0 text-xs text-gray-600">example: google/gemini-flash-1.5</p>
+              <button onClick={() => handleCopy('google/gemini-flash-1.5')} className={copyButtonStyle} title="Copy">
+                <Copy size={14} />
+              </button>
+            </div>
+          </div>
+        </div>
+        
+        <div className={settingRowClasses}>
+          <label className={labelClasses}>Draft Creation:</label>
+          <div className="flex-1 flex items-center">
+            <button
+              onClick={() => handleInputChange({ target: { name: 'DRAFT_CREATION_ENABLED', value: !(settings.DRAFT_CREATION_ENABLED !== false) } } as any)}
+              className={`text-white border-none py-1.5 px-3 rounded cursor-pointer text-xs font-bold min-w-[70px] mr-2
+                ${settings.DRAFT_CREATION_ENABLED !== false ? 'bg-blue-600' : 'bg-red-600'}`
+              }
+            >
+              {settings.DRAFT_CREATION_ENABLED !== false ? 'ENABLED' : 'PAUSED'}
+            </button>
+            <span className="text-sm text-gray-600">
+              {settings.DRAFT_CREATION_ENABLED !== false ? 'Enabled - Drafts will be created for new emails' : 'Paused - Monitoring inbox but not creating drafts'}
+            </span>
+          </div>
+        </div>
+        
+        <button className={buttonClasses} onClick={handleSave}>Save Settings</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default SettingsPage; 

@@ -18,74 +18,33 @@ const LogsPage = () => {
     setSelectedConversationId(null);
   };
 
-  const containerStyle: React.CSSProperties = {
-    padding: '40px',
-    maxWidth: '1200px',
-    margin: '0 auto',
-    fontFamily: 'Arial, sans-serif',
-  };
-
-  const modalOverlayStyle: React.CSSProperties = {
-    position: 'fixed',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    display: 'flex',
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: 1000,
-  };
-
-  const modalContentStyle: React.CSSProperties = {
-    backgroundColor: 'white',
-    borderRadius: '8px',
-    width: '90%',
-    maxWidth: '1000px',
-    maxHeight: '90vh',
-    overflow: 'auto',
-    boxShadow: '0 4px 8px rgba(0,0,0,0.1)',
-    position: 'relative',
-  };
-
-  const closeButtonStyle: React.CSSProperties = {
-    position: 'absolute',
-    top: '16px',
-    right: '16px',
-    background: '#f0f0f0',
-    border: '1px solid #ccc',
-    borderRadius: '4px',
-    padding: '8px 12px',
-    cursor: 'pointer',
-    fontSize: '14px',
-    fontWeight: 'bold',
-  };
-
-  const titleStyle: React.CSSProperties = {
-    textAlign: 'center',
-    marginBottom: '20px',
-    color: '#333',
-  };
-
   return (
     <div>
       <TopBar />
-      <div style={containerStyle}>
-      <h1 style={titleStyle}>Agent Logger - Conversation Logs</h1>
-      
-      <ConversationsList onSelectConversation={handleSelectConversation} />
+      <div className="p-10 max-w-7xl mx-auto font-sans">
+        <h1 className="text-center mb-5 text-2xl font-bold text-gray-800">Agent Logger - Conversation Logs</h1>
+        
+        <ConversationsList onSelectConversation={handleSelectConversation} />
 
-      {isModalOpen && selectedConversationId && (
-        <div style={modalOverlayStyle} onClick={handleCloseModal}>
-          <div style={modalContentStyle} onClick={(e) => e.stopPropagation()}>
-            <button style={closeButtonStyle} onClick={handleCloseModal}>
-              ✕ Close
-            </button>
-            <ConversationDetail conversationId={selectedConversationId} />
+        {isModalOpen && selectedConversationId && (
+          <div 
+            className="fixed top-0 left-0 right-0 bottom-0 bg-black bg-opacity-50 flex justify-center items-center z-50"
+            onClick={handleCloseModal}
+          >
+            <div 
+              className="bg-white rounded-lg w-11/12 max-w-5xl max-h-[90vh] overflow-auto shadow-lg relative"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <button 
+                className="absolute top-4 right-4 bg-gray-100 border border-gray-300 rounded py-2 px-3 cursor-pointer text-sm font-bold"
+                onClick={handleCloseModal}
+              >
+                ✕ Close
+              </button>
+              <ConversationDetail conversationId={selectedConversationId} />
+            </div>
           </div>
-        </div>
-      )}
+        )}
       </div>
     </div>
   );

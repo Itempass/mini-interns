@@ -8,63 +8,34 @@ const TopBar: React.FC<TopBarProps> = () => {
   const router = useRouter();
   const pathname = usePathname();
   
-  const activeView = pathname === '/logs' ? 'logs' : 'settings';
-  const topBarStyle: React.CSSProperties = {
-    backgroundColor: '#007bff',
-    padding: '16px 40px',
-    marginBottom: '0',
-    borderBottom: '1px solid #0056b3',
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  };
+  const activeView = pathname === '/logs' ? 'logs' : pathname === '/settings' ? 'settings' : 'agent';
 
-  const titleStyle: React.CSSProperties = {
-    color: 'white',
-    fontSize: '24px',
-    fontWeight: 'bold',
-    margin: 0,
-  };
-
-  const navStyle: React.CSSProperties = {
-    display: 'flex',
-    gap: '12px',
-  };
-
-  const buttonBaseStyle: React.CSSProperties = {
-    padding: '8px 16px',
-    border: '2px solid white',
-    borderRadius: '4px',
-    cursor: 'pointer',
-    fontSize: '16px',
-    fontWeight: 'bold',
-    transition: 'all 0.2s ease',
-  };
-
-  const activeButtonStyle: React.CSSProperties = {
-    ...buttonBaseStyle,
-    backgroundColor: 'white',
-    color: '#007bff',
-  };
-
-  const inactiveButtonStyle: React.CSSProperties = {
-    ...buttonBaseStyle,
-    backgroundColor: 'transparent',
-    color: 'white',
+  const getButtonClasses = (view: 'agent' | 'settings' | 'logs') => {
+    const baseClasses = "py-2 px-4 border-2 border-white rounded cursor-pointer text-base font-bold transition-all duration-200 ease-in-out";
+    if (activeView === view) {
+      return `${baseClasses} bg-white text-blue-500`;
+    }
+    return `${baseClasses} bg-transparent text-white`;
   };
 
   return (
-    <div style={topBarStyle}>
-      <h1 style={titleStyle}>Mini Interns Dashboard</h1>
-      <nav style={navStyle}>
+    <div className="bg-blue-500 px-10 py-4 flex justify-between items-center border-b border-blue-700">
+      <h1 className="text-white text-2xl font-bold m-0">Mini Interns Dashboard</h1>
+      <nav className="flex gap-3">
         <button
-          style={activeView === 'settings' ? activeButtonStyle : inactiveButtonStyle}
+          className={getButtonClasses('agent')}
           onClick={() => router.push('/')}
+        >
+          Agent
+        </button>
+        <button
+          className={getButtonClasses('settings')}
+          onClick={() => router.push('/settings')}
         >
           Settings
         </button>
         <button
-          style={activeView === 'logs' ? activeButtonStyle : inactiveButtonStyle}
+          className={getButtonClasses('logs')}
           onClick={() => router.push('/logs')}
         >
           Logs
