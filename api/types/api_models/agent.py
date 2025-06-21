@@ -17,4 +17,6 @@ class AgentSettings(BaseModel):
     system_prompt: Optional[str] = None
     trigger_conditions: Optional[str] = None
     user_context: Optional[str] = None
-    filter_rules: Optional[FilterRules] = None 
+    filter_rules: Optional[FilterRules] = None
+    agent_steps: Optional[str] = None
+    agent_instructions: Optional[str] = None 

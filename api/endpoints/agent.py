@@ -49,7 +49,9 @@ def get_agent_settings():
             RedisKeys.SYSTEM_PROMPT,
             RedisKeys.TRIGGER_CONDITIONS,
             RedisKeys.USER_CONTEXT,
-            RedisKeys.FILTER_RULES
+            RedisKeys.FILTER_RULES,
+            RedisKeys.AGENT_STEPS,
+            RedisKeys.AGENT_INSTRUCTIONS
         )
         results = pipeline.execute()[0]
         
@@ -60,7 +62,9 @@ def get_agent_settings():
             system_prompt=results[0] or get_default_system_prompt(),
             trigger_conditions=results[1] or get_default_trigger_conditions(),
             user_context=results[2],
-            filter_rules=filter_rules
+            filter_rules=filter_rules,
+            agent_steps=results[4],
+            agent_instructions=results[5]
         )
         return settings
     except Exception as e:
@@ -84,6 +88,10 @@ def set_agent_settings(settings: AgentSettings):
             pipeline.set(RedisKeys.USER_CONTEXT, settings.user_context)
         if settings.filter_rules is not None:
             pipeline.set(RedisKeys.FILTER_RULES, settings.filter_rules.json())
+        if settings.agent_steps is not None:
+            pipeline.set(RedisKeys.AGENT_STEPS, settings.agent_steps)
+        if settings.agent_instructions is not None:
+            pipeline.set(RedisKeys.AGENT_INSTRUCTIONS, settings.agent_instructions)
             
         pipeline.execute()
         return {"message": "Agent settings updated successfully"}

@@ -9,6 +9,8 @@ interface AgentSettings {
   triggerConditions: string;
   userContext: string;
   filterRules: FilterRules;
+  agentSteps: string;
+  agentInstructions: string;
 }
 
 const HomePage = () => {
@@ -22,6 +24,8 @@ const HomePage = () => {
       domain_blacklist: [],
       domain_whitelist: [],
     },
+    agentSteps: '',
+    agentInstructions: '',
   });
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingField, setEditingField] = useState<keyof Omit<AgentSettings, 'filterRules'> | null>(null);
@@ -43,7 +47,8 @@ const HomePage = () => {
     console.log('Component mounted. Fetching initial data.');
     const fetchAgentSettings = async () => {
       const fetchedAgentSettings = await getAgentSettings();
-      setAgentSettings({
+      setAgentSettings(prev => ({
+        ...prev,
         systemPrompt: fetchedAgentSettings.system_prompt || '',
         triggerConditions: fetchedAgentSettings.trigger_conditions || '',
         userContext: fetchedAgentSettings.user_context || '',
@@ -53,7 +58,9 @@ const HomePage = () => {
           domain_blacklist: [],
           domain_whitelist: [],
         },
-      });
+        agentSteps: fetchedAgentSettings.agent_steps || '',
+        agentInstructions: fetchedAgentSettings.agent_instructions || '',
+      }));
       setFilterRuleStrings({
         email_blacklist: fetchedAgentSettings.filter_rules?.email_blacklist.join(', ') || '',
         email_whitelist: fetchedAgentSettings.filter_rules?.email_whitelist.join(', ') || '',
@@ -117,6 +124,22 @@ const HomePage = () => {
     validateFilterInput(name, value);
   };
 
+  const handleAgentV2Change = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const { name, value } = e.target as { name: 'agentSteps' | 'agentInstructions'; value: string };
+    setAgentSettings(prev => ({
+      ...prev,
+      [name]: value,
+    }));
+  };
+
+  const handleAgentV2Save = async () => {
+    await apiSetAgentSettings({
+      agent_steps: agentSettings.agentSteps,
+      agent_instructions: agentSettings.agentInstructions,
+    });
+    alert('Agent V2 settings saved!');
+  };
+
   const handleFilterRulesSave = async () => {
     if (Object.values(filterErrors).some(err => err)) {
       alert('Please fix the validation errors before saving.');
@@ -144,6 +167,52 @@ const HomePage = () => {
       <div className="flex flex-1 overflow-hidden">
         <div className="w-2/3 p-10 font-sans overflow-y-auto">
           <div className="max-w-4xl mx-auto">
+            <div className="border border-gray-300 p-4 mb-5 rounded-lg bg-gray-50">
+              <h2 className="text-center mb-5 text-2xl font-bold">Agent V2</h2>
+              <p className="text-center -mt-4 mb-5 text-gray-600">
+                BACKEND DOESN'T USE THIS YET.
+              </p>
+              
+              <div className="flex items-start mb-3">
+                <label className="mr-2 w-48 text-right font-bold pt-2">Agent Steps:</label>
+                <div className="flex-1">
+                  <textarea 
+                    className="w-full p-2 rounded border border-gray-300 box-border" 
+                    name="agentSteps" 
+                    value={agentSettings.agentSteps} 
+                    onChange={handleAgentV2Change}
+                    rows={3}
+                  />
+                  <p className="text-xs text-gray-600 mt-1">Define the steps for the agent.</p>
+                </div>
+              </div>
+
+              <div className="flex items-start mb-3">
+                <label className="mr-2 w-48 text-right font-bold pt-2">Agent Instructions:</label>
+                <div className="flex-1">
+                  <textarea 
+                    className="w-full p-2 rounded border border-gray-300 box-border" 
+                    name="agentInstructions" 
+                    value={agentSettings.agentInstructions} 
+                    onChange={handleAgentV2Change}
+                    rows={6}
+                  />
+                  <p className="text-xs text-gray-600 mt-1">Provide detailed instructions for the agent.</p>
+                </div>
+              </div>
+              <div className="flex items-start mb-3">
+                <label className="mr-2 w-48 text-right font-bold pt-2">Tools:</label>
+                <div className="flex-1 flex flex-wrap gap-2 pt-2">
+                  <span className="bg-gray-200 text-gray-800 text-sm font-medium px-2 py-1 rounded-md">IMAP: draft_reply</span>
+                  <span className="bg-gray-200 text-gray-800 text-sm font-medium px-2 py-1 rounded-md">IMAP: semantic_search_emails</span>
+                  <span className="bg-gray-200 text-gray-800 text-sm font-medium px-2 py-1 rounded-md">IMAP: get_full_thread_for_email</span>
+                  <span className="bg-gray-200 text-gray-800 text-sm font-medium px-2 py-1 rounded-md">IMAP: get_email</span>
+                  <span className="bg-gray-200 text-gray-800 text-sm font-medium px-2 py-1 rounded-md">IMAP: list_inbox_emails</span>
+                </div>
+              </div>
+              <button className="py-2 px-5 border-none rounded bg-blue-500 text-white cursor-pointer text-base block mx-auto" onClick={handleAgentV2Save}>Save Agent V2 Settings</button>
+            </div>
+
             <div className="border border-gray-300 p-4 mb-5 rounded-lg bg-gray-50">
               <h2 className="text-center mb-5 text-2xl font-bold">Filtering Rules</h2>
               <p className="text-center text-sm text-gray-600 mb-5">

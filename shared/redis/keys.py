@@ -11,3 +11,5 @@ class RedisKeys:
     LAST_EMAIL_UID = "last_email_uid"
     FILTER_RULES = "agent:filter_rules"
     INBOX_INITIALIZATION_STATUS = "inbox:initialization:status"
+    AGENT_STEPS = "agent:agent_steps"
+    AGENT_INSTRUCTIONS = "agent:agent_instructions"

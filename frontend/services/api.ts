@@ -21,6 +21,8 @@ export interface AgentSettings {
   trigger_conditions?: string;
   user_context?: string;
   filter_rules?: FilterRules;
+  agent_steps?: string;
+  agent_instructions?: string;
 }
 
 export const getSettings = async (): Promise<AppSettings> => {
