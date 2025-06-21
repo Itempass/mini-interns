@@ -49,7 +49,7 @@ class EmailAgent:
         self.mcp_client = Client(f"http://localhost:{settings.CONTAINERPORT_MCP_IMAP}/mcp")
         logger.info(f"EmailAgent initialized with MCP client at: http://localhost:{settings.CONTAINERPORT_MCP_IMAP}/mcp")
 
-    def run(self, original_message):
+    def run(self, original_message, contextual_uid: str):
         """Runs the complete agent cycle asynchronously to improve performance."""
         
         async def _agent_cycle():
@@ -58,7 +58,7 @@ class EmailAgent:
                 logger.warning("Email has no body content")
                 return {"success": False, "message": "Email has no body content."}
 
-            logger.info(f"Processing email UID: {original_message.uid}")
+            logger.info(f"Processing email UID: {original_message.uid} (Contextual: {contextual_uid})")
             logger.info(f"Email body length: {len(email_body)} characters")
             logger.debug(f"Email body content: {email_body[:200]}...")
 
@@ -92,7 +92,7 @@ Here is some additional context about the user you are assisting:
                     
                     messages = [
                         {"role": "system", "content": full_system_prompt},
-                        {"role": "user", "content": f"Here is the email to analyze (messageId: {original_message.uid}):\n\n---\n{email_body}\n---"}
+                        {"role": "user", "content": f"Here is the email to analyze (messageId: {contextual_uid}):\n\n---\n{email_body}\n---"}
                     ]
                     logger.info(f"Initial messages prepared with {len(messages)} messages")
 
@@ -159,7 +159,7 @@ Here is some additional context about the user you are assisting:
                     # After the loop, log the full conversation
                     try:
                         await save_conversation(ConversationData(
-                            metadata=Metadata(conversation_id=f"agent_{original_message.uid}"),
+                            metadata=Metadata(conversation_id=f"agent_{contextual_uid}"),
                             messages=[Message(**m) for m in messages if m.get("content") is not None]
                         ))
                         logger.info("Conversation logged successfully")

@@ -10,6 +10,7 @@ from api.types.api_models.agent import FilterRules
 from triggers.agent import EmailAgent
 from shared.config import settings
 import json
+from mcp_servers.imap_mcpserver.src.utils.contextual_id import create_contextual_id
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -73,7 +74,8 @@ def main():
                     if filtered_messages:
                         logger.info(f"Found {len(filtered_messages)} new email(s).")
                         for msg in filtered_messages:
-                            process_message(msg)
+                            contextual_uid = create_contextual_id('INBOX', msg.uid)
+                            process_message(msg, contextual_uid)
 
                         # Update last_uid to the latest one we've processed
                         latest_uid = filtered_messages[-1].uid
@@ -90,10 +92,10 @@ def main():
 
         time.sleep(30)
 
-def process_message(msg):
+def process_message(msg, contextual_uid: str):
     logger.info("--------------------")
     logger.info(f"New Email Received:")
-    logger.info(f"  UID: {msg.uid}")
+    logger.info(f"  UID: {msg.uid} (Contextual: {contextual_uid})")
     logger.info(f"  From: {msg.from_}")
     logger.info(f"  To: {msg.to}")
     logger.info(f"  Date: {msg.date_str}")
@@ -134,7 +136,7 @@ def process_message(msg):
             system_prompt=system_prompt,
             user_context=user_context
         )
-        agent_result = agent.run(msg)
+        agent_result = agent.run(msg, contextual_uid)
         
         # Check if we should create a draft
         if agent_result and agent_result.get("success"):
