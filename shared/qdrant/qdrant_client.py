@@ -3,6 +3,7 @@ from functools import lru_cache
 from typing import List, Dict, Any
 
 from qdrant_client import QdrantClient, models
+from qdrant_client.http.models import PointStruct
 from shared.config import settings
 from shared.services.embedding_service import get_embedding
 
@@ -37,6 +38,39 @@ def get_qdrant_client():
     except Exception as e:
         logger.error(f"Could not connect to Qdrant: {e}")
         raise
+
+def upsert_points(collection_name: str, points: List[models.PointStruct]):
+    """
+    Upserts a list of points into a Qdrant collection.
+    """
+    client = get_qdrant_client()
+    
+    if not points:
+        return
+
+    try:
+        operation_info = client.upsert(
+            collection_name=collection_name,
+            wait=True,
+            points=points
+        )
+        logger.info(f"Upserted {len(points)} points to collection '{collection_name}'. Status: {operation_info.status}")
+    except Exception as e:
+        logger.error(f"Error upserting points to Qdrant collection '{collection_name}': {e}", exc_info=True)
+        raise Exception("Failed to upsert points to Qdrant.") from e
+
+def count_points(collection_name: str) -> int:
+    """Counts the number of points in a Qdrant collection."""
+    qdrant_client = get_qdrant_client()
+    try:
+        count_result = qdrant_client.count(
+            collection_name=collection_name,
+            exact=False
+        )
+        return count_result.count
+    except Exception:
+        # This can happen if the collection doesn't exist.
+        return 0
 
 def semantic_search(
     collection_name: str, query: str, user_email: str, top_k: int = 5

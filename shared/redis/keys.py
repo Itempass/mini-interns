@@ -9,4 +9,5 @@ class RedisKeys:
     TRIGGER_CONDITIONS = "agent:trigger_conditions"
     USER_CONTEXT = "agent:user_context"
     LAST_EMAIL_UID = "last_email_uid"
-    FILTER_RULES = "agent:filter_rules" 
+    FILTER_RULES = "agent:filter_rules"
+    INBOX_INITIALIZATION_STATUS = "inbox:initialization:status"

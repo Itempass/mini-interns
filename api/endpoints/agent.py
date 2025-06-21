@@ -1,10 +1,11 @@
 import logging
-import json
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, BackgroundTasks
 from functools import lru_cache
 from shared.redis.redis_client import get_redis_client
 from shared.redis.keys import RedisKeys
+from shared.qdrant.qdrant_client import count_points
 from api.types.api_models.agent import AgentSettings, FilterRules
+from api.background_tasks.inbox_initializer import initialize_inbox
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -88,4 +89,50 @@ def set_agent_settings(settings: AgentSettings):
         return {"message": "Agent settings updated successfully"}
     except Exception as e:
         logger.error(f"Error setting agent settings: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+@router.post("/agent/initialize-inbox")
+async def trigger_inbox_initialization(background_tasks: BackgroundTasks):
+    """
+    Triggers the background task to initialize the user's inbox.
+    Uses Redis to track the status and prevent multiple initializations.
+    """
+    redis_client = get_redis_client()
+    status = redis_client.get(RedisKeys.INBOX_INITIALIZATION_STATUS)
+
+    if status == "running":
+        return {"message": "Inbox initialization is already in progress."}
+    
+    # Also check the fallback condition to prevent re-running a completed task
+    if status == "completed" or count_points(collection_name="emails") > 0:
+        return {"message": "Inbox has already been initialized."}
+
+    # Set the status to "running" immediately to prevent race conditions
+    redis_client.set(RedisKeys.INBOX_INITIALIZATION_STATUS, "running")
+
+    # The background task will update the status upon completion or failure
+    background_tasks.add_task(initialize_inbox)
+    return {"message": "Inbox initialization started."}
+
+@router.get("/agent/initialize-inbox/status")
+async def get_inbox_initialization_status():
+    """
+    Gets the status of the inbox initialization task from Redis.
+    Falls back to checking Qdrant if the Redis key is not present.
+    """
+    try:
+        redis_client = get_redis_client()
+        status = redis_client.get(RedisKeys.INBOX_INITIALIZATION_STATUS)
+
+        if status:
+            return {"status": status}
+
+        # If no status is in Redis, check Qdrant as a fallback.
+        # This handles the case where the server restarted after completion.
+        if count_points(collection_name="emails") > 0:
+            return {"status": "completed"}
+
+        return {"status": "not_started"}
+    except Exception as e:
+        logger.error(f"Error fetching inbox initialization status: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")

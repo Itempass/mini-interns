@@ -120,6 +120,41 @@ class IMAPService:
             
         return selected_folder
 
+    def _find_sent_folder(self) -> str:
+        """
+        Find the correct sent folder name by trying common variations.
+        """
+        sent_folders = ["[Gmail]/Sent Mail", "Sent", "Sent Items"]
+        selected_folder = None
+        
+        try:
+            status, folders = self.mail.list()
+            if status == "OK":
+                folder_list = [
+                    folder.decode().split('"')[-2] if '"' in folder.decode() else folder.decode().split()[-1]
+                    for folder in folders
+                ]
+                logger.info(f"Available folders: {folder_list}")
+                for sent_folder in sent_folders:
+                    if sent_folder in folder_list:
+                        selected_folder = sent_folder
+                        logger.info(f"Found sent folder: {selected_folder}")
+                        break
+                if not selected_folder:
+                    for folder_name in folder_list:
+                        if "sent" in folder_name.lower():
+                            selected_folder = folder_name
+                            logger.info(f"Found sent folder by search: {selected_folder}")
+                            break
+        except Exception as e:
+            logger.warning(f"Error listing folders: {e}")
+        
+        if not selected_folder:
+            selected_folder = "[Gmail]/Sent Mail"
+            logger.info(f"Using default sent folder: {selected_folder}")
+            
+        return selected_folder
+
     # --- Placeholder methods for tool implementations ---
     # These will be implemented later to provide the functionality
     # needed by the tools in tools/imap.py
@@ -171,6 +206,54 @@ class IMAPService:
 
         return await asyncio.get_running_loop().run_in_executor(None, _fetch_emails)
 
+    async def list_sent_emails(self, max_results: int = 100) -> List[RawEmail]:
+        if not self.mail:
+            try:
+                await asyncio.get_running_loop().run_in_executor(None, self.connect)
+            except (ValueError, ConnectionError) as e:
+                logger.error(f"IMAP connection failed: {e}")
+                return []
+        
+        if not self.mail:
+            logger.error("IMAP service is not connected.")
+            return []
+
+        def _fetch_emails() -> List[RawEmail]:
+            try:
+                sent_folder = self._find_sent_folder()
+                self.mail.select(f'"{sent_folder}"', readonly=True)
+                typ, data = self.mail.uid('search', None, 'ALL')
+                if typ != 'OK':
+                    logger.error(f"Failed to search sent folder '{sent_folder}' for UIDs.")
+                    return []
+                
+                email_uids = data[0].split()
+                if not email_uids:
+                    return []
+
+                latest_email_uids = email_uids[-max_results:]
+                
+                emails: List[RawEmail] = []
+                for uid in reversed(latest_email_uids):
+                    typ, data = self.mail.uid('fetch', uid, '(RFC822)')
+                    if typ != 'OK':
+                        logger.warning(f"Failed to fetch email with UID {uid.decode()} from sent folder")
+                        continue
+
+                    for response_part in data:
+                        if isinstance(response_part, tuple):
+                            msg = email.message_from_bytes(response_part[1])
+                            contextual_id = create_contextual_id(sent_folder, uid.decode())
+                            emails.append(RawEmail(uid=contextual_id, msg=msg))
+                return emails
+            except imaplib.IMAP4.error as e:
+                logger.error(f"Error fetching sent emails: {e}", exc_info=True)
+                # Connection might be stale, try to disconnect.
+                self.disconnect() # disconnect is blocking
+                return []
+
+        return await asyncio.get_running_loop().run_in_executor(None, _fetch_emails)
+
     async def get_email(self, message_id: str) -> Optional[RawEmail]:
         """
         Retrieves a specific email by its contextual ID.
@@ -189,7 +272,7 @@ class IMAPService:
         def _fetch_email() -> Optional[RawEmail]:
             try:
                 mailbox, uid = parse_contextual_id(message_id)
-                self.mail.select(mailbox, readonly=True)
+                self.mail.select(f'"{mailbox}"', readonly=True)
                 
                 typ, data = self.mail.uid('fetch', uid.encode('utf-8'), '(RFC822)')
 
@@ -233,7 +316,7 @@ class IMAPService:
                 # The threading service needs to start from a specific email.
                 # We select the initial mailbox before calling it.
                 initial_mailbox, initial_uid = parse_contextual_id(message_id)
-                self.mail.select(initial_mailbox, readonly=True)
+                self.mail.select(f'"{initial_mailbox}"', readonly=True)
                 
                 threading_service = ThreadingService(self.mail)
                 thread_mailbox, thread_uids = threading_service.get_thread_uids(initial_uid)
@@ -243,7 +326,7 @@ class IMAPService:
 
                 emails: List[RawEmail] = []
                 # After getting the UIDs, we must select the correct mailbox they belong to.
-                self.mail.select(thread_mailbox, readonly=True)
+                self.mail.select(f'"{thread_mailbox}"', readonly=True)
                 
                 for uid in thread_uids:
                     typ, data = self.mail.uid('fetch', uid.encode('utf-8'), '(RFC822)')
@@ -361,7 +444,7 @@ class IMAPService:
         def _fetch_email_sync(sync_message_id: str) -> Optional[RawEmail]:
             try:
                 mailbox, uid = parse_contextual_id(sync_message_id)
-                self.mail.select(mailbox, readonly=True)
+                self.mail.select(f'"{mailbox}"', readonly=True)
                 typ, data = self.mail.uid('fetch', uid.encode('utf-8'), '(RFC822)')
                 if typ != 'OK' or not data or data[0] is None:
                     return None

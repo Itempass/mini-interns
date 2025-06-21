@@ -51,7 +51,7 @@ class ThreadingService:
             if thread_uids:
                 logger.info(f"Successfully fetched thread for UID {message_uid} using X-GM-THRID.")
                 # Gmail search should happen in All Mail for completeness.
-                return '"[Gmail]/All Mail"', thread_uids
+                return '[Gmail]/All Mail', thread_uids
 
         # Layer 3: Fallback to client-side header parsing
         logger.info(f"Falling back to header-based threading for UID {message_uid}.")
@@ -200,8 +200,15 @@ class ThreadingService:
 
             # We need to de-duplicate and build the final query
             unique_queries = list(set(search_queries))
-            search_query = "(OR " * (len(unique_queries) - 1) + " ".join(unique_queries) + ")" * (len(unique_queries) -1) if len(unique_queries) > 1 else unique_queries[0]
-
+            
+            if not unique_queries:
+                search_query = ""
+            elif len(unique_queries) == 1:
+                search_query = unique_queries[0]
+            else:
+                search_query = f"(OR {unique_queries[0]} {unique_queries[1]})"
+                for i in range(2, len(unique_queries)):
+                    search_query = f"(OR {search_query} {unique_queries[i]})"
 
             if not search_query:
                 return [message_uid]

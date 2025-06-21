@@ -1,6 +1,6 @@
 'use client';
 import React, { useState, useEffect } from 'react';
-import { getSettings, setSettings, AppSettings, getAgentSettings, setAgentSettings as apiSetAgentSettings, FilterRules } from '../services/api';
+import { getSettings, setSettings, AppSettings, getAgentSettings, setAgentSettings as apiSetAgentSettings, FilterRules, initializeInbox, getInboxInitializationStatus } from '../services/api';
 import { Copy } from 'lucide-react';
 import TopBar from '../components/TopBar';
 
@@ -39,6 +39,7 @@ const HomePage = () => {
     domain_blacklist: '',
     domain_whitelist: '',
   });
+  const [inboxStatus, setInboxStatus] = useState<string | null>(null);
 
   const handleCopy = (text: string) => {
     navigator.clipboard.writeText(text).then(() => {}, (err) => {
@@ -87,6 +88,30 @@ const HomePage = () => {
     };
     fetchSettings();
     fetchAgentSettings();
+  }, []);
+
+  useEffect(() => {
+    // Fire-and-forget request to initialize the inbox on component mount
+    initializeInbox();
+  }, []);
+
+  useEffect(() => {
+    const fetchStatus = async () => {
+      const status = await getInboxInitializationStatus();
+      setInboxStatus(status);
+      return status;
+    };
+
+    fetchStatus(); // Initial fetch
+
+    const interval = setInterval(async () => {
+      const status = await fetchStatus();
+      if (status === 'completed' || status === 'failed') {
+        clearInterval(interval);
+      }
+    }, 5000); // Poll every 5 seconds
+
+    return () => clearInterval(interval); // Cleanup on unmount
   }, []);
 
   const handleSave = async () => {
@@ -274,9 +299,37 @@ const HomePage = () => {
     margin: '4px 0 0',
   };
 
+  const statusIndicatorStyle: React.CSSProperties = {
+    padding: '10px',
+    margin: '0 40px 20px 40px',
+    borderRadius: '8px',
+    textAlign: 'center',
+    fontWeight: 'bold',
+    color: 'white',
+    backgroundColor: '#6c757d', // Default gray
+  };
+
+  const getStatusStyle = (status: string | null) => {
+    switch (status) {
+      case 'running':
+        return { ...statusIndicatorStyle, backgroundColor: '#007bff' }; // Blue for running
+      case 'completed':
+        return { ...statusIndicatorStyle, backgroundColor: '#28a745' }; // Green for completed
+      case 'failed':
+        return { ...statusIndicatorStyle, backgroundColor: '#dc3545' }; // Red for failed
+      case 'not_started':
+        return { ...statusIndicatorStyle, backgroundColor: '#ffc107', color: 'black' }; // Yellow for not started
+      default:
+        return statusIndicatorStyle;
+    }
+  };
+
   return (
     <div>
       <TopBar />
+      <div style={getStatusStyle(inboxStatus)}>
+        Inbox Vectorization Status: {inboxStatus ? inboxStatus.charAt(0).toUpperCase() + inboxStatus.slice(1).replace('_', ' ') : 'Loading...'}
+      </div>
       <div style={containerStyle}>
               <div style={settingsSectionStyle}>
           <h2 style={{ textAlign: 'center', marginBottom: '20px' }}>Settings</h2>

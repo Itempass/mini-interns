@@ -11,3 +11,13 @@ httpx
 fastmcp
 qdrant-client
 python-dateutil
+aiohttp
+requests
+beautifulsoup4
+# Gmail
+google-api-python-client
+google-auth-httplib2
+google-auth-oauthlib
+# embedding
+tiktoken
+email-reply-parser

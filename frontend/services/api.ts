@@ -103,6 +103,43 @@ export const setAgentSettings = async (settings: AgentSettings) => {
   }
 };
 
+export const initializeInbox = async () => {
+  console.log('Initializing inbox...');
+  try {
+    const response = await fetch(`${API_URL}/agent/initialize-inbox`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+    if (!response.ok) {
+      console.error('Failed to initialize inbox. Status:', response.status);
+      throw new Error('Failed to initialize inbox');
+    }
+    const result = await response.json();
+    console.log('Successfully triggered inbox initialization:', result);
+    return result;
+  } catch (error) {
+    console.error('An error occurred while initializing inbox:', error);
+    return null;
+  }
+};
+
+export const getInboxInitializationStatus = async (): Promise<string> => {
+  try {
+    const response = await fetch(`${API_URL}/agent/initialize-inbox/status`);
+    if (!response.ok) {
+      console.error('Failed to fetch inbox status. Status:', response.status);
+      throw new Error('Failed to fetch inbox status');
+    }
+    const data = await response.json();
+    return data.status;
+  } catch (error) {
+    console.error('An error occurred while fetching inbox status:', error);
+    return 'error';
+  }
+};
+
 export const getOpenRouterModel = async () => {
   const settings = await getSettings();
   return settings.OPENROUTER_MODEL || '';
