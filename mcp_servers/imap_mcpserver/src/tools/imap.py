@@ -74,6 +74,61 @@ def _format_email_as_markdown(msg: email.message.Message, email_id: str) -> str:
         f"{body.strip()}"
     )
 
+def _format_email_reply_as_markdown(msg: email.message.Message, email_id: str) -> str:
+    def _decode_header(header_value: str) -> str:
+        if not header_value:
+            return ""
+        parts = decode_header(header_value)
+        header_parts = []
+        for part, encoding in parts:
+            if isinstance(part, bytes):
+                header_parts.append(part.decode(encoding or 'utf-8', errors='ignore'))
+            else:
+                header_parts.append(str(part))
+        return "".join(header_parts)
+
+    subject = _decode_header(msg['subject'])
+    from_ = _decode_header(msg['from'])
+    to = _decode_header(msg.get('to'))
+    cc = _decode_header(msg.get('cc'))
+    date = msg.get('date', 'N/A')
+
+    body = ""
+    if msg.is_multipart():
+        for part in msg.walk():
+            content_type = part.get_content_type()
+            content_disposition = str(part.get("Content-Disposition"))
+
+            if content_type == "text/plain" and "attachment" not in content_disposition:
+                try:
+                    charset = part.get_content_charset() or 'utf-8'
+                    payload = part.get_payload(decode=True)
+                    if payload:
+                        body = payload.decode(charset, errors='ignore')
+                        break
+                except Exception as e:
+                    logger.warning(f"Could not decode body part for email id {email_id}: {e}")
+                    body = "[Could not decode body]"
+    else:
+        try:
+            charset = msg.get_content_charset() or 'utf-8'
+            payload = msg.get_payload(decode=True)
+            if payload:
+                body = payload.decode(charset, errors='ignore')
+        except Exception as e:
+            logger.warning(f"Could not decode body for email id {email_id}: {e}")
+            body = "[Could not decode body]"
+
+    return (
+        f"## Subject: {subject}\n"
+        f"* id: {email_id}\n"
+        f"* from: {from_}\n"
+        f"* to: {to or 'N/A'}\n"
+        f"* cc: {cc or 'N/A'}\n"
+        f"* date: {date}\n\n"
+        f"{EmailReplyParser.parse_reply(body).strip()}"
+    )
+
 def _get_cleaned_email_body(raw_email: RawEmail) -> str:
     """Extracts and cleans the plain text body from a RawEmail object."""
     msg = raw_email.msg
@@ -184,7 +239,7 @@ async def semantic_search_emails(query: str, top_k: Optional[int] = 10) -> List[
         if contextual_id:
             email_data = await imap_service.get_email(message_id=contextual_id)
             if email_data:
-                searched_emails.append(_format_email_as_markdown(email_data.msg, email_data.uid))
+                searched_emails.append(_format_email_reply_as_markdown(email_data.msg, email_data.uid))
     
     return {"search_results": searched_emails, "llm_instructions": "Use get_full_thread_for_email to get the full thread of a search result email."}
 
@@ -214,7 +269,7 @@ async def find_similar_emails(messageId: str, top_k: Optional[int] = 5) -> List[
         if contextual_id:
             email_data = await imap_service.get_email(message_id=contextual_id)
             if email_data:
-                similar_emails.append(_format_email_as_markdown(email_data.msg, email_data.uid))
+                similar_emails.append(_format_email_reply_as_markdown(email_data.msg, email_data.uid))
 
     return {"similar_emails": similar_emails, "llm_instructions": "Use get_full_thread_for_email to get the full thread of a similar email."}
 

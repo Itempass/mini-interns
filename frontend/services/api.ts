@@ -208,4 +208,34 @@ export const getConversation = async (conversationId: string): Promise<Conversat
     console.error('An error occurred while fetching conversation:', error);
     return null;
   }
+};
+
+export interface McpTool {
+  name: string;
+  description: string;
+  inputSchema: Record<string, any>;
+}
+
+export interface McpServer {
+  name: string;
+  port: number;
+  url: string;
+  tools: McpTool[];
+}
+
+export const getMcpServers = async (): Promise<McpServer[]> => {
+  console.log('Fetching MCP servers...');
+  try {
+    const response = await fetch(`${API_URL}/mcp/servers`);
+    if (!response.ok) {
+      console.error('Failed to fetch MCP servers. Status:', response.status);
+      throw new Error('Failed to fetch MCP servers');
+    }
+    const data = await response.json();
+    console.log('Successfully fetched MCP servers:', data);
+    return data;
+  } catch (error) {
+    console.error('An error occurred while fetching MCP servers:', error);
+    return [];
+  }
 }; 

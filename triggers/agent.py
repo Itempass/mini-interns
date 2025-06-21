@@ -44,12 +44,12 @@ class EmailAgent:
         
         current_date = datetime.now().strftime('%Y-%m-%d')
         
-        self.trigger_conditions = trigger_conditions.replace("<<CURRENT_DATE>> YYYY-MM-DD", current_date)
-        self.system_prompt = system_prompt.replace("<<CURRENT_DATE>> YYYY-MM-DD", current_date)
-        self.user_context = user_context.replace("<<CURRENT_DATE>> YYYY-MM-DD", current_date)
-        self.agent_steps = agent_steps.replace("<<CURRENT_DATE>> YYYY-MM-DD", current_date)
-        self.agent_instructions = agent_instructions.replace("<<CURRENT_DATE>> YYYY-MM-DD", current_date)
-        s
+        self.trigger_conditions = trigger_conditions.replace("<<CURRENT_DATE>>", f"{current_date} (format YYYY-MM-DD)")
+        self.system_prompt = system_prompt.replace("<<CURRENT_DATE>>", f"{current_date} (format YYYY-MM-DD)")
+        self.user_context = user_context.replace("<<CURRENT_DATE>>", f"{current_date} (format YYYY-MM-DD)")
+        self.agent_steps = agent_steps.replace("<<CURRENT_DATE>>", f"{current_date} (format YYYY-MM-DD)")
+        self.agent_instructions = agent_instructions.replace("<<CURRENT_DATE>>", f"{current_date} (format YYYY-MM-DD)")
+        
         self.client = OpenAI(
             base_url="https://openrouter.ai/api/v1",
             api_key=self.app_settings.OPENROUTER_API_KEY,

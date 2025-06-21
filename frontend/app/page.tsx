@@ -1,6 +1,6 @@
 'use client';
-import React, { useState, useEffect } from 'react';
-import { getAgentSettings, setAgentSettings as apiSetAgentSettings, FilterRules } from '../services/api';
+import React, { useState, useEffect, useRef } from 'react';
+import { getAgentSettings, setAgentSettings as apiSetAgentSettings, FilterRules, getMcpServers, McpServer, McpTool } from '../services/api';
 import TopBar from '../components/TopBar';
 
 interface AgentSettings {
@@ -11,6 +11,30 @@ interface AgentSettings {
   agentSteps: string;
   agentInstructions: string;
 }
+
+const Tooltip = ({ content, children }: { content: React.ReactNode, children: React.ReactNode }) => {
+  const [isVisible, setIsVisible] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  return (
+    <div 
+      className="relative inline-block"
+      onMouseEnter={() => setIsVisible(true)}
+      onMouseLeave={() => setIsVisible(false)}
+    >
+      {children}
+      {isVisible && (
+        <div
+          ref={ref}
+          className="absolute z-10 w-64 p-2 -mt-1 text-sm text-white bg-gray-800 rounded-lg shadow-lg"
+          style={{ bottom: '100%', left: '50%', transform: 'translateX(-50%)', marginBottom: '8px' }}
+        >
+          {content}
+        </div>
+      )}
+    </div>
+  );
+};
 
 const HomePage = () => {
   const [agentSettings, setAgentSettings] = useState<AgentSettings>({
@@ -26,6 +50,7 @@ const HomePage = () => {
     agentSteps: '',
     agentInstructions: '',
   });
+  const [mcpServers, setMcpServers] = useState<McpServer[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingField, setEditingField] = useState<keyof Omit<AgentSettings, 'filterRules'> | null>(null);
   const [modalContent, setModalContent] = useState('');
@@ -44,7 +69,7 @@ const HomePage = () => {
 
   useEffect(() => {
     console.log('Component mounted. Fetching initial data.');
-    const fetchAgentSettings = async () => {
+    const fetchInitialData = async () => {
       const fetchedAgentSettings = await getAgentSettings();
       setAgentSettings(prev => ({
         ...prev,
@@ -66,8 +91,11 @@ const HomePage = () => {
         domain_blacklist: fetchedAgentSettings.filter_rules?.domain_blacklist.join(', ') || '',
         domain_whitelist: fetchedAgentSettings.filter_rules?.domain_whitelist.join(', ') || '',
       });
+
+      const fetchedMcpServers = await getMcpServers();
+      setMcpServers(fetchedMcpServers);
     };
-    fetchAgentSettings();
+    fetchInitialData();
   }, []);
 
   const handleEdit = (field: keyof Omit<AgentSettings, 'filterRules'>) => {
@@ -265,11 +293,35 @@ const HomePage = () => {
               <div className="flex items-start mb-3">
                 <label className="mr-2 w-48 text-right font-bold pt-2">Tools:</label>
                 <div className="flex-1 flex flex-wrap gap-2 pt-2">
-                  <span className="bg-gray-200 text-gray-800 text-sm font-medium px-2 py-1 rounded-md">IMAP: draft_reply</span>
-                  <span className="bg-gray-200 text-gray-800 text-sm font-medium px-2 py-1 rounded-md">IMAP: semantic_search_emails</span>
-                  <span className="bg-gray-200 text-gray-800 text-sm font-medium px-2 py-1 rounded-md">IMAP: get_full_thread_for_email</span>
-                  <span className="bg-gray-200 text-gray-800 text-sm font-medium px-2 py-1 rounded-md">IMAP: get_email</span>
-                  <span className="bg-gray-200 text-gray-800 text-sm font-medium px-2 py-1 rounded-md">IMAP: list_inbox_emails</span>
+                  {mcpServers.map(server =>
+                    server.tools.map(tool => (
+                      <Tooltip 
+                        key={`${server.name}-${tool.name}`}
+                        content={
+                          <div>
+                            <p className="font-bold">{tool.name}</p>
+                            <p className="text-xs">{tool.description}</p>
+                            {Object.keys(tool.inputSchema).length > 0 && (
+                              <div className="mt-2 pt-1 border-t border-gray-600">
+                                <p className="font-semibold text-xs">Inputs:</p>
+                                <ul className="list-disc list-inside text-xs">
+                                  {Object.entries(tool.inputSchema).map(([key, value]) => (
+                                    <li key={key}>
+                                      <code>{key}</code>: {(value as any).description || (value as any).type || ''}
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+                          </div>
+                        }
+                      >
+                        <span className="bg-gray-200 text-gray-800 text-sm font-medium px-2 py-1 rounded-md cursor-default">
+                          {server.name.toUpperCase()}: {tool.name}
+                        </span>
+                      </Tooltip>
+                    ))
+                  )}
                 </div>
               </div>
               <button className="py-2 px-5 border-none rounded bg-blue-500 text-white cursor-pointer text-base block mx-auto" onClick={handleAgentV2Save}>Save Execution Agent Settings</button>

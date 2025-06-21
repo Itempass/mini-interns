@@ -38,7 +38,7 @@ def passes_trigger_conditions_check(msg, trigger_conditions: str, app_settings) 
     logger.info("Performing LLM-based trigger check...")
     
     current_date = datetime.now().strftime('%Y-%m-%d')
-    trigger_conditions = trigger_conditions.replace("<<CURRENT_DATE>> YYYY-MM-DD", current_date)
+    trigger_conditions = trigger_conditions.replace("<<CURRENT_DATE>>", f"{current_date} (format YYYY-MM-DD)")
 
     email_body = msg.text or msg.html
     if not email_body:
