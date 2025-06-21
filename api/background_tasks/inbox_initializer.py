@@ -17,19 +17,37 @@ logger = logging.getLogger(__name__)
 BATCH_SIZE = 10
 QDRANT_NAMESPACE_UUID = uuid.UUID('a1b2c3d4-e5f6-7890-1234-567890abcdef') # Namespace for deterministic UUIDs
 
-def get_email_body(raw_email: RawEmail) -> str:
-    """Extracts the plain text body from a RawEmail object."""
+def get_cleaned_email_body(raw_email: RawEmail) -> str:
+    """Extracts and cleans the plain text body from a RawEmail object."""
     msg = raw_email.msg
+    body = ""
     if msg.is_multipart():
         for part in msg.walk():
             ctype = part.get_content_type()
             cdispo = str(part.get('Content-Disposition'))
 
             if ctype == 'text/plain' and 'attachment' not in cdispo:
-                return part.get_payload(decode=True).decode('utf-8', errors='ignore')
+                try:
+                    charset = part.get_content_charset() or 'utf-8'
+                    payload = part.get_payload(decode=True)
+                    if payload:
+                        body = payload.decode(charset, errors='ignore')
+                        break
+                except Exception as e:
+                    logger.warning(f"Could not decode body part for email: {e}")
+                    body = "[Could not decode body]"
+
     else:
-        return msg.get_payload(decode=True).decode('utf-8', errors='ignore')
-    return ""
+        try:
+            charset = msg.get_content_charset() or 'utf-8'
+            payload = msg.get_payload(decode=True)
+            if payload:
+                body = payload.decode(charset, errors='ignore')
+        except Exception as e:
+            logger.warning(f"Could not decode body for email: {e}")
+            body = "[Could not decode body]"
+
+    return EmailReplyParser.parse_reply(body)
 
 async def initialize_inbox():
     """
@@ -55,8 +73,7 @@ async def initialize_inbox():
                 logger.info(f"Fetched thread for email {email.uid} with {len(thread)} messages.")
 
                 for message in thread:
-                    body = get_email_body(message)
-                    cleaned_body = EmailReplyParser.parse_reply(body)
+                    cleaned_body = get_cleaned_email_body(message)
 
                     if cleaned_body:
                         embedding = get_embedding(cleaned_body)
