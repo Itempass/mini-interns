@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { getAgentSettings, setAgentSettings as apiSetAgentSettings, FilterRules } from '../services/api';
 import TopBar from '../components/TopBar';
+import ChatWindow from '../components/ChatWindow';
 
 interface AgentSettings {
   systemPrompt: string;
@@ -138,97 +139,103 @@ const HomePage = () => {
   };
 
   return (
-    <div>
+    <div className="flex flex-col h-screen">
       <TopBar />
-      <div className="p-10 max-w-4xl mx-auto font-sans">
-        <div className="border border-gray-300 p-4 mb-5 rounded-lg bg-gray-50">
-          <h2 className="text-center mb-5 text-2xl font-bold">Filtering Rules</h2>
-          <p className="text-center text-sm text-gray-600 mb-5">
-            Add comma-separated emails or domains to filter incoming messages.
-          </p>
+      <div className="flex flex-1 overflow-hidden">
+        <div className="w-2/3 p-10 font-sans overflow-y-auto">
+          <div className="max-w-4xl mx-auto">
+            <div className="border border-gray-300 p-4 mb-5 rounded-lg bg-gray-50">
+              <h2 className="text-center mb-5 text-2xl font-bold">Filtering Rules</h2>
+              <p className="text-center text-sm text-gray-600 mb-5">
+                Add comma-separated emails or domains to filter incoming messages.
+              </p>
 
-          <div className="flex items-center mb-3">
-            <label className="mr-2 w-48 text-right font-bold">Email Blacklist:</label>
-            <div className="flex-1">
-              <textarea className="w-full p-2 rounded border border-gray-300 box-border" name="email_blacklist" value={filterRuleStrings.email_blacklist} onChange={handleFilterRuleChange} />
-              <p className="text-xs text-gray-600 mt-1">Stop processing emails from these specific addresses. Ex: spam@example.com, junk@mail.net</p>
-              {filterErrors.email_blacklist && <p className="text-xs text-red-600 mt-1">{filterErrors.email_blacklist}</p>}
-            </div>
-          </div>
-          <div className="flex items-center mb-3">
-            <label className="mr-2 w-48 text-right font-bold">Email Whitelist:</label>
-            <div className="flex-1">
-              <textarea className="w-full p-2 rounded border border-gray-300 box-border" name="email_whitelist" value={filterRuleStrings.email_whitelist} onChange={handleFilterRuleChange} />
-              <p className="text-xs text-gray-600 mt-1">If used, only emails from these addresses will proceed to the LLM trigger check. Ex: boss@mycompany.com</p>
-              {filterErrors.email_whitelist && <p className="text-xs text-red-600 mt-1">{filterErrors.email_whitelist}</p>}
-            </div>
-          </div>
-          <div className="flex items-center mb-3">
-            <label className="mr-2 w-48 text-right font-bold">Domain Blacklist:</label>
-            <div className="flex-1">
-              <textarea className="w-full p-2 rounded border border-gray-300 box-border" name="domain_blacklist" value={filterRuleStrings.domain_blacklist} onChange={handleFilterRuleChange} />
-              <p className="text-xs text-gray-600 mt-1">Stop processing emails from these domains. Ex: evil-corp.com, bad-actors.org</p>
-              {filterErrors.domain_blacklist && <p className="text-xs text-red-600 mt-1">{filterErrors.domain_blacklist}</p>}
-            </div>
-          </div>
-          <div className="flex items-center mb-3">
-            <label className="mr-2 w-48 text-right font-bold">Domain Whitelist:</label>
-            <div className="flex-1">
-              <textarea className="w-full p-2 rounded border border-gray-300 box-border" name="domain_whitelist" value={filterRuleStrings.domain_whitelist} onChange={handleFilterRuleChange} />
-              <p className="text-xs text-gray-600 mt-1">If used, only emails from these domains will proceed to the LLM trigger check. Ex: mycompany.com, important-client.com</p>
-              {filterErrors.domain_whitelist && <p className="text-xs text-red-600 mt-1">{filterErrors.domain_whitelist}</p>}
-            </div>
-          </div>
+              <div className="flex items-center mb-3">
+                <label className="mr-2 w-48 text-right font-bold">Email Blacklist:</label>
+                <div className="flex-1">
+                  <textarea className="w-full p-2 rounded border border-gray-300 box-border" name="email_blacklist" value={filterRuleStrings.email_blacklist} onChange={handleFilterRuleChange} />
+                  <p className="text-xs text-gray-600 mt-1">Stop processing emails from these specific addresses. Ex: spam@example.com, junk@mail.net</p>
+                  {filterErrors.email_blacklist && <p className="text-xs text-red-600 mt-1">{filterErrors.email_blacklist}</p>}
+                </div>
+              </div>
+              <div className="flex items-center mb-3">
+                <label className="mr-2 w-48 text-right font-bold">Email Whitelist:</label>
+                <div className="flex-1">
+                  <textarea className="w-full p-2 rounded border border-gray-300 box-border" name="email_whitelist" value={filterRuleStrings.email_whitelist} onChange={handleFilterRuleChange} />
+                  <p className="text-xs text-gray-600 mt-1">If used, only emails from these addresses will proceed to the LLM trigger check. Ex: boss@mycompany.com</p>
+                  {filterErrors.email_whitelist && <p className="text-xs text-red-600 mt-1">{filterErrors.email_whitelist}</p>}
+                </div>
+              </div>
+              <div className="flex items-center mb-3">
+                <label className="mr-2 w-48 text-right font-bold">Domain Blacklist:</label>
+                <div className="flex-1">
+                  <textarea className="w-full p-2 rounded border border-gray-300 box-border" name="domain_blacklist" value={filterRuleStrings.domain_blacklist} onChange={handleFilterRuleChange} />
+                  <p className="text-xs text-gray-600 mt-1">Stop processing emails from these domains. Ex: evil-corp.com, bad-actors.org</p>
+                  {filterErrors.domain_blacklist && <p className="text-xs text-red-600 mt-1">{filterErrors.domain_blacklist}</p>}
+                </div>
+              </div>
+              <div className="flex items-center mb-3">
+                <label className="mr-2 w-48 text-right font-bold">Domain Whitelist:</label>
+                <div className="flex-1">
+                  <textarea className="w-full p-2 rounded border border-gray-300 box-border" name="domain_whitelist" value={filterRuleStrings.domain_whitelist} onChange={handleFilterRuleChange} />
+                  <p className="text-xs text-gray-600 mt-1">If used, only emails from these domains will proceed to the LLM trigger check. Ex: mycompany.com, important-client.com</p>
+                  {filterErrors.domain_whitelist && <p className="text-xs text-red-600 mt-1">{filterErrors.domain_whitelist}</p>}
+                </div>
+              </div>
 
-          <button className="py-2 px-5 border-none rounded bg-blue-500 text-white cursor-pointer text-base block mx-auto" onClick={handleFilterRulesSave}>Save Filtering Rules</button>
-        </div>
-
-        <div className="border border-gray-300 p-4 mb-5 rounded-lg bg-gray-50">
-          <h2 className="text-center mb-5 text-2xl font-bold">Agent</h2>
-          <p className="text-center -mt-4 mb-5 text-gray-600">
-            The agent will trigger each time a new email is received
-          </p>
-          
-          <div className="flex items-center mb-3">
-            <label className="mr-2 w-48 text-right font-bold">System Prompt:</label>
-            <div className="flex-1">
-              <button className="py-1 px-2 text-sm m-0 border-none rounded bg-blue-500 text-white cursor-pointer" onClick={() => handleEdit('systemPrompt')}>Edit</button>
+              <button className="py-2 px-5 border-none rounded bg-blue-500 text-white cursor-pointer text-base block mx-auto" onClick={handleFilterRulesSave}>Save Filtering Rules</button>
             </div>
-          </div>
 
-          <div className="flex items-center mb-3">
-            <label className="mr-2 w-48 text-right font-bold">Trigger Conditions:</label>
-            <div className="flex-1">
-              <button className="py-1 px-2 text-sm m-0 border-none rounded bg-blue-500 text-white cursor-pointer" onClick={() => handleEdit('triggerConditions')}>Edit</button>
-            </div>
-          </div>
+            <div className="border border-gray-300 p-4 mb-5 rounded-lg bg-gray-50">
+              <h2 className="text-center mb-5 text-2xl font-bold">Agent</h2>
+              <p className="text-center -mt-4 mb-5 text-gray-600">
+                The agent will trigger each time a new email is received
+              </p>
+              
+              <div className="flex items-center mb-3">
+                <label className="mr-2 w-48 text-right font-bold">System Prompt:</label>
+                <div className="flex-1">
+                  <button className="py-1 px-2 text-sm m-0 border-none rounded bg-blue-500 text-white cursor-pointer" onClick={() => handleEdit('systemPrompt')}>Edit</button>
+                </div>
+              </div>
 
-          <div className="flex items-center mb-3">
-            <label className="mr-2 w-48 text-right font-bold">User Context:</label>
-            <div className="flex-1">
-              <button className="py-1 px-2 text-sm m-0 border-none rounded bg-blue-500 text-white cursor-pointer" onClick={() => handleEdit('userContext')}>Edit</button>
-            </div>
-          </div>
-        </div>
+              <div className="flex items-center mb-3">
+                <label className="mr-2 w-48 text-right font-bold">Trigger Conditions:</label>
+                <div className="flex-1">
+                  <button className="py-1 px-2 text-sm m-0 border-none rounded bg-blue-500 text-white cursor-pointer" onClick={() => handleEdit('triggerConditions')}>Edit</button>
+                </div>
+              </div>
 
-        
-        {isModalOpen && (
-          <div className="fixed top-0 left-0 right-0 bottom-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
-            <div className="bg-white p-5 rounded-lg w-[800px] max-h-[80vh] flex flex-col shadow-lg">
-              <h3 className="mt-0 text-xl font-bold mb-4">Edit {editingField && (editingField.charAt(0).toUpperCase() + editingField.slice(1)).replace(/([A-Z])/g, ' $1').trim()}</h3>
-              <textarea
-                className="w-full min-h-[400px] mb-2 p-2 rounded border border-gray-300 box-border resize-y"
-                value={modalContent}
-                onChange={(e) => setModalContent(e.target.value)}
-              />
-              <div className="flex justify-end">
-                <button className="py-2 px-5 mr-2 border-none rounded bg-blue-500 text-white cursor-pointer" onClick={handleModalSave}>Save</button>
-                <button className="py-2 px-5 border-none rounded bg-gray-500 text-white cursor-pointer" onClick={handleModalClose}>Cancel</button>
+              <div className="flex items-center mb-3">
+                <label className="mr-2 w-48 text-right font-bold">User Context:</label>
+                <div className="flex-1">
+                  <button className="py-1 px-2 text-sm m-0 border-none rounded bg-blue-500 text-white cursor-pointer" onClick={() => handleEdit('userContext')}>Edit</button>
+                </div>
               </div>
             </div>
           </div>
-        )}
+        </div>
+        <div className="w-1/3 h-full">
+          <ChatWindow />
+        </div>
       </div>
+
+      {isModalOpen && (
+        <div className="fixed top-0 left-0 right-0 bottom-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
+          <div className="bg-white p-5 rounded-lg w-[800px] max-h-[80vh] flex flex-col shadow-lg">
+            <h3 className="mt-0 text-xl font-bold mb-4">Edit {editingField && (editingField.charAt(0).toUpperCase() + editingField.slice(1)).replace(/([A-Z])/g, ' $1').trim()}</h3>
+            <textarea
+              className="w-full min-h-[400px] mb-2 p-2 rounded border border-gray-300 box-border resize-y"
+              value={modalContent}
+              onChange={(e) => setModalContent(e.target.value)}
+            />
+            <div className="flex justify-end">
+              <button className="py-2 px-5 mr-2 border-none rounded bg-blue-500 text-white cursor-pointer" onClick={handleModalSave}>Save</button>
+              <button className="py-2 px-5 border-none rounded bg-gray-500 text-white cursor-pointer" onClick={handleModalClose}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
