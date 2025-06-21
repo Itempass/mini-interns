@@ -11,6 +11,9 @@ from triggers.agent import EmailAgent
 from shared.config import settings
 import json
 from mcp_servers.imap_mcpserver.src.utils.contextual_id import create_contextual_id
+from openai import OpenAI
+from agentlogger.src.client import save_conversation_sync
+from agentlogger.src.models import ConversationData, Message, Metadata
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -26,6 +29,100 @@ def set_last_uid(uid: str):
     """Sets the last processed UID in Redis."""
     redis_client = get_redis_client()
     redis_client.set(RedisKeys.LAST_EMAIL_UID, uid)
+
+def passes_trigger_conditions_check(msg, trigger_conditions: str, app_settings) -> bool:
+    """
+    Uses an LLM to check if the email passes the trigger conditions.
+    """
+    logger.info("Performing LLM-based trigger check...")
+    
+    email_body = msg.text or msg.html
+    if not email_body:
+        logger.info("Email has no body, skipping LLM trigger check and returning False.")
+        return False
+
+    client = OpenAI(
+        base_url="https://openrouter.ai/api/v1",
+        api_key=app_settings.OPENROUTER_API_KEY,
+    )
+    
+    system_prompt = f"""
+You are a helpful assistant that determines if an email meets a user's criteria.
+Your task is to analyze the email in the user message based on the following criteria:
+---
+{trigger_conditions}
+---
+Based on the criteria, decide if the email given by the user in the user prompt should be processed.
+Respond with a single JSON object in the format: {{"should_process": true}} or {{"should_process": false}}.
+"""
+
+    user_prompt = f"""
+This is the email to be processed:
+From: {msg.from_}
+Subject: {msg.subject}
+Body:
+{email_body[:4000]}
+"""
+
+    messages=[
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt}
+    ]
+
+    try:
+        completion = client.chat.completions.create(
+            model=app_settings.OPENROUTER_MODEL,
+            messages=messages,
+            response_format={"type": "json_object"},
+            temperature=0.1,
+            max_tokens=150,
+        )
+
+        logger.info(f"LLM trigger check response: {completion.choices[0]}")
+        logger.info(f"LLM trigger check response: {completion.choices[0].message.content}")
+        
+        response_content = completion.choices[0].message.content
+        logger.info(f"LLM trigger check raw response: '{response_content}'")
+        
+        messages.append({"role": "assistant", "content": response_content})
+
+        try:
+            # Log the conversation
+            contextual_uid = create_contextual_id('INBOX', msg.uid) # Create a UID for logging
+            save_conversation_sync(ConversationData(
+                metadata=Metadata(conversation_id=f"trigger_{contextual_uid}"),
+                messages=[Message(**m) for m in messages if m.get("content") is not None]
+            ))
+            logger.info(f"Trigger check conversation for {contextual_uid} logged successfully.")
+        except Exception as e:
+            logger.error(f"Failed to log trigger check conversation: {e}", exc_info=True)
+
+
+        if not response_content or not response_content.strip():
+            logger.error("LLM returned an empty or whitespace-only response.")
+            return False
+
+        try:
+            response_json = json.loads(response_content)
+            should_process = response_json.get("should_process")
+
+            if isinstance(should_process, bool):
+                logger.info(f"LLM trigger check parsed value: {should_process}")
+                return should_process
+            if isinstance(should_process, str):
+                logger.info(f"LLM trigger check parsed value (from str): {should_process.lower()}")
+                return should_process.lower() == 'true'
+            
+            logger.warning(f"Got unexpected type or value for 'should_process': {should_process}. Defaulting to False.")
+            return False
+
+        except (json.JSONDecodeError, AttributeError) as e:
+            logger.error(f"Failed to parse JSON response from LLM: {response_content}. Error: {e}")
+            return False
+
+    except Exception as e:
+        logger.error(f"Error during LLM trigger check: {e}", exc_info=True)
+        return False
 
 def main():
     """
@@ -111,45 +208,55 @@ def process_message(msg, contextual_uid: str):
 
     # Check against filter rules
     if not passes_filter(msg.from_, filter_rules):
-        return # Stop processing if filters are not passed
+        return  # Stop processing if filters are not passed
 
-    if body:
-        # Check if draft creation is enabled
-        app_settings = load_app_settings()
-        if not app_settings.DRAFT_CREATION_ENABLED:
-            logger.info("Draft creation is paused. Skipping workflow and draft creation.")
-            return
-        
-        # 1. Fetch prompts from Redis
-        trigger_conditions = redis_client.get(RedisKeys.TRIGGER_CONDITIONS)
-        system_prompt = redis_client.get(RedisKeys.SYSTEM_PROMPT)
-        user_context = redis_client.get(RedisKeys.USER_CONTEXT)
-        agent_steps = redis_client.get(RedisKeys.AGENT_STEPS)
-        agent_instructions = redis_client.get(RedisKeys.AGENT_INSTRUCTIONS)
-
-        if not all([trigger_conditions, system_prompt, user_context, agent_steps, agent_instructions]):
-            logger.warning("Trigger conditions, system prompt, or user context not set in Redis. Skipping agent.")
-            return
-
-        # Run the Agent
-        agent = EmailAgent(
-            app_settings=app_settings,
-            trigger_conditions=trigger_conditions,
-            system_prompt=system_prompt,
-            user_context=user_context,
-            agent_steps=agent_steps,
-            agent_instructions=agent_instructions
-        )
-        agent_result = agent.run(msg, contextual_uid)
-        
-        # Check if we should create a draft
-        if agent_result and agent_result.get("success"):
-            logger.info("Agent created draft successfully!")
-            logger.info(agent_result["message"])
-        else:
-            logger.error(f"Agent failed to create draft: {agent_result.get('message', 'Unknown reason')}")
-    else:
+    if not body:
         logger.info("Email has no body content. Skipping processing.")
+        return
+
+    app_settings = load_app_settings()
+    trigger_conditions = redis_client.get(RedisKeys.TRIGGER_CONDITIONS)
+
+    if not trigger_conditions:
+        logger.warning("Trigger conditions not set. Skipping LLM check and agent workflow.")
+        return
+
+    if not passes_trigger_conditions_check(msg, trigger_conditions, app_settings):
+        logger.info("Email did not pass LLM trigger conditions check.")
+        return
+
+    # Check if draft creation is enabled
+    if not app_settings.DRAFT_CREATION_ENABLED:
+        logger.info("Draft creation is paused. Skipping workflow and draft creation.")
+        return
+
+    # 1. Fetch prompts from Redis
+    system_prompt = redis_client.get(RedisKeys.SYSTEM_PROMPT)
+    user_context = redis_client.get(RedisKeys.USER_CONTEXT)
+    agent_steps = redis_client.get(RedisKeys.AGENT_STEPS)
+    agent_instructions = redis_client.get(RedisKeys.AGENT_INSTRUCTIONS)
+
+    if not all([system_prompt, user_context, agent_steps, agent_instructions]):
+        logger.warning("One or more agent settings (system prompt, user context, steps, instructions) not set in Redis. Skipping agent.")
+        return
+
+    # Run the Agent
+    agent = EmailAgent(
+        app_settings=app_settings,
+        trigger_conditions=trigger_conditions,
+        system_prompt=system_prompt,
+        user_context=user_context,
+        agent_steps=agent_steps,
+        agent_instructions=agent_instructions
+    )
+    agent_result = agent.run(msg, contextual_uid)
+
+    # Check if we should create a draft
+    if agent_result and agent_result.get("success"):
+        logger.info("Agent created draft successfully!")
+        logger.info(agent_result["message"])
+    else:
+        logger.error(f"Agent failed to create draft: {agent_result.get('message', 'Unknown reason')}")
 
 if __name__ == "__main__":
     main() 

@@ -75,6 +75,13 @@ async def save_conversation(conversation_data: ConversationData) -> Dict[str, An
             "error": f"Failed to save conversation: {e}"
         }
 
+def save_conversation_sync(conversation_data: ConversationData) -> Dict[str, Any]:
+    """
+    Synchronous version of save_conversation.
+    """
+    import asyncio
+    return asyncio.run(save_conversation(conversation_data))
+
 def get_conversation(conversation_id: str) -> Optional[ConversationData]:
     """
     Retrieve a conversation from the database

@@ -77,14 +77,12 @@ const HomePage = () => {
   };
 
   const handleModalSave = async () => {
-    if (editingField) {
+    if (editingField && editingField !== 'triggerConditions') {
       const newSettings = { ...agentSettings, [editingField]: modalContent };
       setAgentSettings(newSettings);
       await apiSetAgentSettings({
         system_prompt: newSettings.systemPrompt,
-        trigger_conditions: newSettings.triggerConditions,
         user_context: newSettings.userContext,
-        filter_rules: newSettings.filterRules,
       });
     }
     setIsModalOpen(false);
@@ -124,7 +122,7 @@ const HomePage = () => {
   };
 
   const handleAgentV2Change = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const { name, value } = e.target as { name: 'agentSteps' | 'agentInstructions'; value: string };
+    const { name, value } = e.target as { name: 'agentSteps' | 'agentInstructions' | 'triggerConditions'; value: string };
     setAgentSettings(prev => ({
       ...prev,
       [name]: value,
@@ -136,7 +134,7 @@ const HomePage = () => {
       agent_steps: agentSettings.agentSteps,
       agent_instructions: agentSettings.agentInstructions,
     });
-    alert('Agent V2 settings saved!');
+    alert('Execution Agent settings saved!');
   };
 
   const handleFilterRulesSave = async () => {
@@ -156,8 +154,9 @@ const HomePage = () => {
 
     await apiSetAgentSettings({
         filter_rules: newFilterRules,
+        trigger_conditions: agentSettings.triggerConditions,
     });
-    alert('Filter rules saved!');
+    alert('Trigger settings saved!');
   };
 
   return (
@@ -166,54 +165,8 @@ const HomePage = () => {
       <div className="flex flex-1 overflow-hidden">
         <div className="w-full p-10 font-sans overflow-y-auto">
           <div className="max-w-4xl mx-auto">
-            <div className="border border-gray-300 p-4 mb-5 rounded-lg bg-gray-50">
-              <h2 className="text-center mb-5 text-2xl font-bold">Agent V2</h2>
-              <p className="text-center -mt-4 mb-5 text-gray-600">
-                Set up your agent here.
-              </p>
-              
-              <div className="flex items-start mb-3">
-                <label className="mr-2 w-48 text-right font-bold pt-2">Agent Steps:</label>
-                <div className="flex-1">
-                  <textarea 
-                    className="w-full p-2 rounded border border-gray-300 box-border" 
-                    name="agentSteps" 
-                    value={agentSettings.agentSteps} 
-                    onChange={handleAgentV2Change}
-                    rows={3}
-                  />
-                  <p className="text-xs text-gray-600 mt-1">Define the steps for the agent.</p>
-                </div>
-              </div>
-
-              <div className="flex items-start mb-3">
-                <label className="mr-2 w-48 text-right font-bold pt-2">Agent Instructions:</label>
-                <div className="flex-1">
-                  <textarea 
-                    className="w-full p-2 rounded border border-gray-300 box-border" 
-                    name="agentInstructions" 
-                    value={agentSettings.agentInstructions} 
-                    onChange={handleAgentV2Change}
-                    rows={6}
-                  />
-                  <p className="text-xs text-gray-600 mt-1">Provide detailed instructions for the agent.</p>
-                </div>
-              </div>
-              <div className="flex items-start mb-3">
-                <label className="mr-2 w-48 text-right font-bold pt-2">Tools:</label>
-                <div className="flex-1 flex flex-wrap gap-2 pt-2">
-                  <span className="bg-gray-200 text-gray-800 text-sm font-medium px-2 py-1 rounded-md">IMAP: draft_reply</span>
-                  <span className="bg-gray-200 text-gray-800 text-sm font-medium px-2 py-1 rounded-md">IMAP: semantic_search_emails</span>
-                  <span className="bg-gray-200 text-gray-800 text-sm font-medium px-2 py-1 rounded-md">IMAP: get_full_thread_for_email</span>
-                  <span className="bg-gray-200 text-gray-800 text-sm font-medium px-2 py-1 rounded-md">IMAP: get_email</span>
-                  <span className="bg-gray-200 text-gray-800 text-sm font-medium px-2 py-1 rounded-md">IMAP: list_inbox_emails</span>
-                </div>
-              </div>
-              <button className="py-2 px-5 border-none rounded bg-blue-500 text-white cursor-pointer text-base block mx-auto" onClick={handleAgentV2Save}>Save Agent V2 Settings</button>
-            </div>
-
-            <div className="border border-gray-300 p-4 mb-5 rounded-lg bg-gray-50">
-              <h2 className="text-center mb-5 text-2xl font-bold">Trigger: New Incoming Email</h2>
+          <div className="border border-gray-300 p-4 mb-5 rounded-lg bg-gray-50">
+              <h2 className="text-center mb-5 text-2xl font-bold">Trigger LLM</h2>
               <p className="text-center text-sm text-gray-600 mb-5">
                 The agent is triggered for every new incoming email. Customize trigger settings below.
               </p>
@@ -251,8 +204,75 @@ const HomePage = () => {
                 </div>
               </div>
 
+              <div className="flex items-start mb-3">
+                <label className="mr-2 w-48 text-right font-bold pt-2">Trigger Instructions:</label>
+                <div className="flex-1">
+                  <textarea 
+                    className="w-full p-2 rounded border border-gray-300 box-border" 
+                    name="triggerConditions" 
+                    value={agentSettings.triggerConditions} 
+                    onChange={handleAgentV2Change}
+                    rows={6}
+                  />
+                  <p className="text-xs text-gray-600 mt-1">Provide detailed instructions for the Trigger LLM. It will use these to decide whether to start the Execution Agent.</p>
+                </div>
+              </div>
+
               <button className="py-2 px-5 border-none rounded bg-blue-500 text-white cursor-pointer text-base block mx-auto" onClick={handleFilterRulesSave}>Save Trigger Settings</button>
             </div>
+
+
+
+            
+            <div className="border border-gray-300 p-4 mb-5 rounded-lg bg-gray-50">
+              
+              <h2 className="text-center mb-5 text-2xl font-bold">Execution Agent</h2>
+              <p className="text-center -mt-4 mb-5 text-gray-600">
+                Set up your agent here.
+              </p>
+              
+              <div className="flex items-start mb-3">
+                <label className="mr-2 w-48 text-right font-bold pt-2">Agent Steps:</label>
+                <div className="flex-1">
+                  <textarea 
+                    className="w-full p-2 rounded border border-gray-300 box-border" 
+                    name="agentSteps" 
+                    value={agentSettings.agentSteps} 
+                    onChange={handleAgentV2Change}
+                    rows={3}
+                  />
+                  <p className="text-xs text-gray-600 mt-1">Define the steps for the agent.</p>
+                </div>
+              </div>
+
+              <div className="flex items-start mb-3">
+                <label className="mr-2 w-48 text-right font-bold pt-2">Agent Instructions:</label>
+                <div className="flex-1">
+                  <textarea
+                    className="w-full p-2 rounded border border-gray-300 box-border"
+                    name="agentInstructions"
+                    value={agentSettings.agentInstructions}
+                    onChange={handleAgentV2Change}
+                    rows={6}
+                  />
+                  <p className="text-xs text-gray-600 mt-1">Provide detailed instructions for the agent.</p>
+                </div>
+              </div>
+
+              <div className="flex items-start mb-3">
+                <label className="mr-2 w-48 text-right font-bold pt-2">Tools:</label>
+                <div className="flex-1 flex flex-wrap gap-2 pt-2">
+                  <span className="bg-gray-200 text-gray-800 text-sm font-medium px-2 py-1 rounded-md">IMAP: draft_reply</span>
+                  <span className="bg-gray-200 text-gray-800 text-sm font-medium px-2 py-1 rounded-md">IMAP: semantic_search_emails</span>
+                  <span className="bg-gray-200 text-gray-800 text-sm font-medium px-2 py-1 rounded-md">IMAP: get_full_thread_for_email</span>
+                  <span className="bg-gray-200 text-gray-800 text-sm font-medium px-2 py-1 rounded-md">IMAP: get_email</span>
+                  <span className="bg-gray-200 text-gray-800 text-sm font-medium px-2 py-1 rounded-md">IMAP: list_inbox_emails</span>
+                </div>
+              </div>
+              <button className="py-2 px-5 border-none rounded bg-blue-500 text-white cursor-pointer text-base block mx-auto" onClick={handleAgentV2Save}>Save Execution Agent Settings</button>
+            </div>
+
+            
 
             <div className="border border-gray-300 p-4 mb-5 rounded-lg bg-gray-50">
               <h2 className="text-center mb-5 text-2xl font-bold">Agent</h2>
@@ -264,13 +284,6 @@ const HomePage = () => {
                 <label className="mr-2 w-48 text-right font-bold">System Prompt:</label>
                 <div className="flex-1">
                   <button className="py-1 px-2 text-sm m-0 border-none rounded bg-blue-500 text-white cursor-pointer" onClick={() => handleEdit('systemPrompt')}>Edit</button>
-                </div>
-              </div>
-
-              <div className="flex items-center mb-3">
-                <label className="mr-2 w-48 text-right font-bold">Trigger Conditions:</label>
-                <div className="flex-1">
-                  <button className="py-1 px-2 text-sm m-0 border-none rounded bg-blue-500 text-white cursor-pointer" onClick={() => handleEdit('triggerConditions')}>Edit</button>
                 </div>
               </div>
 
