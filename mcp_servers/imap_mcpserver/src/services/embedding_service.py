@@ -14,11 +14,11 @@ class EmbeddingService:
 
     def __init__(self):
         """Initializes the EmbeddingService."""
-        self.api_key = os.getenv("OPENAI_API_KEY")
+        self.api_key = os.getenv("EMBEDDING_OPENAI_API_KEY")
         self.embedding_model = os.getenv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
         
         if not self.api_key:
-            raise ValueError("OPENAI_API_KEY environment variable not set.")
+            raise ValueError("EMBEDDING_OPENAI_API_KEY environment variable not set.")
         
         self.client = OpenAI(api_key=self.api_key)
         logger.info(f"[EmbeddingService] Initialized with model: {self.embedding_model}")
