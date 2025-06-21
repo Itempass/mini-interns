@@ -170,7 +170,7 @@ const HomePage = () => {
             <div className="border border-gray-300 p-4 mb-5 rounded-lg bg-gray-50">
               <h2 className="text-center mb-5 text-2xl font-bold">Agent V2</h2>
               <p className="text-center -mt-4 mb-5 text-gray-600">
-                BACKEND DOESN'T USE THIS YET.
+                Set up your agent here.
               </p>
               
               <div className="flex items-start mb-3">
@@ -258,7 +258,7 @@ const HomePage = () => {
             <div className="border border-gray-300 p-4 mb-5 rounded-lg bg-gray-50">
               <h2 className="text-center mb-5 text-2xl font-bold">Agent</h2>
               <p className="text-center -mt-4 mb-5 text-gray-600">
-                The agent will trigger each time a new email is received
+                DEPRECATED.
               </p>
               
               <div className="flex items-center mb-3">
