@@ -1,12 +1,17 @@
 'use client';
 import React, { useState, useEffect } from 'react';
-import { getSettings, setSettings, AppSettings, initializeInbox, getInboxInitializationStatus } from '../../services/api';
+import { getSettings, setSettings, AppSettings, initializeInbox, getInboxInitializationStatus, testImapConnection } from '../../services/api';
 import { Copy } from 'lucide-react';
 import TopBar from '../../components/TopBar';
 
 const SettingsPage = () => {
   const [settings, setSettingsState] = useState<AppSettings>({});
+  const [initialSettings, setInitialSettings] = useState<AppSettings>({});
   const [inboxStatus, setInboxStatus] = useState<string | null>(null);
+  const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
+  const [testMessage, setTestMessage] = useState<string>('');
+
+  const hasUnsavedChanges = JSON.stringify(settings) !== JSON.stringify(initialSettings);
 
   const handleCopy = (text: string) => {
     navigator.clipboard.writeText(text).then(() => {}, (err) => {
@@ -21,6 +26,7 @@ const SettingsPage = () => {
     const fetchSettings = async () => {
       const fetchedSettings = await getSettings();
       setSettingsState(fetchedSettings);
+      setInitialSettings(fetchedSettings);
     };
     fetchSettings();
   }, []);
@@ -47,12 +53,31 @@ const SettingsPage = () => {
   const handleSave = async () => {
     console.log('Save button clicked. Saving settings:', settings);
     await setSettings(settings);
+    setInitialSettings(settings);
     alert('Settings saved!');
   };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
     setSettingsState(prev => ({ ...prev, [name]: value }));
+  };
+
+  const handleTestConnection = async () => {
+    if (hasUnsavedChanges) {
+        if (!window.confirm('You have unsaved changes that will not be included in the test. Please save your settings first. Do you want to proceed anyway?')) {
+            return;
+        }
+    }
+    setTestStatus('testing');
+    setTestMessage('');
+    try {
+      const result = await testImapConnection();
+      setTestStatus('success');
+      setTestMessage(result.message);
+    } catch (error: any) {
+      setTestStatus('error');
+      setTestMessage(error.message || 'An unknown error occurred.');
+    }
   };
 
   const handleVectorize = async () => {
@@ -158,8 +183,8 @@ const SettingsPage = () => {
               </span>
             </div>
             <div className="flex items-center mt-1">
-              <p className="m-0 text-xs text-gray-600">example: google/gemini-flash-1.5</p>
-              <button onClick={() => handleCopy('google/gemini-flash-1.5')} className={copyButtonStyle} title="Copy">
+              <p className="m-0 text-xs text-gray-600">example: google/gemini-2.5-flash-preview-05-20:thinking</p>
+              <button onClick={() => handleCopy('google/gemini-2.5-flash-preview-05-20:thinking')} className={copyButtonStyle} title="Copy">
                 <Copy size={14} />
               </button>
             </div>
@@ -183,7 +208,18 @@ const SettingsPage = () => {
           </div>
         </div>
         
-        <button className={buttonClasses} onClick={handleSave}>Save Settings</button>
+        {testMessage && (
+            <div className={`text-center p-2 mb-4 rounded-md text-sm ${testStatus === 'success' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                {testMessage}
+            </div>
+        )}
+        <div className="flex justify-center items-center space-x-4">
+          <button className={buttonClasses.replace('block mx-auto', '')} onClick={handleSave}>Save Settings</button>
+          <button className={`${buttonClasses.replace('block mx-auto', '')} bg-gray-500`} onClick={handleTestConnection} disabled={testStatus === 'testing'}>
+              {testStatus === 'testing' ? 'Testing...' : 'Test Connection'}
+          </button>
+        </div>
+        <p className="text-center text-xs text-gray-500 mt-2">First save any new settings before testing.</p>
         </div>
       </div>
     </div>

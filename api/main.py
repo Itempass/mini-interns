@@ -1,7 +1,7 @@
 import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from api.endpoints import app_settings, agent, agentlogger, mcp
+from api.endpoints import app_settings, agent, agentlogger, mcp, connection
 from shared.config import settings
 import uvicorn
 
@@ -23,6 +23,7 @@ app.include_router(app_settings.router, tags=["app_settings"])
 app.include_router(agent.router, tags=["agent"])
 app.include_router(agentlogger.router, tags=["agentlogger"])
 app.include_router(mcp.router, tags=["mcp"])
+app.include_router(connection.router, tags=["connection"])
 
 @app.get("/")
 def read_root():

@@ -65,6 +65,28 @@ export const setSettings = async (settings: AppSettings) => {
   }
 };
 
+export const testImapConnection = async () => {
+  console.log('Testing IMAP connection...');
+  try {
+    const response = await fetch(`${API_URL}/test_imap_connection`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+    const result = await response.json();
+    if (!response.ok) {
+      console.error('IMAP connection test failed. Status:', response.status, 'Details:', result.detail);
+      throw new Error(result.detail || 'Failed to test IMAP connection');
+    }
+    console.log('Successfully tested IMAP connection:', result);
+    return result;
+  } catch (error) {
+    console.error('An error occurred while testing IMAP connection:', error);
+    throw error;
+  }
+};
+
 export const getAgentSettings = async (): Promise<AgentSettings> => {
   console.log('Fetching agent settings from URL:', `${API_URL}/agent/settings`);
   try {
