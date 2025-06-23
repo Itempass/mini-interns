@@ -39,7 +39,7 @@ def _format_mcp_tools_for_openai(tools: list[Tool]) -> list[dict]:
     return formatted_tools
 
 class EmailAgent:
-    def __init__(self, app_settings: AppSettings, trigger_conditions: str, system_prompt: str, user_context: str, agent_steps: str, agent_instructions: str):
+    def __init__(self, app_settings: AppSettings, trigger_conditions: str, agent_instructions: str):
         self.app_settings = app_settings
         
         current_date = datetime.now().strftime('%Y-%m-%d')
@@ -118,11 +118,6 @@ class EmailAgent:
                         The user will provide you with instructions on what to do. Follow these dilligently. 
                     """
 
-                    agent_steps_prompt = f"""
-                        These are the steps you must follow:
-                        {self.agent_steps}
-                    """
-
                     input_prompt = f"""
                         Here is the email to analyze:
                         UID: {original_message.uid}
@@ -139,7 +134,6 @@ class EmailAgent:
                     messages = [
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": self.agent_instructions},
-                        #{"role": "user", "content": agent_steps_prompt},
                         {"role": "user", "content": input_prompt}
                     ]
                     logger.info(f"Initial messages prepared with {len(messages)} messages")
