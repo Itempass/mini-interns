@@ -52,16 +52,16 @@ def get_agent_settings():
         )
         results = pipeline.execute()[0]
         
-        filter_rules_json = results[3]
+        trigger_conditions = results[0]
+        filter_rules_json = results[1]
+        agent_instructions = results[2]
+        
         filter_rules = FilterRules.model_validate_json(filter_rules_json) if filter_rules_json else FilterRules()
 
         settings = AgentSettings(
-            #system_prompt=results[0] or get_default_system_prompt(),
-            trigger_conditions=results[1] or get_default_trigger_conditions(),
-            #user_context=results[2],
+            trigger_conditions=trigger_conditions,
             filter_rules=filter_rules,
-            #agent_steps=results[4],
-            agent_instructions=results[5]
+            agent_instructions=agent_instructions
         )
         return settings
     except Exception as e:
@@ -77,16 +77,10 @@ def set_agent_settings(settings: AgentSettings):
         redis_client = get_redis_client()
         pipeline = redis_client.pipeline()
         
-        if settings.system_prompt is not None:
-            pipeline.set(RedisKeys.SYSTEM_PROMPT, settings.system_prompt)
         if settings.trigger_conditions is not None:
             pipeline.set(RedisKeys.TRIGGER_CONDITIONS, settings.trigger_conditions)
-        if settings.user_context is not None:
-            pipeline.set(RedisKeys.USER_CONTEXT, settings.user_context)
         if settings.filter_rules is not None:
             pipeline.set(RedisKeys.FILTER_RULES, settings.filter_rules.json())
-        if settings.agent_steps is not None:
-            pipeline.set(RedisKeys.AGENT_STEPS, settings.agent_steps)
         if settings.agent_instructions is not None:
             pipeline.set(RedisKeys.AGENT_INSTRUCTIONS, settings.agent_instructions)
             
