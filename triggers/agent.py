@@ -45,9 +45,9 @@ class EmailAgent:
         current_date = datetime.now().strftime('%Y-%m-%d')
         
         self.trigger_conditions = trigger_conditions.replace("<<CURRENT_DATE>>", f"{current_date} (format YYYY-MM-DD)")
-        self.system_prompt = system_prompt.replace("<<CURRENT_DATE>>", f"{current_date} (format YYYY-MM-DD)")
-        self.user_context = user_context.replace("<<CURRENT_DATE>>", f"{current_date} (format YYYY-MM-DD)")
-        self.agent_steps = agent_steps.replace("<<CURRENT_DATE>>", f"{current_date} (format YYYY-MM-DD)")
+        #self.system_prompt = system_prompt.replace("<<CURRENT_DATE>>", f"{current_date} (format YYYY-MM-DD)")
+        #self.user_context = user_context.replace("<<CURRENT_DATE>>", f"{current_date} (format YYYY-MM-DD)")
+        #self.agent_steps = agent_steps.replace("<<CURRENT_DATE>>", f"{current_date} (format YYYY-MM-DD)")
         self.agent_instructions = agent_instructions.replace("<<CURRENT_DATE>>", f"{current_date} (format YYYY-MM-DD)")
         
         self.client = OpenAI(
