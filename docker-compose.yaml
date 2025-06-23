@@ -32,13 +32,13 @@ services:
 
   # Optional: Qdrant Read-Only Dashboard
   qdrant-dashboard:
-    image: nginx:alpine
+    build:
+      context: .
+      dockerfile: qdrant-dashboard.Dockerfile
     container_name: mini-interns-qdrant-readonly-dashboard
     ports:
       # Exposes a READ-ONLY dashboard on http://localhost:6333
       - "6333:80"
-    volumes:
-      - ./nginx-qdrant-readonly.conf:/etc/nginx/conf.d/default.conf:ro
     depends_on:
       - qdrant
     restart: unless-stopped
