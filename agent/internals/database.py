@@ -8,19 +8,14 @@ from agent.models import Agent as AgentModel, AgentInstance as AgentInstanceMode
 
 DB_PATH = "data/db/agent.db"
 
-async def _get_db() -> aiosqlite.Connection:
-    db = await aiosqlite.connect(DB_PATH)
-    db.row_factory = aiosqlite.Row
-    return db
-
 async def init_db():
-    async with await _get_db() as db:
+    async with aiosqlite.connect(DB_PATH) as db:
         with open("agent/schema.sql", "r") as f:
             await db.executescript(f.read())
         await db.commit()
 
 async def _create_agent_in_db(agent: AgentModel) -> AgentModel:
-    async with await _get_db() as db:
+    async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
             """
             INSERT INTO agents (uuid, name, description, system_prompt, user_instructions, created_at, updated_at)
@@ -40,20 +35,22 @@ async def _create_agent_in_db(agent: AgentModel) -> AgentModel:
     return agent
 
 async def _get_agent_from_db(uuid: UUID) -> AgentModel | None:
-    async with await _get_db() as db:
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
         cursor = await db.execute("SELECT * FROM agents WHERE uuid = ?", (str(uuid),))
         row = await cursor.fetchone()
         return AgentModel(**dict(row)) if row else None
 
 async def _list_agents_from_db() -> List[AgentModel]:
-    async with await _get_db() as db:
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
         cursor = await db.execute("SELECT * FROM agents ORDER BY created_at DESC")
         rows = await cursor.fetchall()
         return [AgentModel(**dict(row)) for row in rows]
 
 async def _update_agent_in_db(agent: AgentModel) -> AgentModel:
     agent.updated_at = datetime.utcnow()
-    async with await _get_db() as db:
+    async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
             """
             UPDATE agents
@@ -73,7 +70,7 @@ async def _update_agent_in_db(agent: AgentModel) -> AgentModel:
     return agent
 
 async def _create_instance_in_db(instance: AgentInstanceModel) -> AgentInstanceModel:
-    async with await _get_db() as db:
+    async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
             """
             INSERT INTO agent_instances (uuid, agent_uuid, user_input, messages, created_at, updated_at)
@@ -92,7 +89,8 @@ async def _create_instance_in_db(instance: AgentInstanceModel) -> AgentInstanceM
     return instance
 
 async def _get_instance_from_db(uuid: UUID) -> AgentInstanceModel | None:
-    async with await _get_db() as db:
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
         cursor = await db.execute("SELECT * FROM agent_instances WHERE uuid = ?", (str(uuid),))
         row = await cursor.fetchone()
         if not row:
@@ -103,7 +101,7 @@ async def _get_instance_from_db(uuid: UUID) -> AgentInstanceModel | None:
 
 async def _update_instance_in_db(instance: AgentInstanceModel) -> AgentInstanceModel:
     instance.updated_at = datetime.utcnow()
-    async with await _get_db() as db:
+    async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
             """
             UPDATE agent_instances
@@ -111,7 +109,7 @@ async def _update_instance_in_db(instance: AgentInstanceModel) -> AgentInstanceM
             WHERE uuid = ?
             """,
             (
-                json.dumps([msg.model_dump() for msg in instance.messages]),
+                json.dumps([msg.model_dump(exclude_none=True) for msg in instance.messages]),
                 instance.updated_at,
                 str(instance.uuid),
             ),

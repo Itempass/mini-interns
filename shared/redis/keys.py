@@ -13,3 +13,4 @@ class RedisKeys:
     INBOX_INITIALIZATION_STATUS = "inbox:initialization:status"
     AGENT_STEPS = "agent:agent_steps"
     AGENT_INSTRUCTIONS = "agent:agent_instructions"
+    DEFAULT_AGENT_ID = "agent:default_agent_id"

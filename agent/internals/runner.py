@@ -7,6 +7,7 @@ from openai import OpenAI
 from fastmcp import Client
 from shared.config import settings
 from agent.models import Agent as AgentModel, AgentInstance as AgentInstanceModel, Message
+from shared.app_settings import load_app_settings
 
 logger = logging.getLogger(__name__)
 
@@ -24,13 +25,19 @@ def _format_mcp_tools_for_openai(tools) -> list[dict]:
         formatted_tools.append(formatted_tool)
     return formatted_tools
 
-async def _execute_run(agent_model: AgentModel, instance: AgentInstanceModel, openrouter_api_key: str) -> AgentInstanceModel:
+async def _execute_run(agent_model: AgentModel, instance: AgentInstanceModel) -> AgentInstanceModel:
     logger.info(f"Starting execution for instance {instance.uuid} of agent {agent_model.uuid}")
+
+    app_settings = load_app_settings()
+    if not app_settings.OPENROUTER_API_KEY:
+        logger.error("OPENROUTER_API_KEY not found in settings. Cannot proceed.")
+        # You might want to add a message to the instance here
+        return instance
 
     # 1. Initialize OpenAI Client
     llm_client = OpenAI(
         base_url="https://openrouter.ai/api/v1",
-        api_key=openrouter_api_key,
+        api_key=app_settings.OPENROUTER_API_KEY,
     )
 
     # 2. Discover and connect to MCP server
@@ -77,7 +84,7 @@ async def _execute_run(agent_model: AgentModel, instance: AgentInstanceModel, op
                 tool_choice="auto",
             )
             response_message = response.choices[0].message
-            instance.messages.append(Message.model_validate(response_message))
+            instance.messages.append(Message.model_validate(response_message.model_dump()))
 
             if not response_message.tool_calls:
                 logger.info("Agent decided to finish.")

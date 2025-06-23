@@ -26,3 +26,4 @@ fastembed
 email-reply-parser
 beautifulsoup4
 lxml
+aiosqlite

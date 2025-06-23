@@ -34,10 +34,24 @@ def main():
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
-            conn.commit()
             print("Table 'messages' is present or was created successfully.")
-        
-        print("--- Database initialization complete ---")
+
+            # Also initialize agent tables
+            print("Initializing agent tables...")
+            try:
+                # Path is relative to the project root where this script is likely run from
+                schema_path = os.path.join(os.path.dirname(__file__), '..', 'agent', 'schema.sql')
+                with open(schema_path, 'r') as f:
+                    cursor.executescript(f.read())
+                print("Agent tables are present or were created successfully.")
+            except FileNotFoundError:
+                print(f"Agent schema file not found at {schema_path}. Skipping agent table creation.")
+            except Exception as e:
+                print(f"An error occurred during agent table initialization: {e}")
+                raise
+
+            conn.commit()
+            print("--- Database initialization complete ---")
 
     except sqlite3.Error as e:
         print(f"An error occurred during database initialization: {e}")

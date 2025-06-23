@@ -11,6 +11,7 @@ from agent.internals.database import (
 )
 from agent.internals.runner import _execute_run
 from shared.config import settings
+from shared.app_settings import AppSettings
 
 class AgentInstance:
     """
@@ -37,8 +38,8 @@ class AgentInstance:
         """
         Runs the agentic loop for this instance.
         """
-        # NOTE: Assumes OPENROUTER_API_KEY is available in shared.config.settings
-        completed_model = await _execute_run(self.agent.model, self.model, settings.OPENROUTER_API_KEY)
+        # NOTE: The runner will now load the API key itself.
+        completed_model = await _execute_run(self.agent.model, self.model)
         self.model = completed_model
         await _update_instance_in_db(self.model)
         return self

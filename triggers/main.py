@@ -7,14 +7,17 @@ from shared.redis.keys import RedisKeys
 from shared.redis.redis_client import get_redis_client
 from triggers.rules import passes_filter
 from api.types.api_models.agent import FilterRules
-from triggers.agent import EmailAgent
+from triggers.agent_helpers import get_or_create_default_agent_id
+from agent.agent import Agent
 from shared.config import settings
 import json
 from mcp_servers.imap_mcpserver.src.utils.contextual_id import create_contextual_id
 from openai import OpenAI
-from agentlogger.src.client import save_conversation_sync
+from agentlogger.src.client import save_conversation_sync, save_conversation
 from agentlogger.src.models import ConversationData, Message, Metadata
 from datetime import datetime
+from agent.internals.database import init_db as init_agent_db
+import asyncio
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -31,7 +34,7 @@ def set_last_uid(uid: str):
     redis_client = get_redis_client()
     redis_client.set(RedisKeys.LAST_EMAIL_UID, uid)
 
-def passes_trigger_conditions_check(msg, trigger_conditions: str, app_settings) -> bool:
+async def passes_trigger_conditions_check(msg, trigger_conditions: str, app_settings) -> bool:
     """
     Uses an LLM to check if the email passes the trigger conditions.
     """
@@ -76,7 +79,8 @@ Body:
     ]
 
     try:
-        completion = client.chat.completions.create(
+        completion = await asyncio.to_thread(
+            client.chat.completions.create,
             model=app_settings.OPENROUTER_MODEL,
             messages=messages,
             response_format={"type": "json_object"},
@@ -94,7 +98,7 @@ Body:
         try:
             # Log the conversation
             contextual_uid = create_contextual_id('INBOX', msg.uid) # Create a UID for logging
-            save_conversation_sync(ConversationData(
+            await save_conversation(ConversationData(
                 metadata=Metadata(conversation_id=f"trigger_{contextual_uid}"),
                 messages=[Message(**m) for m in messages if m.get("content") is not None]
             ))
@@ -135,6 +139,9 @@ def main():
     It will wait until settings are configured in Redis before starting.
     """
     logger.info("Trigger service started.")
+
+    # Initialize the agent database on startup
+    asyncio.run(init_agent_db())
 
     while True:
         try:
@@ -206,62 +213,77 @@ def process_message(msg, contextual_uid: str):
     logger.info(f"  Body: {body[:100].strip()}...")
     logger.info("--------------------")
 
-    # Load agent settings to get filter rules
-    redis_client = get_redis_client()
-    filter_rules_json = redis_client.get(RedisKeys.FILTER_RULES)
-    filter_rules = FilterRules.model_validate_json(filter_rules_json) if filter_rules_json else FilterRules()
+    # This function is now async to support our new agent system
+    async def _process_async():
+        # Load agent settings to get filter rules
+        redis_client = get_redis_client()
+        filter_rules_json = redis_client.get(RedisKeys.FILTER_RULES)
+        filter_rules = FilterRules.model_validate_json(filter_rules_json) if filter_rules_json else FilterRules()
 
-    # Check against filter rules
-    if not passes_filter(msg.from_, filter_rules):
-        return  # Stop processing if filters are not passed
+        # Check against filter rules
+        if not passes_filter(msg.from_, filter_rules):
+            return  # Stop processing if filters are not passed
 
-    if not body:
-        logger.info("Email has no body content. Skipping processing.")
-        return
+        if not body:
+            logger.info("Email has no body content. Skipping processing.")
+            return
 
-    app_settings = load_app_settings()
-    trigger_conditions = redis_client.get(RedisKeys.TRIGGER_CONDITIONS)
+        app_settings = load_app_settings()
+        trigger_conditions = redis_client.get(RedisKeys.TRIGGER_CONDITIONS)
 
-    if not trigger_conditions:
-        logger.warning("Trigger conditions not set. Skipping LLM check and agent workflow.")
-        return
+        if not trigger_conditions:
+            logger.warning("Trigger conditions not set. Skipping LLM check and agent workflow.")
+            return
 
-    if not passes_trigger_conditions_check(msg, trigger_conditions, app_settings):
-        logger.info("Email did not pass LLM trigger conditions check.")
-        return
+        if not await passes_trigger_conditions_check(msg, trigger_conditions, app_settings):
+            logger.info("Email did not pass LLM trigger conditions check.")
+            return
 
-    # Check if draft creation is enabled
-    if not app_settings.DRAFT_CREATION_ENABLED:
-        logger.info("Draft creation is paused. Skipping workflow and draft creation.")
-        return
+        # Check if draft creation is enabled
+        if not app_settings.DRAFT_CREATION_ENABLED:
+            logger.info("Draft creation is paused. Skipping workflow and draft creation.")
+            return
 
-    # 1. Fetch prompts from Redis
-    system_prompt = redis_client.get(RedisKeys.SYSTEM_PROMPT)
-    user_context = redis_client.get(RedisKeys.USER_CONTEXT)
-    agent_steps = redis_client.get(RedisKeys.AGENT_STEPS)
-    agent_instructions = redis_client.get(RedisKeys.AGENT_INSTRUCTIONS)
+        # --- New Agent Workflow ---
+        logger.info("Starting new agent workflow...")
+        try:
+            # 1. Get the default agent ID
+            agent_id = await get_or_create_default_agent_id()
 
-    if not all([system_prompt, user_context, agent_steps, agent_instructions]):
-        logger.warning("One or more agent settings (system prompt, user context, steps, instructions) not set in Redis. Skipping agent.")
-        return
+            # 2. Fetch the agent object
+            agent = await Agent.get(agent_id)
+            if not agent:
+                logger.error(f"Failed to retrieve agent with ID: {agent_id}. Skipping.")
+                return
 
-    # Run the Agent
-    agent = EmailAgent(
-        app_settings=app_settings,
-        trigger_conditions=trigger_conditions,
-        system_prompt=system_prompt,
-        user_context=user_context,
-        agent_steps=agent_steps,
-        agent_instructions=agent_instructions
-    )
-    agent_result = agent.run(msg, contextual_uid)
+            # 3. Create and run an instance
+            user_input = f"""
+This is the email to be processed:
+UID: {msg.uid}
+From: {msg.from_}
+To: {msg.to}
+Date: {msg.date_str}
+Subject: {msg.subject}
+Body:
+{body[:4000]}
+"""
+            logger.info(f"Creating instance for agent {agent.name} ({agent.uuid})")
+            instance = await agent.create_instance(user_input=user_input)
+            completed_instance = await instance.run()
+            logger.info(f"Agent instance {completed_instance.uuid} finished.")
 
-    # Check if we should create a draft
-    if agent_result and agent_result.get("success"):
-        logger.info("Agent created draft successfully!")
-        logger.info(agent_result["message"])
-    else:
-        logger.error(f"Agent failed to create draft: {agent_result.get('message', 'Unknown reason')}")
+            # 4. Log the conversation
+            await save_conversation(ConversationData(
+                metadata=Metadata(conversation_id=f"agent_{contextual_uid}"),
+                messages=[msg.model_dump() for msg in completed_instance.messages]
+            ))
+            logger.info(f"Conversation for instance {completed_instance.uuid} logged successfully.")
+
+        except Exception as e:
+            logger.error(f"An error occurred during the new agent workflow: {e}", exc_info=True)
+        # --- End New Agent Workflow ---
+        
+    asyncio.run(_process_async())
 
 if __name__ == "__main__":
     main() 
