@@ -593,6 +593,8 @@ class IMAPService:
                     # If not, convert the plain text signature to HTML as a fallback.
                     html_fallback_sig = f"-- <br>{_markdown_to_html(plain_signature.replace('--', ''))}"
                     full_html_body = f"{html_body}<br><br>{html_fallback_sig}"
+                else:
+                    full_html_body = html_body
 
                 # 5. Create body parts
                 part1 = MIMEText(full_plain_body, "plain")
