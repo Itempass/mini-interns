@@ -38,7 +38,7 @@ services:
       # Exposes a READ-ONLY dashboard on http://localhost:6333
       - "6333:80"
     volumes:
-      - ./nginx-qdrant-readonly.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx-qdrant-readonly.conf:/etc/nginx/conf.d/default.conf:ro
     depends_on:
       - qdrant
     restart: unless-stopped
