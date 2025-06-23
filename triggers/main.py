@@ -197,7 +197,7 @@ def main():
 def process_message(msg, contextual_uid: str):
     logger.info("--------------------")
     logger.info(f"New Email Received:")
-    logger.info(f"  UID: {msg.uid} (Contextual: {contextual_uid})")
+    logger.info(f"  UID: {contextual_uid}")
     logger.info(f"  From: {msg.from_}")
     logger.info(f"  To: {msg.to}")
     logger.info(f"  Date: {msg.date_str}")

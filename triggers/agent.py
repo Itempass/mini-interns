@@ -120,7 +120,7 @@ class EmailAgent:
 
                     input_prompt = f"""
                         Here is the email to analyze:
-                        UID: {original_message.uid}
+                        UID: {contextual_uid}
                         From: {original_message.from_}
                         To: {original_message.to}
                         Date: {original_message.date_str}
