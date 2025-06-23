@@ -1,6 +1,6 @@
 import logging
 from uuid import UUID
-from agent.agent import Agent
+from agent.client import Agent
 from shared.redis.keys import RedisKeys
 from shared.redis.redis_client import get_redis_client
 

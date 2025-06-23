@@ -8,7 +8,7 @@ from shared.redis.redis_client import get_redis_client
 from triggers.rules import passes_filter
 from api.types.api_models.agent import FilterRules
 from triggers.agent_helpers import get_or_create_default_agent_id
-from agent.agent import Agent
+from agent.client import Agent
 from shared.config import settings
 import json
 from mcp_servers.imap_mcpserver.src.utils.contextual_id import create_contextual_id
