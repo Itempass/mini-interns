@@ -115,7 +115,7 @@ class EmailAgent:
                     system_prompt = f"""
                         You are an agent that should follow the user instructions and execute tasks, using the tools provided to you.
 
-                        The user will provide you with instructions on what to do. Follow these dilligently. 
+                        The user will provide you with instructions on what to do. Follow these dilligently. Make sure to use the tools provided to you to execute the tasks and achieve the user's goals.
                     """
 
                     input_prompt = f"""
@@ -134,7 +134,8 @@ class EmailAgent:
                     messages = [
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": self.agent_instructions},
-                        {"role": "user", "content": input_prompt}
+                        {"role": "user", "content": input_prompt},
+                        {"role": "user", "content": "First, think about the user's instructions, the tools available to you, and the steps you need to take. Then, execute."}
                     ]
                     logger.info(f"Initial messages prepared with {len(messages)} messages")
 
