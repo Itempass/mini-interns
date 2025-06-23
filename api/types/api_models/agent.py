@@ -14,9 +14,9 @@ class AgentSettings(BaseModel):
     """
     A Pydantic model for agent settings.
     """
-    system_prompt: Optional[str] = None
+    #system_prompt: Optional[str] = None
     trigger_conditions: Optional[str] = None
-    user_context: Optional[str] = None
+    #user_context: Optional[str] = None
     filter_rules: Optional[FilterRules] = None
-    agent_steps: Optional[str] = None
+    #agent_steps: Optional[str] = None
     agent_instructions: Optional[str] = None 

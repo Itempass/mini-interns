@@ -46,11 +46,8 @@ def get_agent_settings():
         redis_client = get_redis_client()
         pipeline = redis_client.pipeline()
         pipeline.mget(
-            RedisKeys.SYSTEM_PROMPT,
             RedisKeys.TRIGGER_CONDITIONS,
-            RedisKeys.USER_CONTEXT,
             RedisKeys.FILTER_RULES,
-            RedisKeys.AGENT_STEPS,
             RedisKeys.AGENT_INSTRUCTIONS
         )
         results = pipeline.execute()[0]
@@ -59,11 +56,11 @@ def get_agent_settings():
         filter_rules = FilterRules.model_validate_json(filter_rules_json) if filter_rules_json else FilterRules()
 
         settings = AgentSettings(
-            system_prompt=results[0] or get_default_system_prompt(),
+            #system_prompt=results[0] or get_default_system_prompt(),
             trigger_conditions=results[1] or get_default_trigger_conditions(),
-            user_context=results[2],
+            #user_context=results[2],
             filter_rules=filter_rules,
-            agent_steps=results[4],
+            #agent_steps=results[4],
             agent_instructions=results[5]
         )
         return settings
