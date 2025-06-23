@@ -6,7 +6,7 @@ import httpx
 from openai import OpenAI
 from fastmcp import Client
 from shared.config import settings
-from agent.models import Agent as AgentModel, AgentInstance as AgentInstanceModel, Message
+from agent.models import AgentModel, AgentInstanceModel, MessageModel
 from shared.app_settings import load_app_settings
 
 logger = logging.getLogger(__name__)
@@ -66,9 +66,9 @@ async def _execute_run(agent_model: AgentModel, instance: AgentInstanceModel) ->
         tools = _format_mcp_tools_for_openai(mcp_tools)
 
         messages = [
-            Message(role="system", content=agent_model.system_prompt),
-            Message(role="user", content=agent_model.user_instructions),
-            Message(role="user", content=instance.user_input)
+            MessageModel(role="system", content=agent_model.system_prompt),
+            MessageModel(role="user", content=agent_model.user_instructions),
+            MessageModel(role="user", content=instance.user_input)
         ]
         instance.messages.extend(messages)
 
@@ -84,7 +84,7 @@ async def _execute_run(agent_model: AgentModel, instance: AgentInstanceModel) ->
                 tool_choice="auto",
             )
             response_message = response.choices[0].message
-            instance.messages.append(Message.model_validate(response_message.model_dump()))
+            instance.messages.append(MessageModel.model_validate(response_message.model_dump()))
 
             if not response_message.tool_calls:
                 logger.info("Agent decided to finish.")
@@ -100,7 +100,7 @@ async def _execute_run(agent_model: AgentModel, instance: AgentInstanceModel) ->
 
             for tool_call, result in zip(response_message.tool_calls, tool_results):
                 result_text = "\n".join(item.text for item in result)
-                instance.messages.append(Message(
+                instance.messages.append(MessageModel(
                     tool_call_id=tool_call.id,
                     role="tool",
                     name=tool_call.function.name,

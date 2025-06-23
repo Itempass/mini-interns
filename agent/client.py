@@ -1,108 +1,93 @@
 from __future__ import annotations
-from typing import List
+from typing import List, Dict, Any
 from uuid import UUID
-from agent.models import Agent as AgentModel, AgentInstance as AgentInstanceModel
+from agent.models import AgentModel, AgentInstanceModel, TriggerModel
 from agent.internals.database import (
     _create_agent_in_db,
     _get_agent_from_db,
     _update_agent_in_db,
     _create_instance_in_db,
-    _update_instance_in_db
+    _update_instance_in_db,
+    _create_trigger_in_db,
+    _get_trigger_from_db,
+    _update_trigger_in_db,
 )
 from agent.internals.runner import _execute_run
-from shared.config import settings
-from shared.app_settings import AppSettings
 
-class AgentInstance:
+
+# --- Agent Functions ---
+async def create_agent(
+    name: str,
+    description: str,
+    system_prompt: str,
+    user_instructions: str,
+) -> AgentModel:
     """
-    Represents a single, stateful run of an Agent.
-    Is responsible for its own execution and persistence.
-    Allows direct access to instance properties (e.g., instance.messages).
+    Creates a new Agent, persists it to the database, and returns the Pydantic model.
     """
-    def __init__(self, agent: Agent, model: AgentInstanceModel):
-        self.agent = agent
-        self.model = model
+    agent_model = AgentModel(
+        name=name,
+        description=description,
+        system_prompt=system_prompt,
+        user_instructions=user_instructions
+    )
+    await _create_agent_in_db(agent_model)
+    return agent_model
 
-    def __getattr__(self, name: str):
-        """Proxies attribute getting to the underlying Pydantic model."""
-        return getattr(self.model, name)
-
-    def __setattr__(self, name: str, value):
-        """Proxies attribute setting to the underlying Pydantic model."""
-        if name in ['agent', 'model']:
-            super().__setattr__(name, value)
-        else:
-            setattr(self.model, name, value)
-
-    async def run(self) -> AgentInstance:
-        """
-        Runs the agentic loop for this instance.
-        """
-        # NOTE: The runner will now load the API key itself.
-        completed_model = await _execute_run(self.agent.model, self.model)
-        self.model = completed_model
-        await _update_instance_in_db(self.model)
-        return self
-
-class Agent:
+async def get_agent(uuid: UUID) -> AgentModel | None:
     """
-    The main class for interacting with a persistent, runnable Agent blueprint.
-    Allows direct modification of agent properties (e.g., agent.name = "New Name").
-    Changes must be persisted by calling agent.save().
+    Retrieves an existing Agent from the database.
     """
-    
-    def __init__(self, agent_model: AgentModel):
-        self.model = agent_model
+    return await _get_agent_from_db(uuid)
 
-    def __getattr__(self, name: str):
-        """Proxies attribute getting to the underlying Pydantic model."""
-        return getattr(self.model, name)
+async def save_agent(agent_model: AgentModel) -> None:
+    """
+    Saves the current state of the Agent to the database.
+    """
+    await _update_agent_in_db(agent_model)
 
-    def __setattr__(self, name: str, value):
-        """Proxies attribute setting to the underlying Pydantic model."""
-        if name == 'model':
-            super().__setattr__(name, value)
-        else:
-            setattr(self.model, name, value)
+# --- AgentInstance Functions ---
+async def create_agent_instance(agent_uuid: UUID, user_input: str) -> AgentInstanceModel:
+    """
+    Creates a new, persistent instance of this agent for a specific run.
+    """
+    instance_model = AgentInstanceModel(agent_uuid=agent_uuid, user_input=user_input)
+    await _create_instance_in_db(instance_model)
+    return instance_model
 
-    @classmethod
-    async def create(
-        cls,
-        name: str,
-        description: str,
-        system_prompt: str,
-        user_instructions: str,
-    ) -> Agent:
-        """
-        Creates a new Agent, persists it to the database, and returns a runnable Agent instance.
-        """
-        agent_model = AgentModel(
-            name=name,
-            description=description,
-            system_prompt=system_prompt,
-            user_instructions=user_instructions
-        )
-        await _create_agent_in_db(agent_model)
-        return cls(agent_model)
+async def run_agent_instance(agent_model: AgentModel, instance_model: AgentInstanceModel) -> AgentInstanceModel:
+    """
+    Runs the agentic loop for this instance.
+    """
+    completed_model = await _execute_run(agent_model, instance_model)
+    await _update_instance_in_db(completed_model)
+    return completed_model
 
-    @classmethod
-    async def get(cls, uuid: UUID) -> Agent | None:
-        """
-        Retrieves an existing Agent from the database.
-        """
-        agent_model = await _get_agent_from_db(uuid)
-        return cls(agent_model) if agent_model else None
+# --- Trigger Functions ---
+async def create_trigger(
+    agent_uuid: UUID,
+    function_name: str,
+    rules_json: Dict[str, Any],
+) -> TriggerModel:
+    """
+    Creates a new Trigger, persists it to the database, and returns the Pydantic model.
+    """
+    trigger_model = TriggerModel(
+        agent_uuid=agent_uuid,
+        function_name=function_name,
+        rules_json=rules_json
+    )
+    await _create_trigger_in_db(trigger_model)
+    return trigger_model
 
-    async def save(self) -> None:
-        """
-        Saves the current state of the Agent to the database.
-        """
-        await _update_agent_in_db(self.model)
+async def get_trigger(uuid: UUID) -> TriggerModel | None:
+    """
+    Retrieves an existing Trigger from the database.
+    """
+    return await _get_trigger_from_db(uuid)
 
-    async def create_instance(self, user_input: str) -> AgentInstance:
-        """
-        Creates a new, persistent instance of this agent for a specific run.
-        """
-        instance_model = AgentInstanceModel(agent_uuid=self.model.uuid, user_input=user_input)
-        await _create_instance_in_db(instance_model)
-        return AgentInstance(self, instance_model) 
+async def save_trigger(trigger_model: TriggerModel) -> None:
+    """
+    Saves the current state of the Trigger to the database.
+    """
+    await _update_trigger_in_db(trigger_model) 

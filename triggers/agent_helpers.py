@@ -1,6 +1,6 @@
 import logging
 from uuid import UUID
-from agent.client import Agent
+from agent import client as agent_client
 from shared.redis.keys import RedisKeys
 from shared.redis.redis_client import get_redis_client
 
@@ -23,8 +23,8 @@ async def get_or_create_default_agent_id() -> UUID:
         logger.info(f"Found potential default agent ID in Redis: {agent_id_str}")
         agent_id = UUID(agent_id_str)
         # Verify the agent actually exists in the database
-        agent = await Agent.get(agent_id)
-        if agent:
+        agent_model = await agent_client.get_agent(agent_id)
+        if agent_model:
             logger.info(f"Verified agent {agent_id} exists. Using it.")
             return agent_id
         else:
@@ -41,7 +41,7 @@ async def get_or_create_default_agent_id() -> UUID:
         logger.warning(f"AGENT_INSTRUCTIONS not found in Redis. Using a fallback.")
 
     # Create the agent
-    agent = await Agent.create(
+    agent_model = await agent_client.create_agent(
         name="Default Email Agent",
         description="The default agent used by the email trigger system.",
         system_prompt=DEFAULT_SYSTEM_PROMPT,
@@ -49,7 +49,7 @@ async def get_or_create_default_agent_id() -> UUID:
     )
 
     # Store the new agent's ID in Redis
-    agent_id = agent.uuid
+    agent_id = agent_model.uuid
     redis_client.set(RedisKeys.DEFAULT_AGENT_ID, str(agent_id))
     logger.info(f"Created new default agent and stored its ID in Redis: {agent_id}")
 

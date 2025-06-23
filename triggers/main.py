@@ -8,7 +8,7 @@ from shared.redis.redis_client import get_redis_client
 from triggers.rules import passes_filter
 from api.types.api_models.agent import FilterRules
 from triggers.agent_helpers import get_or_create_default_agent_id
-from agent.client import Agent
+from agent import client as agent_client, models as agent_models
 from shared.config import settings
 import json
 from mcp_servers.imap_mcpserver.src.utils.contextual_id import create_contextual_id
@@ -251,8 +251,8 @@ def process_message(msg, contextual_uid: str):
             agent_id = await get_or_create_default_agent_id()
 
             # 2. Fetch the agent object
-            agent = await Agent.get(agent_id)
-            if not agent:
+            agent_model = await agent_client.get_agent(agent_id)
+            if not agent_model:
                 logger.error(f"Failed to retrieve agent with ID: {agent_id}. Skipping.")
                 return
 
@@ -267,17 +267,17 @@ Subject: {msg.subject}
 Body:
 {body[:4000]}
 """
-            logger.info(f"Creating instance for agent {agent.name} ({agent.uuid})")
-            instance = await agent.create_instance(user_input=user_input)
-            completed_instance = await instance.run()
-            logger.info(f"Agent instance {completed_instance.uuid} finished.")
+            logger.info(f"Creating instance for agent {agent_model.name} ({agent_model.uuid})")
+            instance_model = await agent_client.create_agent_instance(agent_uuid=agent_model.uuid, user_input=user_input)
+            completed_instance_model = await agent_client.run_agent_instance(agent_model, instance_model)
+            logger.info(f"Agent instance {completed_instance_model.uuid} finished.")
 
             # 4. Log the conversation
             await save_conversation(ConversationData(
                 metadata=Metadata(conversation_id=f"agent_{contextual_uid}"),
-                messages=[msg.model_dump() for msg in completed_instance.messages]
+                messages=[msg.model_dump() for msg in completed_instance_model.messages]
             ))
-            logger.info(f"Conversation for instance {completed_instance.uuid} logged successfully.")
+            logger.info(f"Conversation for instance {completed_instance_model.uuid} logged successfully.")
 
         except Exception as e:
             logger.error(f"An error occurred during the new agent workflow: {e}", exc_info=True)
