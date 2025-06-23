@@ -241,7 +241,7 @@ def process_message(msg, contextual_uid: str):
     agent_steps = redis_client.get(RedisKeys.AGENT_STEPS)
     agent_instructions = redis_client.get(RedisKeys.AGENT_INSTRUCTIONS)
 
-    if not all([system_prompt, user_context, agent_steps, agent_instructions]):
+    if not all([agent_instructions]):
         logger.warning("One or more agent settings (system prompt, user context, steps, instructions) not set in Redis. Skipping agent.")
         return
 
