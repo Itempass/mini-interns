@@ -66,6 +66,7 @@ const HomePage = () => {
     domain_blacklist: '',
     domain_whitelist: '',
   });
+  const [showFilterRules, setShowFilterRules] = useState(false);
 
   useEffect(() => {
     console.log('Component mounted. Fetching initial data.');
@@ -199,37 +200,43 @@ const HomePage = () => {
                 The agent is triggered for every new incoming email. Customize trigger settings below.
               </p>
 
-              <div className="flex items-center mb-3">
-                <label className="mr-2 w-48 text-right font-bold">Email Blacklist:</label>
-                <div className="flex-1">
-                  <textarea className="w-full p-2 rounded border border-gray-300 box-border" name="email_blacklist" value={filterRuleStrings.email_blacklist} onChange={handleFilterRuleChange} rows={1} />
-                  <p className="text-xs text-gray-600 mt-1">Stop processing emails from these specific addresses. Ex: spam@example.com, junk@mail.net</p>
-                  {filterErrors.email_blacklist && <p className="text-xs text-red-600 mt-1">{filterErrors.email_blacklist}</p>}
-                </div>
-              </div>
-              <div className="flex items-center mb-3">
-                <label className="mr-2 w-48 text-right font-bold">Email Whitelist:</label>
-                <div className="flex-1">
-                  <textarea className="w-full p-2 rounded border border-gray-300 box-border" name="email_whitelist" value={filterRuleStrings.email_whitelist} onChange={handleFilterRuleChange} rows={1} />
-                  <p className="text-xs text-gray-600 mt-1">If used, only emails from these addresses will proceed to the LLM trigger check. Ex: boss@mycompany.com</p>
-                  {filterErrors.email_whitelist && <p className="text-xs text-red-600 mt-1">{filterErrors.email_whitelist}</p>}
-                </div>
-              </div>
-              <div className="flex items-center mb-3">
-                <label className="mr-2 w-48 text-right font-bold">Domain Blacklist:</label>
-                <div className="flex-1">
-                  <textarea className="w-full p-2 rounded border border-gray-300 box-border" name="domain_blacklist" value={filterRuleStrings.domain_blacklist} onChange={handleFilterRuleChange} rows={1} />
-                  <p className="text-xs text-gray-600 mt-1">Stop processing emails from these domains. Ex: evil-corp.com, bad-actors.org</p>
-                  {filterErrors.domain_blacklist && <p className="text-xs text-red-600 mt-1">{filterErrors.domain_blacklist}</p>}
-                </div>
-              </div>
-              <div className="flex items-center mb-3">
-                <label className="mr-2 w-48 text-right font-bold">Domain Whitelist:</label>
-                <div className="flex-1">
-                  <textarea className="w-full p-2 rounded border border-gray-300 box-border" name="domain_whitelist" value={filterRuleStrings.domain_whitelist} onChange={handleFilterRuleChange} rows={1} />
-                  <p className="text-xs text-gray-600 mt-1">If used, only emails from these domains will proceed to the LLM trigger check. Ex: mycompany.com, important-client.com</p>
-                  {filterErrors.domain_whitelist && <p className="text-xs text-red-600 mt-1">{filterErrors.domain_whitelist}</p>}
-                </div>
+              <div className="mb-3 flex flex-col items-start">
+                <button 
+                  onClick={() => setShowFilterRules(!showFilterRules)}
+                  className="flex items-center gap-2 font-bold px-4 py-2 rounded hover:bg-gray-100 border border-gray-200 shadow-sm transition-colors"
+                  type="button"
+                >
+                  <span>Email blacklist/whitelist rules</span>
+                  <svg className={`w-4 h-4 transform transition-transform ${showFilterRules ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
+                </button>
+                {showFilterRules && (
+                  <div className="mt-3 w-full pl-4">
+                    <div className="mb-3">
+                      <label className="block font-semibold mb-1">Email Blacklist:</label>
+                      <textarea className="w-full p-2 rounded border border-gray-300 box-border" name="email_blacklist" value={filterRuleStrings.email_blacklist} onChange={handleFilterRuleChange} rows={1} />
+                      <p className="text-xs text-gray-600 mt-1">Stop processing emails from these specific addresses. Ex: spam@example.com, junk@mail.net</p>
+                      {filterErrors.email_blacklist && <p className="text-xs text-red-600 mt-1">{filterErrors.email_blacklist}</p>}
+                    </div>
+                    <div className="mb-3">
+                      <label className="block font-semibold mb-1">Email Whitelist:</label>
+                      <textarea className="w-full p-2 rounded border border-gray-300 box-border" name="email_whitelist" value={filterRuleStrings.email_whitelist} onChange={handleFilterRuleChange} rows={1} />
+                      <p className="text-xs text-gray-600 mt-1">If used, only emails from these addresses will proceed to the LLM trigger check. Ex: boss@mycompany.com</p>
+                      {filterErrors.email_whitelist && <p className="text-xs text-red-600 mt-1">{filterErrors.email_whitelist}</p>}
+                    </div>
+                    <div className="mb-3">
+                      <label className="block font-semibold mb-1">Domain Blacklist:</label>
+                      <textarea className="w-full p-2 rounded border border-gray-300 box-border" name="domain_blacklist" value={filterRuleStrings.domain_blacklist} onChange={handleFilterRuleChange} rows={1} />
+                      <p className="text-xs text-gray-600 mt-1">Stop processing emails from these domains. Ex: evil-corp.com, bad-actors.org</p>
+                      {filterErrors.domain_blacklist && <p className="text-xs text-red-600 mt-1">{filterErrors.domain_blacklist}</p>}
+                    </div>
+                    <div className="mb-3">
+                      <label className="block font-semibold mb-1">Domain Whitelist:</label>
+                      <textarea className="w-full p-2 rounded border border-gray-300 box-border" name="domain_whitelist" value={filterRuleStrings.domain_whitelist} onChange={handleFilterRuleChange} rows={1} />
+                      <p className="text-xs text-gray-600 mt-1">If used, only emails from these domains will proceed to the LLM trigger check. Ex: mycompany.com, important-client.com</p>
+                      {filterErrors.domain_whitelist && <p className="text-xs text-red-600 mt-1">{filterErrors.domain_whitelist}</p>}
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="flex items-start mb-3">
@@ -329,26 +336,7 @@ const HomePage = () => {
 
             
 
-            <div className="border border-gray-300 p-4 mb-5 rounded-lg bg-gray-50">
-              <h2 className="text-center mb-5 text-2xl font-bold">Agent</h2>
-              <p className="text-center -mt-4 mb-5 text-gray-600">
-                DEPRECATED.
-              </p>
-              
-              <div className="flex items-center mb-3">
-                <label className="mr-2 w-48 text-right font-bold">System Prompt:</label>
-                <div className="flex-1">
-                  <button className="py-1 px-2 text-sm m-0 border-none rounded bg-blue-500 text-white cursor-pointer" onClick={() => handleEdit('systemPrompt')}>Edit</button>
-                </div>
-              </div>
-
-              <div className="flex items-center mb-3">
-                <label className="mr-2 w-48 text-right font-bold">User Context:</label>
-                <div className="flex-1">
-                  <button className="py-1 px-2 text-sm m-0 border-none rounded bg-blue-500 text-white cursor-pointer" onClick={() => handleEdit('userContext')}>Edit</button>
-                </div>
-              </div>
-            </div>
+            
           </div>
         </div>
       </div>
