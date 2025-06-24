@@ -220,7 +220,7 @@ async def draft_reply(messageId: str, body: str) -> Dict[str, Any]:
     Drafts a reply to a given email and saves it in the drafts folder.
     It does NOT send the email.
     """
-    
+
     if not is_valid_contextual_id(messageId):
         return {"error": f"Invalid messageId format. It must be a contextual ID (e.g., 'SU5CT1g=:1234'). You must use a valid messageId from another tool."}
 
@@ -229,7 +229,7 @@ async def draft_reply(messageId: str, body: str) -> Dict[str, Any]:
 # The following tools are not directly related to IMAP but are often used in the same context.
 # They can be moved to a different service/tool file later if needed.
 
-@mcp_builder.tool()
+#@mcp_builder.tool()
 async def semantic_search_emails(query: str, top_k: Optional[int] = 10) -> List[Dict[str, Any]]:
     """Performs a semantic search on emails and returns conversational context."""
     search_hits = semantic_search(

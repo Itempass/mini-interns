@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { getAgentSettings, setAgentSettings as apiSetAgentSettings, FilterRules, getMcpServers, McpServer, McpTool } from '../services/api';
 import TopBar from '../components/TopBar';
+import ToolList, { UiTool } from '../components/ToolList';
 
 interface AgentSettings {
   systemPrompt: string;
@@ -67,6 +68,7 @@ const HomePage = () => {
     domain_whitelist: '',
   });
   const [showFilterRules, setShowFilterRules] = useState(false);
+  const [tools, setTools] = useState<UiTool[]>([]);
 
   useEffect(() => {
     console.log('Component mounted. Fetching initial data.');
@@ -94,7 +96,33 @@ const HomePage = () => {
       });
 
       const fetchedMcpServers = await getMcpServers();
-      setMcpServers(fetchedMcpServers);
+      const savedTools = fetchedAgentSettings.agent_tools || {};
+      
+      const allTools: UiTool[] = fetchedMcpServers.flatMap(server =>
+        server.tools.map(tool => {
+          const toolId = `${server.name}-${tool.name}`;
+          const savedTool = savedTools[toolId];
+          return {
+            ...tool,
+            id: toolId,
+            serverName: server.name,
+            enabled: savedTool ? savedTool.enabled : false, // Default to disabled if not in settings
+            required: savedTool ? savedTool.required : false,
+          };
+        })
+      );
+
+      // Sort required tools based on saved order
+      const sortedTools = allTools.sort((a, b) => {
+        const aSaved = savedTools[a.id];
+        const bSaved = savedTools[b.id];
+        if (a.required && b.required && aSaved && bSaved && aSaved.order !== undefined && bSaved.order !== undefined) {
+          return aSaved.order - bSaved.order;
+        }
+        return 0;
+      });
+
+      setTools(sortedTools);
     };
     fetchInitialData();
   }, []);
@@ -159,9 +187,22 @@ const HomePage = () => {
   };
 
   const handleAgentV2Save = async () => {
+    const agentToolsToSave: { [key: string]: { enabled: boolean; required: boolean; order?: number } } = {};
+    const requiredTools = tools.filter(t => t.required);
+
+    tools.forEach(tool => {
+      agentToolsToSave[tool.id] = {
+        enabled: tool.enabled,
+        required: tool.required,
+      };
+      if(tool.required){
+        agentToolsToSave[tool.id].order = requiredTools.findIndex(t => t.id === tool.id);
+      }
+    });
+
     await apiSetAgentSettings({
-      agent_steps: agentSettings.agentSteps,
       agent_instructions: agentSettings.agentInstructions,
+      agent_tools: agentToolsToSave,
     });
     alert('Execution Agent settings saved!');
   };
@@ -299,36 +340,8 @@ const HomePage = () => {
 
               <div className="flex items-start mb-3">
                 <label className="mr-2 w-48 text-right font-bold pt-2">Tools:</label>
-                <div className="flex-1 flex flex-wrap gap-2 pt-2">
-                  {mcpServers.map(server =>
-                    server.tools.map(tool => (
-                      <Tooltip 
-                        key={`${server.name}-${tool.name}`}
-                        content={
-                          <div>
-                            <p className="font-bold">{tool.name}</p>
-                            <p className="text-xs">{tool.description}</p>
-                            {Object.keys(tool.inputSchema).length > 0 && (
-                              <div className="mt-2 pt-1 border-t border-gray-600">
-                                <p className="font-semibold text-xs">Inputs:</p>
-                                <ul className="list-disc list-inside text-xs">
-                                  {Object.entries(tool.inputSchema).map(([key, value]) => (
-                                    <li key={key}>
-                                      <code>{key}</code>: {(value as any).description || (value as any).type || ''}
-                                    </li>
-                                  ))}
-                                </ul>
-                              </div>
-                            )}
-                          </div>
-                        }
-                      >
-                        <span className="bg-gray-200 text-gray-800 text-sm font-medium px-2 py-1 rounded-md cursor-default">
-                          {server.name.toUpperCase()}: {tool.name}
-                        </span>
-                      </Tooltip>
-                    ))
-                  )}
+                <div className="flex-1">
+                  <ToolList tools={tools} setTools={setTools} />
                 </div>
               </div>
               <button className="py-2 px-5 border-none rounded bg-blue-500 text-white cursor-pointer text-base block mx-auto" onClick={handleAgentV2Save}>Save Execution Agent Settings</button>
