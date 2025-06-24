@@ -10,30 +10,31 @@ from mcp.types import Tool, TextContent
 from shared.config import settings  
 import httpx
 from datetime import datetime
+from shared.redis.redis_client import get_redis_client
+from shared.redis.keys import RedisKeys
 
 logger = logging.getLogger(__name__)
 
 
 
-def _format_mcp_tools_for_openai(tools: list[Tool]) -> list[dict]:
+def _format_mcp_tools_for_openai(tools: list[Tool], server_name: str) -> list[dict]:
     """Formats a list of MCP Tools into the format expected by OpenAI."""
-    logger.info(f"Formatting {len(tools)} MCP tools for OpenAI:")
-    for tool in tools:
-        logger.info(f"  - Tool: {tool.name} - {tool.description}")
+    logger.info(f"Formatting {len(tools)} MCP tools for OpenAI using server name '{server_name}':")
     
     formatted_tools = []
     for tool in tools:
+        full_tool_name = f"{server_name}-{tool.name}"
         # Use inputSchema instead of parameters for mcp.types.Tool
         formatted_tool = {
             "type": "function",
             "function": {
-                "name": tool.name,
+                "name": full_tool_name,
                 "description": tool.description,
                 "parameters": tool.inputSchema,
             },
         }
         formatted_tools.append(formatted_tool)
-        logger.debug(f"Formatted tool: {json.dumps(formatted_tool, indent=2)}")
+        logger.debug(f"Formatted tool with full name: {json.dumps(formatted_tool, indent=2)}")
     
     logger.info(f"Successfully formatted {len(formatted_tools)} tools for OpenAI")
     return formatted_tools
@@ -45,11 +46,24 @@ class EmailAgent:
         current_date = datetime.now().strftime('%Y-%m-%d')
         
         self.trigger_conditions = trigger_conditions.replace("<<CURRENT_DATE>>", f"{current_date} (format YYYY-MM-DD)")
-        #self.system_prompt = system_prompt.replace("<<CURRENT_DATE>>", f"{current_date} (format YYYY-MM-DD)")
-        #self.user_context = user_context.replace("<<CURRENT_DATE>>", f"{current_date} (format YYYY-MM-DD)")
-        #self.agent_steps = agent_steps.replace("<<CURRENT_DATE>>", f"{current_date} (format YYYY-MM-DD)")
+
         self.agent_instructions = agent_instructions.replace("<<CURRENT_DATE>>", f"{current_date} (format YYYY-MM-DD)")
         
+        redis_client = get_redis_client()
+        agent_tools_json = redis_client.get(RedisKeys.AGENT_TOOLS)
+        agent_tools = json.loads(agent_tools_json) if agent_tools_json else {}
+        
+        self.agent_tools = agent_tools
+        required_tools_with_order = [
+            (tool_id, details['order'])
+            for tool_id, details in agent_tools.items()
+            if details.get('required')
+        ]
+        required_tools_with_order.sort(key=lambda x: x[1])
+        self.required_tools_sequence = [tool_id for tool_id, order in required_tools_with_order]
+        logger.info(f"Required tool sequence loaded: {self.required_tools_sequence}")
+        logger.info(f"Full agent tool settings from Redis: {self.agent_tools}")
+
         self.client = OpenAI(
             base_url="https://openrouter.ai/api/v1",
             api_key=self.app_settings.OPENROUTER_API_KEY,
@@ -85,8 +99,9 @@ class EmailAgent:
                             # For now, just use the first available server.
                             # This can be expanded with more sophisticated selection logic.
                             selected_server = servers[0]
+                            server_name = selected_server.get("name")
                             mcp_server_url = selected_server.get("url")
-                            logger.info(f"Selected MCP server: {selected_server.get('name')} at {mcp_server_url}")
+                            logger.info(f"Selected MCP server: {server_name} at {mcp_server_url}")
                         else:
                             logger.error("No MCP servers discovered. Cannot proceed.")
                             return {"success": False, "message": "No MCP servers available."}
@@ -103,19 +118,28 @@ class EmailAgent:
                 async with self.mcp_client as client:
                     # Initial setup: list tools and prepare prompts
                     logger.info(f"Listing tools from MCP server at {mcp_server_url}...")
-                    mcp_tools = await client.list_tools()
-                    logger.info(f"Retrieved {len(mcp_tools)} tools from MCP server")
+                    all_mcp_tools = await client.list_tools()
+                    logger.info(f"Retrieved {len(all_mcp_tools)} tools from MCP server, now filtering based on settings...")
+                    logger.debug(f"Available tool names from MCP server: {[tool.name for tool in all_mcp_tools]}")
+
+                    enabled_tool_ids = {tool_id for tool_id, details in self.agent_tools.items() if details.get('enabled')}
+                    logger.debug(f"Enabled tool IDs from settings: {enabled_tool_ids}")
+                    mcp_tools = [tool for tool in all_mcp_tools if f"{server_name}-{tool.name}" in enabled_tool_ids]
+                    logger.info(f"Filtered to {len(mcp_tools)} enabled tools.")
                     
                     if not mcp_tools:
-                        logger.warning("No tools retrieved from MCP server!")
-                        return {"success": False, "message": "No tools available from MCP server"}
+                        logger.warning("No enabled tools available for the agent!")
+                        return {"success": False, "message": "No enabled tools available"}
                     
-                    tools = _format_mcp_tools_for_openai(mcp_tools)
+                    tools = _format_mcp_tools_for_openai(mcp_tools, server_name=server_name)
 
                     system_prompt = f"""
                         You are an agent that should follow the user instructions and execute tasks, using the tools provided to you.
 
-                        The user will provide you with instructions on what to do. Follow these dilligently. Make sure to use the tools provided to you to execute the tasks and achieve the user's goals.
+                        The user will provide you with instructions on what to do. Follow these dilligently. 
+
+                        You have multiple tools available to you. You MUST use the required tools, and you MUST use them in this order: {', '.join(self.required_tools_sequence)}.
+                        You can use the non-required tools at your discretion.
                     """
 
                     input_prompt = f"""
@@ -132,16 +156,18 @@ class EmailAgent:
               
                     
                     messages = [
+                        {"role": "system", "content": self.agent_instructions},
                         {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": self.agent_instructions},
                         {"role": "user", "content": input_prompt},
                         {"role": "user", "content": "First, think about the user's instructions, the tools available to you, and the steps you need to take. Then, execute."}
                     ]
                     logger.info(f"Initial messages prepared with {len(messages)} messages")
 
+                    required_tool_index = 0
+
                     # Start of the Thought-Action-Observation Loop
                     for turn in range(5): # Max 5 turns to prevent infinite loops
-                        logger.info(f"Starting agent turn {turn + 1}/5")
+                        logger.info(f"Starting agent turn {turn + 1}/5. Required tool index: {required_tool_index}")
                         
                         # THOUGHT: Get the next action from the LLM
                         logger.info("Agent is thinking...")
@@ -167,35 +193,61 @@ class EmailAgent:
                         
                         messages.append(response_message.model_dump())
 
-                        # If there are no tool calls, the agent has finished its work.
                         if not response_message.tool_calls:
-                            logger.info("Agent decided to finish without tool calls")
-                            logger.info(f"Final agent message: {response_message.content}")
-                            break
+                            if required_tool_index < len(self.required_tools_sequence):
+                                next_required_tool = self.required_tools_sequence[required_tool_index]
+                                nudge_message = f"You cannot finish yet. You must call the '{next_required_tool}' tool next. The required tool order is: {', '.join(self.required_tools_sequence)}."
+                                messages.append({"role": "system", "content": nudge_message})
+                                logger.info(f"Nudging agent: {nudge_message}")
+                                continue
+                            else:
+                                logger.info("Agent decided to finish, and all required tools are done.")
+                                break
 
-                        # ACTION: Execute the requested tool calls concurrently
-                        logger.info(f"Agent performing {len(response_message.tool_calls)} actions...")
-                        tasks = []
-                        for tool_call in response_message.tool_calls:
-                            tool_name = tool_call.function.name
-                            function_args = json.loads(tool_call.function.arguments)
-                            logger.info(f"Executing tool: {tool_name} with arguments: {function_args}")
-                            tasks.append(client.call_tool(tool_name, function_args))
-                        
-                        tool_results = await asyncio.gather(*tasks)
-                        logger.info(f"Tool execution completed, got {len(tool_results)} results")
+                        if response_message.tool_calls:
+                            called_tool_ids = {tc.function.name for tc in response_message.tool_calls}
+                            
+                            if required_tool_index < len(self.required_tools_sequence):
+                                next_required_tool = self.required_tools_sequence[required_tool_index]
+                                
+                                if next_required_tool not in called_tool_ids:
+                                    logger.warning(f"Invalid tool call order. Expected {next_required_tool}, but got {called_tool_ids}. Intervening.")
+                                    tool_error_message = f"Error: Tool call denied. You must call the '{next_required_tool}' tool next. The required tool order is: {', '.join(self.required_tools_sequence)}."
+                                    
+                                    for tool_call in response_message.tool_calls:
+                                        messages.append({
+                                            "tool_call_id": tool_call.id,
+                                            "role": "tool",
+                                            "name": tool_call.function.name,
+                                            "content": tool_error_message,
+                                        })
+                                    continue
 
-                        # OBSERVATION: Append tool results to the conversation history
-                        for tool_call, result in zip(response_message.tool_calls, tool_results):
-                            logger.info(f"Tool {tool_call.function.name} result: {result}")
-                            # Extract text from TextContent objects
-                            result_text = "\n".join(item.text for item in result)
-                            messages.append({
-                                "tool_call_id": tool_call.id,
-                                "role": "tool",
-                                "name": tool_call.function.name,
-                                "content": result_text,
-                            })
+                            logger.info(f"Agent performing {len(response_message.tool_calls)} actions...")
+                            tasks = []
+                            for tool_call in response_message.tool_calls:
+                                full_tool_name = tool_call.function.name
+                                short_tool_name = full_tool_name.replace(f"{server_name}-", "", 1)
+                                function_args = json.loads(tool_call.function.arguments)
+                                logger.info(f"Executing tool: {full_tool_name} (short: {short_tool_name}) with arguments: {function_args}")
+                                tasks.append(client.call_tool(short_tool_name, function_args))
+                            
+                            tool_results = await asyncio.gather(*tasks)
+                            logger.info(f"Tool execution completed, got {len(tool_results)} results")
+
+                            for tool_call, result in zip(response_message.tool_calls, tool_results):
+                                logger.info(f"Tool {tool_call.function.name} result: {result}")
+                                result_text = "\n".join(item.text for item in result)
+                                messages.append({
+                                    "tool_call_id": tool_call.id,
+                                    "role": "tool",
+                                    "name": tool_call.function.name,
+                                    "content": result_text,
+                                })
+
+                            if required_tool_index < len(self.required_tools_sequence) and self.required_tools_sequence[required_tool_index] in called_tool_ids:
+                                logger.info(f"Required tool '{self.required_tools_sequence[required_tool_index]}' was successfully called.")
+                                required_tool_index += 1
                     
                     logger.info("Agent cycle completed, logging conversation...")
                     

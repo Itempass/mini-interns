@@ -250,7 +250,7 @@ async def semantic_search_emails(query: str, top_k: Optional[int] = 10) -> List[
 
 @mcp_builder.tool()
 async def find_similar_emails(messageId: str, top_k: Optional[int] = 5) -> List[Dict[str, Any]]:
-    """Finds emails with similar content to a given email and returns their conversational context."""
+    """Finds emails with similar content to a given email and returns this message without any other messages in the thread. Use get_full_thread_for_email to get the full thread of a similar email."""
     source_email = await imap_service.get_email(message_id=messageId)
     if not source_email:
         return {"error": f"Email with ID {messageId} not found."}
