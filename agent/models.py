@@ -9,8 +9,9 @@ class AgentModel(BaseModel):
     description: str
     system_prompt: str
     user_instructions: str
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    tools: Dict[str, Any] = Field(default_factory=dict) # tool_id -> { enabled: bool, required: bool, order: int }
+    created_at: datetime = Field(default_factory=datetime.now)
+    updated_at: datetime = Field(default_factory=datetime.now)
 
 class MessageModel(BaseModel):
     """Individual message in a conversation"""

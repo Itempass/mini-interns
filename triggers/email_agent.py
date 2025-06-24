@@ -46,7 +46,7 @@ class EmailAgent:
         current_date = datetime.now().strftime('%Y-%m-%d')
         
         self.trigger_conditions = trigger_conditions.replace("<<CURRENT_DATE>>", f"{current_date} (format YYYY-MM-DD)")
-
+        
         self.agent_instructions = agent_instructions.replace("<<CURRENT_DATE>>", f"{current_date} (format YYYY-MM-DD)")
         
         redis_client = get_redis_client()

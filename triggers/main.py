@@ -7,17 +7,14 @@ from shared.redis.keys import RedisKeys
 from shared.redis.redis_client import get_redis_client
 from triggers.rules import passes_filter
 from api.types.api_models.agent import FilterRules
-from triggers.agent_helpers import get_or_create_default_agent_id
-from agent import client as agent_client, models as agent_models
+from triggers.email_agent import EmailAgent
 from shared.config import settings
 import json
 from mcp_servers.imap_mcpserver.src.utils.contextual_id import create_contextual_id
 from openai import OpenAI
-from agentlogger.src.client import save_conversation_sync, save_conversation
+from agentlogger.src.client import save_conversation_sync
 from agentlogger.src.models import ConversationData, Message, Metadata
 from datetime import datetime
-from agent.internals.database import init_db as init_agent_db
-import asyncio
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -34,7 +31,7 @@ def set_last_uid(uid: str):
     redis_client = get_redis_client()
     redis_client.set(RedisKeys.LAST_EMAIL_UID, uid)
 
-async def passes_trigger_conditions_check(msg, trigger_conditions: str, app_settings) -> bool:
+def passes_trigger_conditions_check(msg, trigger_conditions: str, app_settings) -> bool:
     """
     Uses an LLM to check if the email passes the trigger conditions.
     """
@@ -79,8 +76,7 @@ Body:
     ]
 
     try:
-        completion = await asyncio.to_thread(
-            client.chat.completions.create,
+        completion = client.chat.completions.create(
             model=app_settings.OPENROUTER_MODEL,
             messages=messages,
             response_format={"type": "json_object"},
@@ -143,9 +139,6 @@ def main():
     It will wait until settings are configured in Redis before starting.
     """
     logger.info("Trigger service started.")
-
-    # Initialize the agent database on startup
-    asyncio.run(init_agent_db())
 
     while True:
         try:
@@ -217,36 +210,34 @@ def process_message(msg, contextual_uid: str):
     logger.info(f"  Body: {body[:100].strip()}...")
     logger.info("--------------------")
 
-    # This function is now async to support our new agent system
-    async def _process_async():
-        # Load agent settings to get filter rules
-        redis_client = get_redis_client()
-        filter_rules_json = redis_client.get(RedisKeys.FILTER_RULES)
-        filter_rules = FilterRules.model_validate_json(filter_rules_json) if filter_rules_json else FilterRules()
+    # Load agent settings to get filter rules
+    redis_client = get_redis_client()
+    filter_rules_json = redis_client.get(RedisKeys.FILTER_RULES)
+    filter_rules = FilterRules.model_validate_json(filter_rules_json) if filter_rules_json else FilterRules()
 
-        # Check against filter rules
-        if not passes_filter(msg.from_, filter_rules):
-            return  # Stop processing if filters are not passed
+    # Check against filter rules
+    if not passes_filter(msg.from_, filter_rules):
+        return  # Stop processing if filters are not passed
 
-        if not body:
-            logger.info("Email has no body content. Skipping processing.")
-            return
+    if not body:
+        logger.info("Email has no body content. Skipping processing.")
+        return
 
-        app_settings = load_app_settings()
-        trigger_conditions = redis_client.get(RedisKeys.TRIGGER_CONDITIONS)
+    app_settings = load_app_settings()
+    trigger_conditions = redis_client.get(RedisKeys.TRIGGER_CONDITIONS)
 
-        if not trigger_conditions:
-            logger.warning("Trigger conditions not set. Skipping LLM check and agent workflow.")
-            return
+    if not trigger_conditions:
+        logger.warning("Trigger conditions not set. Skipping LLM check and agent workflow.")
+        return
 
-        if not await passes_trigger_conditions_check(msg, trigger_conditions, app_settings):
-            logger.info("Email did not pass LLM trigger conditions check.")
-            return
+    if not passes_trigger_conditions_check(msg, trigger_conditions, app_settings):
+        logger.info("Email did not pass LLM trigger conditions check.")
+        return
 
-        # Check if draft creation is enabled
-        if not app_settings.DRAFT_CREATION_ENABLED:
-            logger.info("Draft creation is paused. Skipping workflow and draft creation.")
-            return
+    # Check if draft creation is enabled
+    if not app_settings.DRAFT_CREATION_ENABLED:
+        logger.info("Draft creation is paused. Skipping workflow and draft creation.")
+        return
 
     # 1. Fetch prompts from Redis
     agent_instructions = redis_client.get(RedisKeys.AGENT_INSTRUCTIONS)

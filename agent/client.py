@@ -1,6 +1,9 @@
 from __future__ import annotations
 from typing import List, Dict, Any
 from uuid import UUID
+import httpx
+from fastmcp import Client
+
 from agent.models import AgentModel, AgentInstanceModel
 from agent.internals.database import (
     _create_agent_in_db,
@@ -10,6 +13,7 @@ from agent.internals.database import (
     _update_instance_in_db
 )
 from agent.internals.runner import _execute_run
+from shared.config import settings
 
 
 # --- Agent Functions ---
@@ -42,6 +46,44 @@ async def save_agent(agent_model: AgentModel) -> None:
     Saves the current state of the Agent to the database.
     """
     await _update_agent_in_db(agent_model)
+
+# --- Tooling Functions ---
+async def discover_mcp_tools() -> List[Dict[str, Any]]:
+    """
+    Discovers all available tools from all connected MCP servers.
+    """
+    discovered_tools = []
+    try:
+        api_url = f"http://localhost:{settings.CONTAINERPORT_API}/mcp/servers"
+        async with httpx.AsyncClient() as http_client:
+            response = await http_client.get(api_url)
+            response.raise_for_status()
+            servers = response.json()
+            
+            for server in servers:
+                server_name = server.get("name")
+                mcp_server_url = server.get("url")
+                if not server_name or not mcp_server_url:
+                    continue
+
+                mcp_client = Client(mcp_server_url)
+                async with mcp_client as client:
+                    tools_from_server = await client.list_tools()
+                    for tool in tools_from_server:
+                        discovered_tools.append({
+                            "id": f"{server_name}-{tool.name}",
+                            "name": tool.name,
+                            "description": tool.description,
+                            "server": server_name,
+                            "input_schema": tool.inputSchema,
+                        })
+
+    except Exception:
+        # In a real app, you'd want to handle this more gracefully.
+        # For now, we'll return an empty list if discovery fails.
+        return []
+    
+    return discovered_tools
 
 # --- AgentInstance Functions ---
 async def create_agent_instance(agent_uuid: UUID, user_input: str) -> AgentInstanceModel:
