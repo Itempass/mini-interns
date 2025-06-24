@@ -278,6 +278,90 @@ async def find_similar_emails(messageId: str, top_k: Optional[int] = 5) -> List[
 
     return {"similar_emails": similar_emails, "llm_instructions": "Use get_full_thread_for_email to get the full thread of a similar email."}
 
+@mcp_builder.tool()
+async def find_similar_emails_with_their_reply(messageId: str, top_k: Optional[int] = 5) -> Dict[str, Any]:
+    """
+    Finds emails with similar content to a given email and returns each message
+    paired with its direct reply, if a reply exists.
+    """
+    source_email = await imap_service.get_email(message_id=messageId)
+    if not source_email:
+        return {"error": f"Email with ID {messageId} not found."}
+
+    cleaned_body = _get_cleaned_email_body(source_email)
+    if not cleaned_body:
+        return {"error": f"Could not extract a clean body from email {messageId}."}
+
+    embedding = get_embedding(cleaned_body)
+
+    similar_hits = search_by_vector(
+        collection_name="emails",
+        query_vector=embedding,
+        top_k=top_k or 5,
+        exclude_contextual_id=messageId,
+    )
+
+    def get_date(raw_email: RawEmail):
+        try:
+            return dateutil.parser.parse(raw_email.msg['Date'])
+        except (ValueError, TypeError):
+            # Fallback for unparseable dates; sort them to the end
+            return dateutil.parser.parse("1900-01-01 00:00:00+00:00")
+
+    similar_conversations = []
+    for hit in similar_hits:
+        contextual_id = hit.get("contextual_id")
+        if not contextual_id:
+            continue
+
+        thread_emails = await imap_service.fetch_email_thread(message_id=contextual_id)
+        if not thread_emails:
+            email_data = await imap_service.get_email(message_id=contextual_id)
+            if email_data:
+                similar_conversations.append(_format_email_reply_as_markdown(email_data.msg, email_data.uid))
+            continue
+
+        thread_emails.sort(key=get_date)
+
+        parent_email = next((e for e in thread_emails if e.uid == contextual_id), None)
+
+        if not parent_email:
+            # This is unlikely but as a fallback, just format the first message if it exists
+            if thread_emails:
+                first_email = thread_emails[0]
+                similar_conversations.append(_format_email_reply_as_markdown(first_email.msg, first_email.uid))
+            continue
+
+        parent_message_id = parent_email.msg.get('Message-ID')
+        reply_email = None
+
+        if parent_message_id:
+            parent_date = get_date(parent_email)
+            for potential_reply in thread_emails:
+                if get_date(potential_reply) <= parent_date:
+                    continue
+
+                in_reply_to = potential_reply.msg.get('In-Reply-To')
+                if in_reply_to and in_reply_to.strip() == parent_message_id.strip():
+                    reply_email = potential_reply
+                    break
+
+        if reply_email:
+            formatted_pair = (
+                f"---PARENT EMAIL---\n"
+                f"{_format_email_reply_as_markdown(parent_email.msg, parent_email.uid)}\n\n"
+                f"---REPLY---\n"
+                f"{_format_email_reply_as_markdown(reply_email.msg, reply_email.uid)}"
+            )
+            similar_conversations.append(formatted_pair)
+        else:
+            similar_conversations.append(_format_email_reply_as_markdown(parent_email.msg, parent_email.uid))
+
+    return {
+        "similar_conversations": similar_conversations,
+        "llm_instructions": "These are conversations similar to the original email. Each item contains a parent email and its direct reply, if one was found."
+    }
+
 # --- Non-Gmail/IMAP tools ---
 #@mcp_builder.tool()
 async def get_available_languages_for_tone_of_voice() -> Dict[str, Any]:
