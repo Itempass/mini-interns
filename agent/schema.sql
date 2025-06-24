@@ -29,7 +29,6 @@ CREATE INDEX IF NOT EXISTS idx_agent_instances_agent_uuid ON agent_instances(age
 CREATE TABLE IF NOT EXISTS triggers (
     uuid TEXT PRIMARY KEY,
     agent_uuid TEXT NOT NULL,
-    function_name TEXT NOT NULL,
     rules_json JSON,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

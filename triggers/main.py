@@ -1,20 +1,21 @@
 import logging
 import time
 import requests
-from imap_tools import MailBox, A
-from shared.app_settings import load_app_settings
+import asyncio
+from imap_tools import MailBox, A, MailMessage
+from shared.app_settings import load_app_settings, AppSettings
 from shared.redis.keys import RedisKeys
 from shared.redis.redis_client import get_redis_client
 from triggers.rules import passes_filter
-from api.types.api_models.agent import FilterRules
-from triggers.email_agent import process_email_with_agent
+from agent import client as agent_client
 from shared.config import settings
 import json
 from mcp_servers.imap_mcpserver.src.utils.contextual_id import create_contextual_id
 from openai import OpenAI
-from agentlogger.src.client import save_conversation_sync
+from agentlogger.src.client import save_conversation_sync, save_conversation
 from agentlogger.src.models import ConversationData, Message, Metadata
 from datetime import datetime
+from triggers.migration import migrate_to_database_triggers
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -31,14 +32,14 @@ def set_last_uid(uid: str):
     redis_client = get_redis_client()
     redis_client.set(RedisKeys.LAST_EMAIL_UID, uid)
 
-def passes_trigger_conditions_check(msg, trigger_conditions: str, app_settings) -> bool:
+async def llm_check_passes(msg: MailMessage, trigger_conditions: str, app_settings: AppSettings, agent_name: str) -> bool:
     """
-    Uses an LLM to check if the email passes the trigger conditions.
+    Uses an LLM to check if the email passes the trigger conditions and logs the check.
     """
     logger.info("Performing LLM-based trigger check...")
     
     current_date = datetime.now().strftime('%Y-%m-%d')
-    trigger_conditions = trigger_conditions.replace("<<CURRENT_DATE>>", f"{current_date} (format YYYY-MM-DD)")
+    trigger_conditions_with_date = trigger_conditions.replace("<<CURRENT_DATE>>", f"{current_date} (format YYYY-MM-DD)")
 
     email_body = msg.text or msg.html
     if not email_body:
@@ -54,7 +55,7 @@ def passes_trigger_conditions_check(msg, trigger_conditions: str, app_settings) 
 You are a helpful assistant that determines if an email meets a user's criteria.
 Your task is to analyze the email in the user message based on the following criteria:
 ---
-{trigger_conditions}
+{trigger_conditions_with_date}
 ---
 Based on the criteria, decide if the email given by the user in the user prompt should be processed.
 Respond with a single JSON object in the format: {{"should_process": true}} or {{"should_process": false}}.
@@ -64,48 +65,44 @@ Respond with a single JSON object in the format: {{"should_process": true}} or {
 This is the email to be processed:
 UID: {msg.uid}
 From: {msg.from_}
-To: {msg.to}
+To: {", ".join(msg.to)}
 Date: {msg.date_str}
 Subject: {msg.subject}
 Body:
 {email_body[:4000]}
 """
-    messages=[
+    messages_for_llm=[
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_prompt}
     ]
 
     try:
-        completion = client.chat.completions.create(
+        completion = await asyncio.to_thread(
+            client.chat.completions.create,
             model=app_settings.OPENROUTER_MODEL,
-            messages=messages,
+            messages=messages_for_llm,
             response_format={"type": "json_object"},
             temperature=0.1
         )
-
-        logger.info(f"LLM trigger check response: {completion.choices[0]}")
-        logger.info(f"LLM trigger check response: {completion.choices[0].message.content}")
         
         response_content = completion.choices[0].message.content
         logger.info(f"LLM trigger check raw response: '{response_content}'")
-        
-        messages.append({"role": "assistant", "content": response_content})
+        messages_for_llm.append({"role": "assistant", "content": response_content})
 
         try:
-            # Log the conversation
-            contextual_uid = create_contextual_id('INBOX', msg.uid) # Create a UID for logging
-            save_conversation_sync(ConversationData(
+            # We are now handling logging directly within this function.
+            contextual_uid = create_contextual_id('INBOX', msg.uid)
+            await save_conversation(ConversationData(
                 metadata=Metadata(
                     conversation_id=f"trigger_{contextual_uid}",
-                    readable_workflow_name="Trigger Check",
+                    readable_workflow_name=f"Trigger: {agent_name}",
                     readable_instance_context=f"{msg.from_} - {msg.subject}"
                 ),
-                messages=[Message(**m) for m in messages if m.get("content") is not None]
+                messages=[Message(**m) for m in messages_for_llm if m.get("content") is not None]
             ))
             logger.info(f"Trigger check conversation for {contextual_uid} logged successfully.")
         except Exception as e:
             logger.error(f"Failed to log trigger check conversation: {e}", exc_info=True)
-
 
         if not response_content or not response_content.strip():
             logger.error("LLM returned an empty or whitespace-only response.")
@@ -135,10 +132,14 @@ Body:
 
 def main():
     """
-    Polls an IMAP inbox and creates a draft for each new email.
-    It will wait until settings are configured in Redis before starting.
+    Main polling loop that checks for new emails and runs them against database-driven triggers.
     """
     logger.info("Trigger service started.")
+    
+    # On startup, run the migration to ensure the default trigger exists in the DB.
+    logger.info("Running initial migration...")
+    asyncio.run(migrate_to_database_triggers())
+    logger.info("Initial migration complete.")
 
     while True:
         try:
@@ -152,103 +153,88 @@ def main():
                 logger.info(f"Settings loaded for {app_settings.IMAP_USERNAME}. Checking for mail...")
                 
                 with MailBox(app_settings.IMAP_SERVER).login(app_settings.IMAP_USERNAME, app_settings.IMAP_PASSWORD, initial_folder='INBOX') as mailbox:
-                    
                     last_uid = get_last_uid()
                     logger.info(f"Last processed UID: {last_uid}")
 
-                    # If this is the first ever run, we establish a baseline by getting the latest UID
-                    # without processing any emails.
                     if last_uid is None:
                         uids = mailbox.uids()
                         if uids:
                             latest_uid_on_server = uids[-1]
                             set_last_uid(latest_uid_on_server)
-                            logger.info(f"No previous UID found. Baseline set to latest email UID: {latest_uid_on_server}. Will process new emails on the next cycle.")
+                            logger.info(f"No previous UID found. Baseline set to latest email UID: {latest_uid_on_server}.")
                         else:
                             logger.info("No emails found in the inbox. Will check again.")
-                        
-                        time.sleep(60) # Wait before the next poll
+                        time.sleep(60)
                         continue
 
-                    # Due to IMAP UID range behavior with *, we need to get all messages and filter manually
-                    # The issue: UID range of <value>:* always includes the highest UID even if <value> is higher
                     messages = list(mailbox.fetch(A(uid=f'{int(last_uid) + 1}:*'), mark_seen=False))
-                    
-                    # Filter out messages with UID <= last_uid (due to IMAP * behavior)
                     filtered_messages = [msg for msg in messages if int(msg.uid) > int(last_uid)]
 
                     if filtered_messages:
                         logger.info(f"Found {len(filtered_messages)} new email(s).")
-                        for msg in filtered_messages:
-                            contextual_uid = create_contextual_id('INBOX', msg.uid)
-                            process_message(msg, contextual_uid)
+                        asyncio.run(process_new_messages(filtered_messages, app_settings))
 
-                        # Update last_uid to the latest one we've processed
                         latest_uid = filtered_messages[-1].uid
                         set_last_uid(latest_uid)
                         logger.info(f"Last processed UID updated to {latest_uid}")
                     else:
                         logger.info("No new emails.")
-
             else:
-                logger.info("IMAP settings are not fully configured in Redis. Skipping poll cycle. Will check again in 60 seconds.")
-
+                logger.info("IMAP settings are not fully configured. Skipping poll cycle.")
         except Exception as e:
-            logger.error(f"An unexpected error occurred: {e}. Skipping poll cycle.", exc_info=True)
+            logger.error(f"An unexpected error occurred in main loop: {e}. Skipping poll cycle.", exc_info=True)
 
         time.sleep(30)
 
-def process_message(msg, contextual_uid: str):
-    logger.info("--------------------")
-    logger.info(f"New Email Received:")
-    logger.info(f"  UID: {contextual_uid}")
-    logger.info(f"  From: {msg.from_}")
-    logger.info(f"  To: {msg.to}")
-    logger.info(f"  Date: {msg.date_str}")
-    logger.info(f"  Subject: {msg.subject}")
-    body = msg.text or msg.html
-    logger.info(f"  Body: {body[:100].strip()}...")
-    logger.info("--------------------")
-
-    # Load agent settings to get filter rules
-    redis_client = get_redis_client()
-    filter_rules_json = redis_client.get(RedisKeys.FILTER_RULES)
-    filter_rules = FilterRules.model_validate_json(filter_rules_json) if filter_rules_json else FilterRules()
-
-    # Check against filter rules
-    if not passes_filter(msg.from_, filter_rules):
-        return  # Stop processing if filters are not passed
-
-    if not body:
-        logger.info("Email has no body content. Skipping processing.")
+async def process_new_messages(messages: list[MailMessage], app_settings: AppSettings):
+    """
+    Processes a batch of new messages against all database triggers.
+    """
+    all_triggers = await agent_client.list_triggers()
+    if not all_triggers:
+        logger.warning("No triggers found in the database. No actions will be taken.")
         return
 
-    app_settings = load_app_settings()
-    trigger_conditions = redis_client.get(RedisKeys.TRIGGER_CONDITIONS)
+    logger.info(f"Found {len(all_triggers)} triggers. Evaluating {len(messages)} new messages against them.")
 
-    if not trigger_conditions:
-        logger.warning("Trigger conditions not set. Skipping LLM check and agent workflow.")
-        return
+    for msg in messages:
+        contextual_uid = create_contextual_id('INBOX', msg.uid)
+        logger.info(f"--- Processing Email UID: {contextual_uid} ---")
+        
+        for trigger in all_triggers:
+            logger.info(f"Evaluating against trigger {trigger.uuid} for agent {trigger.agent_uuid}")
+            
+            # 1. Get the agent model for this trigger first to get its name for logging
+            agent_model = await agent_client.get_agent(trigger.agent_uuid)
+            if not agent_model:
+                logger.error(f"Could not find agent with UUID {trigger.agent_uuid} for trigger {trigger.uuid}. Skipping.")
+                continue
 
-    if not passes_trigger_conditions_check(msg, trigger_conditions, app_settings):
-        logger.info("Email did not pass LLM trigger conditions check.")
-        return
+            # 2. Check simple filter rules
+            if not passes_filter(msg.from_, trigger.filter_rules):
+                logger.info(f"Email from '{msg.from_}' did not pass filter rules for trigger {trigger.uuid}. Skipping.")
+                continue
+            
+            # 3. Check LLM-based trigger conditions
+            if not await llm_check_passes(msg, trigger.trigger_conditions, app_settings, agent_model.name):
+                logger.info(f"Email did not pass LLM trigger conditions for trigger {trigger.uuid}. Skipping.")
+                continue
+            
+            logger.info(f"Email PASSED all checks for trigger {trigger.uuid}. Running agent {trigger.agent_uuid}.")
+            
+            # 4. Prepare and run the agent instance
+            email_body = msg.text or msg.html
+            input_prompt = f"Here is the email to analyze:\nUID: {contextual_uid}\nFrom: {msg.from_}\nTo: {', '.join(msg.to)}\nDate: {msg.date_str}\nSubject: {msg.subject}\nBody:\n{email_body}"
 
-    # Check if draft creation is enabled
-    if not app_settings.DRAFT_CREATION_ENABLED:
-        logger.info("Draft creation is paused. Skipping workflow and draft creation.")
-        return
-
-    # 1. Fetch prompts from Redis
-    agent_instructions = redis_client.get(RedisKeys.AGENT_INSTRUCTIONS)
-
-    if not all([agent_instructions]):
-        logger.warning("One or more agent settings (system prompt, user context, steps, instructions) not set in Redis. Skipping agent.")
-        return
-
-    # Run the Agent
-    result = process_email_with_agent(original_message=msg, contextual_uid=contextual_uid)
-    logger.info(f"Agent processing finished with result: {result}")
+            instance_model = await agent_client.create_agent_instance(
+                agent_uuid=trigger.agent_uuid,
+                user_input=input_prompt,
+                context_identifier=f"{msg.from_} - {msg.subject}"
+            )
+            
+            logger.info(f"Created agent instance {instance_model.uuid} for agent {trigger.agent_uuid}")
+            await agent_client.run_agent_instance(agent_model, instance_model)
+            logger.info(f"Agent run for instance {instance_model.uuid} has been initiated.")
 
 if __name__ == "__main__":
     main() 
