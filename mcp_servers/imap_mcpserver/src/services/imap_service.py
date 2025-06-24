@@ -162,8 +162,16 @@ class IMAPService:
         """
         Analyzes a list of email bodies to find the most common plain text and HTML signatures.
         """
+        logger.info(f"Starting signature detection for {len(email_bodies)} emails.")
         # --- Part 1: Determine Plain Text Signature ---
-        plain_replies = [EmailReplyParser.parse_reply(b['text']).strip() for b in email_bodies if b['text']]
+        plain_replies = []
+        for b in email_bodies:
+            if b.get('text'):
+                # By reconstructing from fragments, we can keep the signature while removing quoted replies.
+                email_message = EmailReplyParser.read(b['text'])
+                content_with_signature = "\n".join([f.content for f in email_message.fragments if not f.quoted])
+                plain_replies.append(content_with_signature.strip())
+        logger.info(f"Plain replies for signature detection (quotes removed): {plain_replies}")
 
         if len(plain_replies) < 2:
             logger.info("Not enough sent emails with content to determine a signature pattern.")
@@ -172,20 +180,27 @@ class IMAPService:
         best_plain_signature = ""
         last_plain_score = -1
         
-        for line_count in range(2, 8): # Check for signatures from 2 to 7 lines long
+        for line_count in range(2, 11): # Check for signatures from 2 to 10 lines long
+            logger.info(f"Checking for signatures with {line_count} lines.")
             candidates = [ "\n".join(reply.splitlines()[-line_count:]) for reply in plain_replies if len(reply.splitlines()) >= line_count]
             if not candidates:
+                logger.info("No candidates found for this line count.")
                 continue
             
+            logger.info(f"Candidates for {line_count} lines: {candidates}")
             most_common_candidate, _ = Counter(candidates).most_common(1)[0]
             current_score = sum(1 for reply in plain_replies if reply.endswith(most_common_candidate))
+            logger.info(f"Most common candidate: '{most_common_candidate}' with score: {current_score}")
 
             if current_score < last_plain_score:
+                logger.info("Score is lower than the last score. Breaking loop.")
                 break
             
             best_plain_signature = most_common_candidate
             last_plain_score = current_score
+            logger.info(f"Updating best_plain_signature to: '{best_plain_signature}'")
             if current_score < 2:
+                logger.info("Score is less than 2. Breaking loop.")
                 break
         
         final_plain_signature = None
@@ -198,7 +213,14 @@ class IMAPService:
 
         # --- Part 2: Determine HTML Signature ---
         # Use the plain text signature to find "golden" emails that definitely contain a signature.
-        golden_emails = [b for b in email_bodies if b['html'] and b['text'] and EmailReplyParser.parse_reply(b['text']).strip().endswith(final_plain_signature)]
+        golden_emails = []
+        for b in email_bodies:
+            if b.get('html') and b.get('text'):
+                email_message = EmailReplyParser.read(b['text'])
+                content_with_signature = "\n".join([f.content for f in email_message.fragments if not f.quoted])
+                if content_with_signature.strip().endswith(final_plain_signature):
+                    golden_emails.append(b)
+
         logger.info(f"Found {len(golden_emails)} golden emails to check for an HTML signature.")
 
         if len(golden_emails) < 2:
@@ -212,22 +234,33 @@ class IMAPService:
         signature_parents = []
         for soup in parsed_bodies:
             # Find all text nodes that contain parts of the signature
-            # We use a simplified version of the signature for searching
-            search_text = final_plain_signature.split('\n')[0]
-            text_nodes = soup.find_all(string=re.compile(search_text))
+            signature_lines = [line for line in final_plain_signature.split('\n') if line.strip()]
+            text_nodes = []
+            for line in signature_lines:
+                # Find all text nodes that contain the line, using regex to be flexible with whitespace
+                nodes = soup.find_all(string=re.compile(re.escape(line.strip())))
+                if nodes:
+                    text_nodes.extend(nodes)
             
             if not text_nodes:
+                logger.info(f"Signature text not found in HTML body.")
                 continue
 
-            # For this example, we'll work with the first found text node.
-            # A more robust solution might check all nodes.
-            node = text_nodes[0]
+            # Find the common ancestor of all the found text nodes.
+            common_ancestor = text_nodes[0].find_parent()
+            for i in range(1, len(text_nodes)):
+                ancestor = text_nodes[i].find_parent()
+                while common_ancestor not in ancestor.parents and common_ancestor != ancestor:
+                    common_ancestor = common_ancestor.find_parent()
+                    if not common_ancestor: # Reached the top of the document
+                        break
+                if not common_ancestor:
+                    break # Should not happen if signature is in one block
             
-            # Walk up the tree to find a significant block-level parent
-            # or a common ancestor. For simplicity, we'll go up a few levels.
-            parent = node.find_parent('div') or node.find_parent('p') or node.find_parent('td')
-            if parent:
-                signature_parents.append(parent)
+            if common_ancestor:
+                signature_parents.append(common_ancestor)
+
+        logger.info(f"Found {len(signature_parents)} potential HTML signature parent blocks.")
 
         if not signature_parents:
             logger.info("Could not find common HTML parent for signature.")
@@ -240,6 +273,7 @@ class IMAPService:
             return final_plain_signature, None
 
         most_common_html_str, count = Counter(parent_strings).most_common(1)[0]
+        logger.info(f"Most common HTML signature candidate: '{most_common_html_str[:150]}...' with count: {count}")
         
         final_html_signature = None
         if count >= 2:
