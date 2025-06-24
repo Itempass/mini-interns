@@ -233,6 +233,24 @@ class IMAPService:
 
         parsed_bodies = [BeautifulSoup(email['html'], 'lxml') for email in golden_emails]
 
+        # --- Shortcut: Check for known signature classes ---
+        signature_classes = ['gmail_signature']
+        for class_name in signature_classes:
+            candidate_tags = [soup.find(class_=class_name) for soup in parsed_bodies]
+            valid_candidates = [str(tag) for tag in candidate_tags if tag]
+
+            if len(valid_candidates) >= 2:
+                most_common_candidate, count = Counter(valid_candidates).most_common(1)[0]
+                # If we have a confident match, return it.
+                if count >= 2:
+                    logger.info(f"Found HTML signature using shortcut class: '{class_name}'")
+                    # Clean up the HTML for consistency.
+                    soup = BeautifulSoup(most_common_candidate, 'lxml')
+                    return final_plain_signature, str(soup.body.contents[0])
+
+        logger.info("Shortcut signature detection did not yield a confident result, proceeding to general logic.")
+        # --- End of Shortcut ---
+
         best_html_signature = None
         last_html_score = -1
 
