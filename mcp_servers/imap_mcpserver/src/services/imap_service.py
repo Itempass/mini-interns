@@ -212,10 +212,15 @@ class IMAPService:
             return None, None
 
         # --- Part 2: Determine HTML Signature ---
+        # A robust method, mirroring the plain-text approach. We look for the most
+        # common set of trailing HTML elements in the message body.
+        
         # Use the plain text signature to find "golden" emails that definitely contain a signature.
         golden_emails = []
         for b in email_bodies:
             if b.get('html') and b.get('text'):
+                # We check the entire visible text, not just the "reply" part,
+                # as the parser can sometimes misclassify signatures.
                 email_message = EmailReplyParser.read(b['text'])
                 content_with_signature = "\n".join([f.content for f in email_message.fragments if not f.quoted])
                 if content_with_signature.strip().endswith(final_plain_signature):
@@ -226,59 +231,59 @@ class IMAPService:
         if len(golden_emails) < 2:
             return final_plain_signature, None
 
-        # Parse all golden emails with BeautifulSoup
         parsed_bodies = [BeautifulSoup(email['html'], 'lxml') for email in golden_emails]
 
-        # New approach: Find the plain-text signature in the HTML and walk up the tree
-        # to find the common parent.
-        signature_parents = []
-        for soup in parsed_bodies:
-            # Find all text nodes that contain parts of the signature
-            signature_lines = [line for line in final_plain_signature.split('\n') if line.strip()]
-            text_nodes = []
-            for line in signature_lines:
-                # Find all text nodes that contain the line, using regex to be flexible with whitespace
-                nodes = soup.find_all(string=re.compile(re.escape(line.strip())))
-                if nodes:
-                    text_nodes.extend(nodes)
+        best_html_signature = None
+        last_html_score = -1
+
+        # Check for signatures made of 1 to 5 trailing elements
+        for element_count in range(1, 6):
+            candidates = []
+            for soup in parsed_bodies:
+                if not soup.body:
+                    continue
+                
+                # Get direct children of the body tag
+                body_children = soup.body.find_all(recursive=False)
+                
+                if len(body_children) < element_count:
+                    continue
+
+                # Take the last `element_count` elements as a candidate
+                trailing_elements = body_children[-element_count:]
+                
+                # Join the string representations of the elements to form the candidate signature
+                candidate_str = "".join(str(el) for el in trailing_elements)
+                candidates.append(candidate_str)
             
-            if not text_nodes:
-                logger.info(f"Signature text not found in HTML body.")
+            if not candidates:
                 continue
 
-            # Find the common ancestor of all the found text nodes.
-            common_ancestor = text_nodes[0].find_parent()
-            for i in range(1, len(text_nodes)):
-                ancestor = text_nodes[i].find_parent()
-                while common_ancestor not in ancestor.parents and common_ancestor != ancestor:
-                    common_ancestor = common_ancestor.find_parent()
-                    if not common_ancestor: # Reached the top of the document
-                        break
-                if not common_ancestor:
-                    break # Should not happen if signature is in one block
+            # Find the most common candidate and its frequency
+            most_common_candidate, occurrences = Counter(candidates).most_common(1)[0]
+            current_score = occurrences
             
-            if common_ancestor:
-                signature_parents.append(common_ancestor)
+            logger.info(f"HTML Detection: For {element_count} elements, best candidate scored {current_score}.")
 
-        logger.info(f"Found {len(signature_parents)} potential HTML signature parent blocks.")
+            # If the score drops, the previous, shorter signature was the most consistent one.
+            if current_score < last_html_score:
+                logger.info("Score is lower than the last score. Breaking loop.")
+                break
 
-        if not signature_parents:
-            logger.info("Could not find common HTML parent for signature.")
-            return final_plain_signature, None
+            # If the score is the same or better, we prefer the longer (more specific) signature.
+            if current_score >= last_html_score:
+                best_html_signature = most_common_candidate
+                last_html_score = current_score
+            
+            # If the signature is not common enough, no need to check for longer versions.
+            if current_score < 2:
+                logger.info("Score is less than 2. Breaking loop.")
+                break
 
-        # Now, find the most common parent structure.
-        # We serialize the parent to a string to make it hashable for Counter.
-        parent_strings = [str(p) for p in signature_parents]
-        if not parent_strings:
-            return final_plain_signature, None
-
-        most_common_html_str, count = Counter(parent_strings).most_common(1)[0]
-        logger.info(f"Most common HTML signature candidate: '{most_common_html_str[:150]}...' with count: {count}")
-        
         final_html_signature = None
-        if count >= 2:
-            final_html_signature = most_common_html_str.strip()
-            logger.info(f"Final confirmed HTML signature (Score: {count}): '{final_html_signature[:150]}...'")
+        if last_html_score >= 2:
+            final_html_signature = best_html_signature
+            logger.info(f"Final confirmed HTML signature (Score: {last_html_score}): '{final_html_signature[:100]}...'")
         else:
             logger.info("No consistent HTML signature pattern found.")
 
