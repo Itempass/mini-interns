@@ -8,7 +8,7 @@ import imaplib
 import logging
 import email
 from email.message import Message
-from typing import List, Optional, Set
+from typing import List, Optional, Set, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +28,7 @@ class ThreadingService:
         logger.warning("Could not fetch server capabilities.")
         return []
 
-    def get_thread_uids(self, message_uid: str) -> (Optional[str], List[str]):
+    def get_thread_uids(self, message_uid: str) -> Tuple[Optional[str], List[str]]:
         """
         Orchestrates fetching thread UIDs using the best available strategy.
         Returns the mailbox where the thread was found and a list of UIDs.
