@@ -8,11 +8,12 @@ export interface UiTool extends McpTool {
   serverName: string;
   enabled: boolean;
   required: boolean;
+  order?: number;
 }
 
 interface ToolListProps {
   tools: UiTool[];
-  setTools: React.Dispatch<React.SetStateAction<UiTool[]>>;
+  onToolsChange: (tools: UiTool[]) => void;
 }
 
 const ToggleSwitch = ({ enabled, onChange, disabled }: { enabled: boolean; onChange: () => void, disabled?: boolean }) => (
@@ -22,50 +23,67 @@ const ToggleSwitch = ({ enabled, onChange, disabled }: { enabled: boolean; onCha
   </label>
 );
 
-const ToolList: React.FC<ToolListProps> = ({ tools, setTools }) => {
+const ToolList: React.FC<ToolListProps> = ({ tools, onToolsChange }) => {
 
   const onDragEnd = (result: DropResult) => {
     if (!result.destination) {
       return;
     }
 
-    const reorderedTools = Array.from(tools);
+    const sortedToolsForDrag = sortTools(tools);
+    const reorderedTools = Array.from(sortedToolsForDrag);
     const [movedItem] = reorderedTools.splice(result.source.index, 1);
     reorderedTools.splice(result.destination.index, 0, movedItem);
 
-    setTools(sortTools(reorderedTools));
+    const updatedTools = reorderedTools.map(tool => {
+      if (tool.required) {
+        const newOrder = reorderedTools.filter(t => t.required).findIndex(t => t.id === tool.id);
+        return { ...tool, order: newOrder };
+      }
+      return tool;
+    });
+    
+    onToolsChange(updatedTools);
   };
 
   const toggleEnabled = (id: string) => {
-    setTools(prevTools => {
-      const newTools = prevTools.map(tool => {
-        if (tool.id === id) {
-          if (tool.required) {
-            return { ...tool, enabled: true };
-          }
-          return { ...tool, enabled: !tool.enabled };
+    const newTools = tools.map(tool => {
+      if (tool.id === id) {
+        if (tool.required) {
+          return { ...tool, enabled: true };
         }
-        return tool;
-      });
-      return sortTools(newTools);
+        return { ...tool, enabled: !tool.enabled };
+      }
+      return tool;
     });
+    onToolsChange(sortTools(newTools));
   };
   
   const toggleRequired = (id: string) => {
-    setTools(prevTools => {
-      const newTools = prevTools.map(tool => {
-        if (tool.id === id) {
-          const isRequired = !tool.required;
-          return { ...tool, required: isRequired, enabled: isRequired || tool.enabled };
-        }
-        return tool;
-      });
-      return sortTools(newTools);
+    const newTools = tools.map(tool => {
+      if (tool.id === id) {
+        const isRequired = !tool.required;
+        const newOrder = isRequired 
+          ? (tools.filter(t => t.required).length) 
+          : undefined;
+        return { ...tool, required: isRequired, enabled: isRequired || tool.enabled, order: newOrder };
+      }
+      return tool;
     });
+    
+    const reorderedTools = sortTools(newTools).map(tool => {
+      if (tool.required) {
+        const newOrder = sortTools(newTools).filter(t => t.required).findIndex(t => t.id === tool.id);
+        return { ...tool, order: newOrder };
+      }
+      return tool;
+    });
+
+    onToolsChange(reorderedTools);
   };
 
   const sortTools = (toolList: UiTool[]): UiTool[] => {
-    const required = toolList.filter(t => t.required);
+    const required = toolList.filter(t => t.required).sort((a, b) => (a.order ?? Infinity) - (b.order ?? Infinity));
     const enabled = toolList.filter(t => !t.required && t.enabled).sort((a, b) => a.name.localeCompare(b.name));
     const disabled = toolList.filter(t => !t.required && !t.enabled).sort((a, b) => a.name.localeCompare(b.name));
     return [...required, ...enabled, ...disabled];
