@@ -159,14 +159,14 @@ class EmailAgent:
                         {"role": "system", "content": self.agent_instructions},
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": input_prompt},
-                        {"role": "user", "content": "First, think about the user's instructions, the tools available to you, and the steps you need to take. Then, execute."}
+                        {"role": "system", "content": f"First, think about the user's instructions, the tools available to you, and the steps you need to take. Then, execute. You MUST use the required tools, and you MUST use them in this order: {', '.join(self.required_tools_sequence)}. You can use the non-required tools at your discretion."}
                     ]
                     logger.info(f"Initial messages prepared with {len(messages)} messages")
 
                     required_tool_index = 0
 
                     # Start of the Thought-Action-Observation Loop
-                    for turn in range(5): # Max 5 turns to prevent infinite loops
+                    for turn in range(7): # Max 7 turns to prevent infinite loops
                         logger.info(f"Starting agent turn {turn + 1}/5. Required tool index: {required_tool_index}")
                         
                         # THOUGHT: Get the next action from the LLM

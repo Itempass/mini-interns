@@ -8,7 +8,7 @@ import json
 import sqlite3
 import logging
 from typing import Optional, Dict, Any, List
-from datetime import datetime
+from datetime import datetime, timezone
 from .models import ConversationData
 
 # Configure logging
@@ -68,7 +68,7 @@ class DatabaseService:
             
             # Ensure timestamp is present
             if not conversation.metadata.timestamp:
-                conversation.metadata.timestamp = datetime.now().isoformat()
+                conversation.metadata.timestamp = datetime.now(timezone.utc).isoformat()
                 
             conversation_json = json.dumps(conversation.model_dump())
             

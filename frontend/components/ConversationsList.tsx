@@ -76,13 +76,46 @@ const ConversationsList: React.FC<ConversationsListProps> = ({ onSelectConversat
     }
   };
 
+  const handleDownload = () => {
+    if (conversations.length === 0) {
+      return;
+    }
+    const jsonString = JSON.stringify(conversations, null, 2);
+    const blob = new Blob([jsonString], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "conversations.json";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
   if (loading) {
     return <div>Loading conversations...</div>;
   }
 
   return (
     <div>
-      <h2 style={{ marginBottom: '20px' }}>Agent Logger Conversations ({conversations.length})</h2>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+        <h2 style={{ margin: 0 }}>Agent Logger Conversations ({conversations.length})</h2>
+        <button
+          onClick={handleDownload}
+          disabled={conversations.length === 0}
+          style={{
+            padding: '10px 20px',
+            backgroundColor: conversations.length > 0 ? '#007bff' : '#6c757d',
+            color: 'white',
+            border: 'none',
+            borderRadius: '5px',
+            cursor: conversations.length > 0 ? 'pointer' : 'not-allowed',
+            opacity: conversations.length > 0 ? 1 : 0.5,
+          }}
+        >
+          Download as JSON
+        </button>
+      </div>
       <table style={tableStyle}>
         <thead>
           <tr>
