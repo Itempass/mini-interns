@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS agents (
     description TEXT,
     system_prompt TEXT,
     user_instructions TEXT,
+    tools TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -15,6 +16,7 @@ CREATE TABLE IF NOT EXISTS agent_instances (
     uuid TEXT PRIMARY KEY,
     agent_uuid TEXT NOT NULL,
     user_input TEXT,
+    context_identifier TEXT,
     messages JSON,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

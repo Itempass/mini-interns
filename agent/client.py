@@ -22,6 +22,7 @@ async def create_agent(
     description: str,
     system_prompt: str,
     user_instructions: str,
+    tools: Dict[str, Any] | None = None,
 ) -> AgentModel:
     """
     Creates a new Agent, persists it to the database, and returns the Pydantic model.
@@ -30,7 +31,8 @@ async def create_agent(
         name=name,
         description=description,
         system_prompt=system_prompt,
-        user_instructions=user_instructions
+        user_instructions=user_instructions,
+        tools=tools or {},
     )
     await _create_agent_in_db(agent_model)
     return agent_model
@@ -86,11 +88,15 @@ async def discover_mcp_tools() -> List[Dict[str, Any]]:
     return discovered_tools
 
 # --- AgentInstance Functions ---
-async def create_agent_instance(agent_uuid: UUID, user_input: str) -> AgentInstanceModel:
+async def create_agent_instance(agent_uuid: UUID, user_input: str, context_identifier: str | None = None) -> AgentInstanceModel:
     """
     Creates a new, persistent instance of this agent for a specific run.
     """
-    instance_model = AgentInstanceModel(agent_uuid=agent_uuid, user_input=user_input)
+    instance_model = AgentInstanceModel(
+        agent_uuid=agent_uuid, 
+        user_input=user_input, 
+        context_identifier=context_identifier
+    )
     await _create_instance_in_db(instance_model)
     return instance_model
 

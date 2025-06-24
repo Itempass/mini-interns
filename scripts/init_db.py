@@ -4,6 +4,7 @@ import os
 # Define the path for the SQLite database within the container
 MESSAGES_DATABASE_PATH = '/data/db/database.sqlite3'
 AGENTLOGGER_DATABASE_PATH = '/data/db/conversations.db'
+AGENT_DATABASE_PATH = '/data/db/agent.db'
 
 def add_column_if_not_exists(cursor, table_name, column_name, column_type):
     """
@@ -55,6 +56,46 @@ def migrate_agentlogger_db():
         print(f"An error occurred during Agent Logger database migration: {e}")
         # Do not exit, as this may be a non-critical error (e.g., table not found yet)
 
+def initialize_agent_db():
+    """
+    Initializes the Agent database, creating tables from schema.sql.
+    """
+    print("--- Running Agent database initialization ---")
+    db_dir = os.path.dirname(AGENT_DATABASE_PATH)
+    if not os.path.exists(db_dir):
+        print(f"Database directory not found. Creating {db_dir}...")
+        os.makedirs(db_dir)
+        print("Directory created.")
+    
+    try:
+        with sqlite3.connect(AGENT_DATABASE_PATH) as conn:
+            cursor = conn.cursor()
+            print("Successfully connected to the Agent database.")
+
+            # First, run the schema creation to ensure tables exist
+            print("Ensuring agent tables exist...")
+            try:
+                schema_path = os.path.join(os.path.dirname(__file__), '..', 'agent', 'schema.sql')
+                with open(schema_path, 'r') as f:
+                    # Use executescript for multi-statement SQL files
+                    cursor.executescript(f.read())
+                print("Agent tables are present or were created successfully.")
+            except FileNotFoundError:
+                print(f"Agent schema file not found at {schema_path}. Skipping agent table creation.")
+                # We can't proceed if the schema is missing, so we raise
+                raise
+            
+            # Then, perform migrations like adding new columns
+            print("Running agent table migrations...")
+            add_column_if_not_exists(cursor, 'agents', 'tools', 'TEXT')
+            add_column_if_not_exists(cursor, 'agent_instances', 'context_identifier', 'TEXT')
+
+            conn.commit()
+        print("--- Agent database initialization complete ---")
+    except sqlite3.Error as e:
+        print(f"An error occurred during Agent database initialization: {e}")
+        raise
+
 def main():
     """
     Initializes the database. Creates the directory, database file,
@@ -87,25 +128,16 @@ def main():
             """)
             print("Table 'messages' is present or was created successfully.")
 
-            # Also initialize agent tables
-            print("Initializing agent tables...")
-            try:
-                # Path is relative to the project root where this script is likely run from
-                schema_path = os.path.join(os.path.dirname(__file__), '..', 'agent', 'schema.sql')
-                with open(schema_path, 'r') as f:
-                    cursor.executescript(f.read())
-                print("Agent tables are present or were created successfully.")
-            except FileNotFoundError:
-                print(f"Agent schema file not found at {schema_path}. Skipping agent table creation.")
-            except Exception as e:
-                print(f"An error occurred during agent table initialization: {e}")
-                raise
-
+            # We are removing the old, incorrect agent initialization from here.
+            # The new `initialize_agent_db` function handles this correctly.
             conn.commit()
-            print("--- Database initialization complete ---")
+            print("--- Messages database initialization complete ---")
         
         # Run agentlogger migration which connects to its own DB
         migrate_agentlogger_db()
+
+        # Run agent database initialization
+        initialize_agent_db()
 
         print("--- Database initialization and migration complete ---")
 

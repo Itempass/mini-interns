@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import List
 from agent.models import AgentModel, AgentInstanceModel, MessageModel
 
-DB_PATH = "data/db/agent.db"
+DB_PATH = "/data/db/agent.db"
 
 async def init_db():
     async with aiosqlite.connect(DB_PATH) as db:
@@ -18,8 +18,8 @@ async def _create_agent_in_db(agent: AgentModel) -> AgentModel:
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
             """
-            INSERT INTO agents (uuid, name, description, system_prompt, user_instructions, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO agents (uuid, name, description, system_prompt, user_instructions, tools, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 str(agent.uuid),
@@ -27,6 +27,7 @@ async def _create_agent_in_db(agent: AgentModel) -> AgentModel:
                 agent.description,
                 agent.system_prompt,
                 agent.user_instructions,
+                json.dumps(agent.tools),
                 agent.created_at,
                 agent.updated_at,
             ),
@@ -39,14 +40,32 @@ async def _get_agent_from_db(uuid: UUID) -> AgentModel | None:
         db.row_factory = aiosqlite.Row
         cursor = await db.execute("SELECT * FROM agents WHERE uuid = ?", (str(uuid),))
         row = await cursor.fetchone()
-        return AgentModel(**dict(row)) if row else None
+        if not row:
+            return None
+        
+        data = dict(row)
+        if data.get("tools"):
+            data["tools"] = json.loads(data["tools"])
+        else:
+            data["tools"] = {}
+            
+        return AgentModel(**data)
 
 async def _list_agents_from_db() -> List[AgentModel]:
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         cursor = await db.execute("SELECT * FROM agents ORDER BY created_at DESC")
         rows = await cursor.fetchall()
-        return [AgentModel(**dict(row)) for row in rows]
+        
+        agents = []
+        for row in rows:
+            data = dict(row)
+            if data.get("tools"):
+                data["tools"] = json.loads(data["tools"])
+            else:
+                data["tools"] = {}
+            agents.append(AgentModel(**data))
+        return agents
 
 async def _update_agent_in_db(agent: AgentModel) -> AgentModel:
     agent.updated_at = datetime.utcnow()
@@ -54,7 +73,7 @@ async def _update_agent_in_db(agent: AgentModel) -> AgentModel:
         await db.execute(
             """
             UPDATE agents
-            SET name = ?, description = ?, system_prompt = ?, user_instructions = ?, updated_at = ?
+            SET name = ?, description = ?, system_prompt = ?, user_instructions = ?, tools = ?, updated_at = ?
             WHERE uuid = ?
             """,
             (
@@ -62,6 +81,7 @@ async def _update_agent_in_db(agent: AgentModel) -> AgentModel:
                 agent.description,
                 agent.system_prompt,
                 agent.user_instructions,
+                json.dumps(agent.tools),
                 agent.updated_at,
                 str(agent.uuid),
             ),
@@ -73,13 +93,14 @@ async def _create_instance_in_db(instance: AgentInstanceModel) -> AgentInstanceM
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
             """
-            INSERT INTO agent_instances (uuid, agent_uuid, user_input, messages, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO agent_instances (uuid, agent_uuid, user_input, context_identifier, messages, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 str(instance.uuid),
                 str(instance.agent_uuid),
                 instance.user_input,
+                instance.context_identifier,
                 json.dumps([msg.model_dump() for msg in instance.messages]),
                 instance.created_at,
                 instance.updated_at,

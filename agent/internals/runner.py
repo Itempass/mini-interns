@@ -172,7 +172,7 @@ async def _execute_run(agent_model: AgentModel, instance: AgentInstanceModel) ->
             metadata=Metadata(
                 conversation_id=f"agent_{instance.uuid}",
                 readable_workflow_name=f"Agent: {agent_model.name}",
-                readable_instance_context=f"Instance: {instance.uuid}"
+                readable_instance_context=instance.context_identifier
             ),
             messages=[LoggerMessage.model_validate(m.model_dump()) for m in instance.messages if m.content is not None]
         ))

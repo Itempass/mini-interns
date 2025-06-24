@@ -25,6 +25,7 @@ class AgentInstanceModel(BaseModel):
     uuid: UUID = Field(default_factory=uuid4)
     agent_uuid: UUID
     user_input: str
+    context_identifier: Optional[str] = None
     messages: List[MessageModel] = []
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)

@@ -7,7 +7,7 @@ from shared.redis.keys import RedisKeys
 from shared.redis.redis_client import get_redis_client
 from triggers.rules import passes_filter
 from api.types.api_models.agent import FilterRules
-from triggers.email_agent import EmailAgent
+from triggers.email_agent import process_email_with_agent
 from shared.config import settings
 import json
 from mcp_servers.imap_mcpserver.src.utils.contextual_id import create_contextual_id
@@ -247,19 +247,8 @@ def process_message(msg, contextual_uid: str):
         return
 
     # Run the Agent
-    agent = EmailAgent(
-        app_settings=app_settings,
-        trigger_conditions=trigger_conditions,
-        agent_instructions=agent_instructions
-    )
-    agent_result = agent.run(msg, contextual_uid)
-
-    # Check if we should create a draft
-    if agent_result and agent_result.get("success"):
-        logger.info("Agent created draft successfully!")
-        logger.info(agent_result["message"])
-    else:
-        logger.error(f"Agent failed to create draft: {agent_result.get('message', 'Unknown reason')}")
+    result = process_email_with_agent(original_message=msg, contextual_uid=contextual_uid)
+    logger.info(f"Agent processing finished with result: {result}")
 
 if __name__ == "__main__":
     main() 
