@@ -26,3 +26,5 @@ fastembed
 email-reply-parser
 beautifulsoup4
 lxml
+sqlalchemy
+mysql-connector-python
