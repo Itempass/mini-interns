@@ -91,5 +91,46 @@ class TestSignatureDetection(unittest.TestCase):
         self.assertEqual(expected_plain_signature, plain_signature)
         self.assertEqual(str(soup_expected), str(soup_actual))
 
+    def test_find_best_signature_with_gmail_signature(self):
+        """Test signature detection with a gmail signature."""
+        # Arrange
+        signature_html = (
+            '<div dir="ltr"><div><br clear="all"></div><div><div dir="ltr" class="gmail_signature" data-smartmail="gmail_signature">'
+            '<div dir="ltr"><div style="color:rgb(68,68,68);font-family:sans-serif;line-height:1.5;font-size:12px">'
+            '<b>Hendrik Cornelissen</b></div><div style="color:rgb(68,68,68);font-family:sans-serif;line-height:1.5;font-size:12px">'
+            'Investment Team</div><div style="color:rgb(68,68,68);font-family:sans-serif;line-height:1.5;font-size:12px">'
+            '<img width="96" height="26" src="https://ci3.googleusercontent.com/mail-sig/AIorK4xjFn52Uh1ifuwHckybOagKzKw1o-CPvFd8yQHPD7wOagh30jOfIjUxzJmMG2DSaOl88CpXuH-12QGL"><br></div>'
+            '<div style="line-height:1.5"><span style="color:rgb(68,68,68);font-family:sans-serif;font-size:12px">'
+            'Cell: +1 650 495-6150</span></div><div style="color:rgb(68,68,68);font-family:sans-serif;line-height:1.5;font-size:12px">'
+            '<a href="https://www.plugandplaytechcenter.com/" rel="noopener" style="color:rgb(17,85,204)" target="_blank">'
+            'plugandplaytechcenter.com</a></div></div></div></div></div>'
+        )
+        signature_plain = "Hendrik Cornelissen\nInvestment Team\n\nCell: +1 650 495-6150\nplugandplaytechcenter.com"
+
+        emails_with_gmail_sig = [
+            {
+                'text': f"Hello team,\n\nHere is the report.\n\n{signature_plain}",
+                'html': f'<html><body><p>Hello team,</p><p>Here is the report.</p>{signature_html}</body></html>'
+            },
+            {
+                'text': f"Hi,\n\nPlease review this document.\n\n{signature_plain}",
+                'html': f'<html><body><p>Hi,</p><p>Please review this document.</p>{signature_html}</body></html>'
+            },
+            {
+                'text': f"Team,\n\nFYI.\n\n{signature_plain}",
+                'html': f'<html><body><p>Team,</p><p>FYI.</p>{signature_html}</body></html>'
+            }
+        ]
+
+        # Act
+        plain_signature, html_signature = IMAPService._find_best_signature(emails_with_gmail_sig)
+
+        # Assert
+        soup_expected = BeautifulSoup(signature_html, 'lxml')
+        soup_actual = BeautifulSoup(html_signature, 'lxml')
+
+        self.assertEqual(signature_plain.strip(), plain_signature.strip())
+        self.assertEqual(str(soup_expected), str(soup_actual))
+
 if __name__ == '__main__':
     unittest.main() 
