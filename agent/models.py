@@ -29,3 +29,11 @@ class AgentInstanceModel(BaseModel):
     messages: List[MessageModel] = []
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+class TriggerModel(BaseModel):
+    uuid: UUID = Field(default_factory=uuid4)
+    agent_uuid: UUID
+    trigger_conditions: str
+    filter_rules: Dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)

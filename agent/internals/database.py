@@ -4,7 +4,7 @@ import json
 from uuid import UUID
 from datetime import datetime
 from typing import List
-from agent.models import AgentModel, AgentInstanceModel, MessageModel
+from agent.models import AgentModel, AgentInstanceModel, MessageModel, TriggerModel
 
 DB_PATH = "/data/db/agent.db"
 
@@ -137,3 +137,100 @@ async def _update_instance_in_db(instance: AgentInstanceModel) -> AgentInstanceM
         )
         await db.commit()
     return instance
+
+# --- Trigger Functions ---
+
+async def _create_trigger_in_db(trigger: TriggerModel) -> TriggerModel:
+    async with aiosqlite.connect(DB_PATH) as db:
+        rules_payload = {
+            "trigger_conditions": trigger.trigger_conditions,
+            "filter_rules": trigger.filter_rules
+        }
+        await db.execute(
+            """
+            INSERT INTO triggers (uuid, agent_uuid, rules_json, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                str(trigger.uuid),
+                str(trigger.agent_uuid),
+                json.dumps(rules_payload),
+                trigger.created_at,
+                trigger.updated_at,
+            ),
+        )
+        await db.commit()
+    return trigger
+
+async def _get_trigger_from_db(uuid: UUID) -> TriggerModel | None:
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute("SELECT * FROM triggers WHERE uuid = ?", (str(uuid),))
+        row = await cursor.fetchone()
+        if not row:
+            return None
+        
+        data = dict(row)
+        rules_payload = json.loads(data["rules_json"])
+        data["trigger_conditions"] = rules_payload.get("trigger_conditions", "")
+        data["filter_rules"] = rules_payload.get("filter_rules", {})
+
+        return TriggerModel(**data)
+
+async def _get_trigger_for_agent_from_db(agent_uuid: UUID) -> TriggerModel | None:
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute("SELECT * FROM triggers WHERE agent_uuid = ?", (str(agent_uuid),))
+        row = await cursor.fetchone()
+        if not row:
+            return None
+        
+        data = dict(row)
+        rules_payload = json.loads(data["rules_json"])
+        data["trigger_conditions"] = rules_payload.get("trigger_conditions", "")
+        data["filter_rules"] = rules_payload.get("filter_rules", {})
+
+        return TriggerModel(**data)
+
+async def _list_triggers_from_db() -> List[TriggerModel]:
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute("SELECT * FROM triggers ORDER BY created_at DESC")
+        rows = await cursor.fetchall()
+        
+        triggers = []
+        for row in rows:
+            data = dict(row)
+            rules_payload = json.loads(data["rules_json"])
+            data["trigger_conditions"] = rules_payload.get("trigger_conditions", "")
+            data["filter_rules"] = rules_payload.get("filter_rules", {})
+            triggers.append(TriggerModel(**data))
+        return triggers
+
+async def _update_trigger_in_db(trigger: TriggerModel) -> TriggerModel:
+    trigger.updated_at = datetime.utcnow()
+    async with aiosqlite.connect(DB_PATH) as db:
+        rules_payload = {
+            "trigger_conditions": trigger.trigger_conditions,
+            "filter_rules": trigger.filter_rules
+        }
+        await db.execute(
+            """
+            UPDATE triggers
+            SET agent_uuid = ?, rules_json = ?, updated_at = ?
+            WHERE uuid = ?
+            """,
+            (
+                str(trigger.agent_uuid),
+                json.dumps(rules_payload),
+                trigger.updated_at,
+                str(trigger.uuid),
+            ),
+        )
+        await db.commit()
+    return trigger
+
+async def _delete_trigger_from_db(uuid: UUID):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("DELETE FROM triggers WHERE uuid = ?", (str(uuid),))
+        await db.commit()
