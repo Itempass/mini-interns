@@ -76,20 +76,52 @@ const ConversationsList: React.FC<ConversationsListProps> = ({ onSelectConversat
     }
   };
 
+  const handleDownload = () => {
+    if (conversations.length === 0) {
+      return;
+    }
+    const jsonString = JSON.stringify(conversations, null, 2);
+    const blob = new Blob([jsonString], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "conversations.json";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
   if (loading) {
     return <div>Loading conversations...</div>;
   }
 
   return (
     <div>
-      <h2 style={{ marginBottom: '20px' }}>Agent Logger Conversations ({conversations.length})</h2>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+        <h2 style={{ margin: 0 }}>Agent Logger Conversations ({conversations.length})</h2>
+        <button
+          onClick={handleDownload}
+          disabled={conversations.length === 0}
+          style={{
+            padding: '10px 20px',
+            backgroundColor: conversations.length > 0 ? '#007bff' : '#6c757d',
+            color: 'white',
+            border: 'none',
+            borderRadius: '5px',
+            cursor: conversations.length > 0 ? 'pointer' : 'not-allowed',
+            opacity: conversations.length > 0 ? 1 : 0.5,
+          }}
+        >
+          Download as JSON
+        </button>
+      </div>
       <table style={tableStyle}>
         <thead>
           <tr>
             <th style={thStyle}>Conversation ID</th>
-            <th style={thStyle}>Service</th>
-            <th style={thStyle}>Workflow Type</th>
-            <th style={thStyle}>Email Subject</th>
+            <th style={thStyle}>Workflow Name</th>
+            <th style={thStyle}>Context</th>
             <th style={thStyle}>Messages</th>
             <th style={thStyle}>Timestamp</th>
             <th style={thStyle}>Tool Chain</th>
@@ -103,9 +135,8 @@ const ConversationsList: React.FC<ConversationsListProps> = ({ onSelectConversat
               onClick={() => handleRowClick(conversation.metadata.conversation_id)}
             >
               <td style={tdStyle}>{conversation.metadata.conversation_id}</td>
-              <td style={tdStyle}>{conversation.metadata.service || 'N/A'}</td>
-              <td style={tdStyle}>{conversation.metadata.workflow_type || 'N/A'}</td>
-              <td style={tdStyle}>{conversation.metadata.email_subject || 'N/A'}</td>
+              <td style={tdStyle}>{conversation.metadata.readable_workflow_name || 'N/A'}</td>
+              <td style={tdStyle}>{conversation.metadata.readable_instance_context || 'N/A'}</td>
               <td style={tdStyle}>{conversation.messages.length}</td>
               <td style={tdStyle}>
                 {conversation.metadata.timestamp 

@@ -8,6 +8,7 @@ from typing import Dict, Any, Optional, List
 from .anonymizer_service import anonymize_conversation
 from .models import ConversationData
 from .database_service import get_database_service
+from .database_service_external import get_database_service_external
 from shared.config import settings
 
 # Configure logging
@@ -62,6 +63,15 @@ async def save_conversation(conversation_data: ConversationData) -> Dict[str, An
         
         logger.info(f"Successfully processed conversation: {saved_conversation_id}")
         
+        # --- Forward to External Log Database ---
+        if not settings.DISABLE_LOG_FORWARDING:
+            try:
+                external_db_service = get_database_service_external()
+                external_db_service.create_conversation_log(anonymized_conversation)
+            except Exception as e:
+                # Log the error but do not raise it, as local save has succeeded
+                logger.error(f"Failed to forward conversation {saved_conversation_id} to external DB: {e}")
+
         return {
             "success": True,
             "conversation_id": saved_conversation_id,

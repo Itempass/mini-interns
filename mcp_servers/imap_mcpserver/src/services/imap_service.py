@@ -18,10 +18,11 @@ from email_reply_parser import EmailReplyParser
 import functools
 from bs4 import BeautifulSoup
 from shared.app_settings import load_app_settings, AppSettings
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Generator
 from ..types.imap_models import RawEmail
 from .threading_service import ThreadingService
 from ..utils.contextual_id import create_contextual_id, parse_contextual_id
+import contextlib
 
 logger = logging.getLogger(__name__)
 
@@ -53,43 +54,40 @@ def _markdown_to_html(markdown_text: str) -> str:
 class IMAPService:
     """
     A service class for interacting with an IMAP email server.
+    Each method call creates a new, isolated connection to ensure thread safety.
     """
     def __init__(self):
         self.settings: AppSettings = load_app_settings()
-        self.mail: Optional[imaplib.IMAP4_SSL] = None
 
-    def connect(self) -> None:
+    @contextlib.contextmanager
+    def _connect(self) -> Generator[imaplib.IMAP4_SSL, None, None]:
         """
-        Connects to the IMAP server and logs in.
+        Connects to the IMAP server, logs in, and yields the connection.
+        Ensures logout and connection closure.
         """
         if not self.settings.IMAP_SERVER or not self.settings.IMAP_USERNAME or not self.settings.IMAP_PASSWORD:
             logger.error("IMAP settings are not configured. Cannot connect.")
             raise ValueError("IMAP settings (server, username, password) are not fully configured.")
         
+        mail = None
         try:
             logger.info(f"Connecting to IMAP server: {self.settings.IMAP_SERVER}")
-            self.mail = imaplib.IMAP4_SSL(self.settings.IMAP_SERVER)
-            self.mail.login(self.settings.IMAP_USERNAME, self.settings.IMAP_PASSWORD)
+            mail = imaplib.IMAP4_SSL(self.settings.IMAP_SERVER)
+            mail.login(self.settings.IMAP_USERNAME, self.settings.IMAP_PASSWORD)
             logger.info("IMAP login successful.")
+            yield mail
         except imaplib.IMAP4.error as e:
             logger.error(f"IMAP connection failed: {e}", exc_info=True)
-            self.mail = None
             raise ConnectionError(f"Failed to connect to IMAP server: {e}") from e
+        finally:
+            if mail:
+                try:
+                    mail.logout()
+                    logger.info("IMAP logout successful.")
+                except imaplib.IMAP4.error as e:
+                    logger.warning(f"IMAP logout failed, possibly already disconnected: {e}")
 
-    def disconnect(self) -> None:
-        """
-        Logs out and closes the connection to the IMAP server.
-        """
-        if self.mail:
-            try:
-                self.mail.logout()
-                logger.info("IMAP logout successful.")
-            except imaplib.IMAP4.error as e:
-                logger.warning(f"IMAP logout failed, possibly already disconnected: {e}")
-            finally:
-                self.mail = None
-
-    def _find_drafts_folder(self) -> str:
+    def _find_drafts_folder(self, mail: imaplib.IMAP4_SSL) -> str:
         """
         Find the correct drafts folder name by trying common variations.
         """
@@ -97,7 +95,7 @@ class IMAPService:
         selected_folder = None
         
         try:
-            status, folders = self.mail.list()
+            status, folders = mail.list()
             if status == "OK":
                 folder_list = [
                     folder.decode().split('"')[-2] if '"' in folder.decode() else folder.decode().split()[-1]
@@ -124,7 +122,7 @@ class IMAPService:
             
         return selected_folder
 
-    def _find_sent_folder(self) -> str:
+    def _find_sent_folder(self, mail: imaplib.IMAP4_SSL) -> str:
         """
         Find the correct sent folder name by trying common variations.
         """
@@ -132,7 +130,7 @@ class IMAPService:
         selected_folder = None
         
         try:
-            status, folders = self.mail.list()
+            status, folders = mail.list()
             if status == "OK":
                 folder_list = [
                     folder.decode().split('"')[-2] if '"' in folder.decode() else folder.decode().split()[-1]
@@ -164,8 +162,16 @@ class IMAPService:
         """
         Analyzes a list of email bodies to find the most common plain text and HTML signatures.
         """
+        logger.info(f"Starting signature detection for {len(email_bodies)} emails.")
         # --- Part 1: Determine Plain Text Signature ---
-        plain_replies = [EmailReplyParser.parse_reply(b['text']).strip() for b in email_bodies if b['text']]
+        plain_replies = []
+        for b in email_bodies:
+            if b.get('text'):
+                # By reconstructing from fragments, we can keep the signature while removing quoted replies.
+                email_message = EmailReplyParser.read(b['text'])
+                content_with_signature = "\n".join([f.content for f in email_message.fragments if not f.quoted])
+                plain_replies.append(content_with_signature.strip())
+        logger.info(f"Plain replies for signature detection (quotes removed): {plain_replies}")
 
         if len(plain_replies) < 2:
             logger.info("Not enough sent emails with content to determine a signature pattern.")
@@ -174,20 +180,27 @@ class IMAPService:
         best_plain_signature = ""
         last_plain_score = -1
         
-        for line_count in range(2, 8): # Check for signatures from 2 to 7 lines long
+        for line_count in range(2, 11): # Check for signatures from 2 to 10 lines long
+            logger.info(f"Checking for signatures with {line_count} lines.")
             candidates = [ "\n".join(reply.splitlines()[-line_count:]) for reply in plain_replies if len(reply.splitlines()) >= line_count]
             if not candidates:
+                logger.info("No candidates found for this line count.")
                 continue
             
+            logger.info(f"Candidates for {line_count} lines: {candidates}")
             most_common_candidate, _ = Counter(candidates).most_common(1)[0]
             current_score = sum(1 for reply in plain_replies if reply.endswith(most_common_candidate))
+            logger.info(f"Most common candidate: '{most_common_candidate}' with score: {current_score}")
 
             if current_score < last_plain_score:
+                logger.info("Score is lower than the last score. Breaking loop.")
                 break
             
             best_plain_signature = most_common_candidate
             last_plain_score = current_score
+            logger.info(f"Updating best_plain_signature to: '{best_plain_signature}'")
             if current_score < 2:
+                logger.info("Score is less than 2. Breaking loop.")
                 break
         
         final_plain_signature = None
@@ -200,7 +213,14 @@ class IMAPService:
 
         # --- Part 2: Determine HTML Signature ---
         # Use the plain text signature to find "golden" emails that definitely contain a signature.
-        golden_emails = [b for b in email_bodies if b['html'] and b['text'] and EmailReplyParser.parse_reply(b['text']).strip().endswith(final_plain_signature)]
+        golden_emails = []
+        for b in email_bodies:
+            if b.get('html') and b.get('text'):
+                email_message = EmailReplyParser.read(b['text'])
+                content_with_signature = "\n".join([f.content for f in email_message.fragments if not f.quoted])
+                if content_with_signature.strip().endswith(final_plain_signature):
+                    golden_emails.append(b)
+
         logger.info(f"Found {len(golden_emails)} golden emails to check for an HTML signature.")
 
         if len(golden_emails) < 2:
@@ -214,22 +234,33 @@ class IMAPService:
         signature_parents = []
         for soup in parsed_bodies:
             # Find all text nodes that contain parts of the signature
-            # We use a simplified version of the signature for searching
-            search_text = final_plain_signature.split('\n')[0]
-            text_nodes = soup.find_all(string=re.compile(search_text))
+            signature_lines = [line for line in final_plain_signature.split('\n') if line.strip()]
+            text_nodes = []
+            for line in signature_lines:
+                # Find all text nodes that contain the line, using regex to be flexible with whitespace
+                nodes = soup.find_all(string=re.compile(re.escape(line.strip())))
+                if nodes:
+                    text_nodes.extend(nodes)
             
             if not text_nodes:
+                logger.info(f"Signature text not found in HTML body.")
                 continue
 
-            # For this example, we'll work with the first found text node.
-            # A more robust solution might check all nodes.
-            node = text_nodes[0]
+            # Find the common ancestor of all the found text nodes.
+            common_ancestor = text_nodes[0].find_parent()
+            for i in range(1, len(text_nodes)):
+                ancestor = text_nodes[i].find_parent()
+                while common_ancestor not in ancestor.parents and common_ancestor != ancestor:
+                    common_ancestor = common_ancestor.find_parent()
+                    if not common_ancestor: # Reached the top of the document
+                        break
+                if not common_ancestor:
+                    break # Should not happen if signature is in one block
             
-            # Walk up the tree to find a significant block-level parent
-            # or a common ancestor. For simplicity, we'll go up a few levels.
-            parent = node.find_parent('div') or node.find_parent('p') or node.find_parent('td')
-            if parent:
-                signature_parents.append(parent)
+            if common_ancestor:
+                signature_parents.append(common_ancestor)
+
+        logger.info(f"Found {len(signature_parents)} potential HTML signature parent blocks.")
 
         if not signature_parents:
             logger.info("Could not find common HTML parent for signature.")
@@ -242,6 +273,7 @@ class IMAPService:
             return final_plain_signature, None
 
         most_common_html_str, count = Counter(parent_strings).most_common(1)[0]
+        logger.info(f"Most common HTML signature candidate: '{most_common_html_str[:150]}...' with count: {count}")
         
         final_html_signature = None
         if count >= 2:
@@ -258,63 +290,64 @@ class IMAPService:
         Fetches the user's email signature by analyzing the last 10 sent emails.
         It determines the plain text signature first, then uses that to find the
         corresponding HTML signature.
-        The result is cached.
+        The result is cached. This method is synchronous and self-contained.
         """
-        if not self.mail:
-            logger.warning("Cannot get user signature, not connected to IMAP.")
-            return None, None
-
         logger.info("Attempting to determine user signature from sent emails.")
-        sent_folder = self._find_sent_folder()
         try:
-            status, _ = self.mail.select(f'"{sent_folder}"')
-            if status != 'OK':
-                logger.error(f"Failed to select sent folder '{sent_folder}'.")
-                return None, None
-            
-            typ, data = self.mail.uid('search', None, 'ALL')
-            if typ != 'OK':
-                logger.error(f"Failed to search sent folder '{sent_folder}'.")
-                return None, None
-            
-            email_uids = data[0].split()
-            if not email_uids:
-                logger.info("No emails found in sent folder.")
-                return None, None
+            with self._connect() as mail:
+                sent_folder = self._find_sent_folder(mail)
+                try:
+                    status, _ = mail.select(f'"{sent_folder}"')
+                    if status != 'OK':
+                        logger.error(f"Failed to select sent folder '{sent_folder}'.")
+                        return None, None
+                    
+                    typ, data = mail.uid('search', None, 'ALL')
+                    if typ != 'OK':
+                        logger.error(f"Failed to search sent folder '{sent_folder}'.")
+                        return None, None
+                    
+                    email_uids = data[0].split()
+                    if not email_uids:
+                        logger.info("No emails found in sent folder.")
+                        return None, None
 
-            latest_email_uids = email_uids[-10:]
-            logger.info(f"Analyzing last {len(latest_email_uids)} emails for signature.")
-            
-            email_bodies = []
-            for uid in latest_email_uids:
-                typ, data = self.mail.uid('fetch', uid, '(RFC822)')
-                if typ != 'OK':
-                    logger.warning(f"Failed to fetch email with UID {uid.decode()}.")
-                    continue
+                    latest_email_uids = email_uids[-10:]
+                    logger.info(f"Analyzing last {len(latest_email_uids)} emails for signature.")
+                    
+                    email_bodies = []
+                    for uid in latest_email_uids:
+                        typ, data = mail.uid('fetch', uid, '(RFC822)')
+                        if typ != 'OK':
+                            logger.warning(f"Failed to fetch email with UID {uid.decode()}.")
+                            continue
 
-                for response_part in data:
-                    if isinstance(response_part, tuple):
-                        msg = email.message_from_bytes(response_part[1])
-                        plain_body = ""
-                        html_body = ""
-                        if msg.is_multipart():
-                            for part in msg.walk():
-                                ctype = part.get_content_type()
-                                cdisp = str(part.get('Content-Disposition'))
-                                if ctype == 'text/plain' and 'attachment' not in cdisp:
-                                    plain_body = part.get_payload(decode=True).decode(part.get_content_charset() or 'utf-8', errors='ignore')
-                                elif ctype == 'text/html' and 'attachment' not in cdisp:
-                                    html_body = part.get_payload(decode=True).decode(part.get_content_charset() or 'utf-8', errors='ignore')
-                        else:
-                            plain_body = msg.get_payload(decode=True).decode(msg.get_content_charset() or 'utf-8', errors='ignore')
-                        
-                        if plain_body:
-                            email_bodies.append({'text': plain_body, 'html': html_body})
+                        for response_part in data:
+                            if isinstance(response_part, tuple):
+                                msg = email.message_from_bytes(response_part[1])
+                                plain_body = ""
+                                html_body = ""
+                                if msg.is_multipart():
+                                    for part in msg.walk():
+                                        ctype = part.get_content_type()
+                                        cdisp = str(part.get('Content-Disposition'))
+                                        if ctype == 'text/plain' and 'attachment' not in cdisp:
+                                            plain_body = part.get_payload(decode=True).decode(part.get_content_charset() or 'utf-8', errors='ignore')
+                                        elif ctype == 'text/html' and 'attachment' not in cdisp:
+                                            html_body = part.get_payload(decode=True).decode(part.get_content_charset() or 'utf-8', errors='ignore')
+                                else:
+                                    plain_body = msg.get_payload(decode=True).decode(msg.get_content_charset() or 'utf-8', errors='ignore')
+                                
+                                if plain_body:
+                                    email_bodies.append({'text': plain_body, 'html': html_body})
 
-            return self._find_best_signature(email_bodies)
+                    return self._find_best_signature(email_bodies)
 
-        except Exception as e:
-            logger.error(f"An unexpected error occurred while getting user signature: {e}", exc_info=True)
+                except Exception as e:
+                    logger.error(f"An unexpected error occurred while getting user signature: {e}", exc_info=True)
+                    return None, None
+        except (ValueError, ConnectionError) as e:
+            logger.error(f"IMAP connection failed during get_user_signature: {e}")
             return None, None
 
     # --- Placeholder methods for tool implementations ---
@@ -322,96 +355,78 @@ class IMAPService:
     # needed by the tools in tools/imap.py
 
     async def list_inbox_emails(self, max_results: int = 10) -> List[RawEmail]:
-        if not self.mail:
-            try:
-                await asyncio.get_running_loop().run_in_executor(None, self.connect)
-            except (ValueError, ConnectionError) as e:
-                logger.error(f"IMAP connection failed: {e}")
-                return []
-        
-        if not self.mail:
-            logger.error("IMAP service is not connected.")
-            return []
-
         def _fetch_emails() -> List[RawEmail]:
             try:
-                self.mail.select('inbox', readonly=True)
-                typ, data = self.mail.uid('search', None, 'ALL')
-                if typ != 'OK':
-                    logger.error("Failed to search inbox for UIDs.")
-                    return []
-                
-                email_uids = data[0].split()
-                if not email_uids:
-                    return []
-
-                latest_email_uids = email_uids[-max_results:]
-                
-                emails: List[RawEmail] = []
-                for uid in reversed(latest_email_uids):
-                    typ, data = self.mail.uid('fetch', uid, '(RFC822)')
+                with self._connect() as mail:
+                    mail.select('inbox', readonly=True)
+                    typ, data = mail.uid('search', None, 'ALL')
                     if typ != 'OK':
-                        logger.warning(f"Failed to fetch email with UID {uid.decode()}")
-                        continue
+                        logger.error("Failed to search inbox for UIDs.")
+                        return []
+                    
+                    email_uids = data[0].split()
+                    if not email_uids:
+                        return []
 
-                    for response_part in data:
-                        if isinstance(response_part, tuple):
-                            msg = email.message_from_bytes(response_part[1])
-                            contextual_id = create_contextual_id('inbox', uid.decode())
-                            emails.append(RawEmail(uid=contextual_id, msg=msg))
-                return emails
+                    latest_email_uids = email_uids[-max_results:]
+                    
+                    emails: List[RawEmail] = []
+                    for uid in reversed(latest_email_uids):
+                        typ, data = mail.uid('fetch', uid, '(RFC822)')
+                        if typ != 'OK':
+                            logger.warning(f"Failed to fetch email with UID {uid.decode()}")
+                            continue
+
+                        for response_part in data:
+                            if isinstance(response_part, tuple):
+                                msg = email.message_from_bytes(response_part[1])
+                                contextual_id = create_contextual_id('inbox', uid.decode())
+                                emails.append(RawEmail(uid=contextual_id, msg=msg))
+                    return emails
+            except (ValueError, ConnectionError) as e:
+                logger.error(f"IMAP connection failed during list_inbox_emails: {e}")
+                return []
             except imaplib.IMAP4.error as e:
                 logger.error(f"Error fetching emails with UIDs: {e}", exc_info=True)
-                # Connection might be stale, try to disconnect.
-                self.disconnect() # disconnect is blocking
                 return []
 
         return await asyncio.get_running_loop().run_in_executor(None, _fetch_emails)
 
     async def list_sent_emails(self, max_results: int = 100) -> List[RawEmail]:
-        if not self.mail:
-            try:
-                await asyncio.get_running_loop().run_in_executor(None, self.connect)
-            except (ValueError, ConnectionError) as e:
-                logger.error(f"IMAP connection failed: {e}")
-                return []
-        
-        if not self.mail:
-            logger.error("IMAP service is not connected.")
-            return []
-
         def _fetch_emails() -> List[RawEmail]:
             try:
-                sent_folder = self._find_sent_folder()
-                self.mail.select(f'"{sent_folder}"', readonly=True)
-                typ, data = self.mail.uid('search', None, 'ALL')
-                if typ != 'OK':
-                    logger.error(f"Failed to search sent folder '{sent_folder}' for UIDs.")
-                    return []
-                
-                email_uids = data[0].split()
-                if not email_uids:
-                    return []
-
-                latest_email_uids = email_uids[-max_results:]
-                
-                emails: List[RawEmail] = []
-                for uid in reversed(latest_email_uids):
-                    typ, data = self.mail.uid('fetch', uid, '(RFC822)')
+                with self._connect() as mail:
+                    sent_folder = self._find_sent_folder(mail)
+                    mail.select(f'"{sent_folder}"', readonly=True)
+                    typ, data = mail.uid('search', None, 'ALL')
                     if typ != 'OK':
-                        logger.warning(f"Failed to fetch email with UID {uid.decode()} from sent folder")
-                        continue
+                        logger.error(f"Failed to search sent folder '{sent_folder}' for UIDs.")
+                        return []
+                    
+                    email_uids = data[0].split()
+                    if not email_uids:
+                        return []
 
-                    for response_part in data:
-                        if isinstance(response_part, tuple):
-                            msg = email.message_from_bytes(response_part[1])
-                            contextual_id = create_contextual_id(sent_folder, uid.decode())
-                            emails.append(RawEmail(uid=contextual_id, msg=msg))
-                return emails
+                    latest_email_uids = email_uids[-max_results:]
+                    
+                    emails: List[RawEmail] = []
+                    for uid in reversed(latest_email_uids):
+                        typ, data = mail.uid('fetch', uid, '(RFC822)')
+                        if typ != 'OK':
+                            logger.warning(f"Failed to fetch email with UID {uid.decode()} from sent folder")
+                            continue
+
+                        for response_part in data:
+                            if isinstance(response_part, tuple):
+                                msg = email.message_from_bytes(response_part[1])
+                                contextual_id = create_contextual_id(sent_folder, uid.decode())
+                                emails.append(RawEmail(uid=contextual_id, msg=msg))
+                    return emails
+            except (ValueError, ConnectionError) as e:
+                logger.error(f"IMAP connection failed during list_sent_emails: {e}")
+                return []
             except imaplib.IMAP4.error as e:
                 logger.error(f"Error fetching sent emails: {e}", exc_info=True)
-                # Connection might be stale, try to disconnect.
-                self.disconnect() # disconnect is blocking
                 return []
 
         return await asyncio.get_running_loop().run_in_executor(None, _fetch_emails)
@@ -420,40 +435,31 @@ class IMAPService:
         """
         Retrieves a specific email by its contextual ID.
         """
-        if not self.mail:
-            try:
-                await asyncio.get_running_loop().run_in_executor(None, self.connect)
-            except (ValueError, ConnectionError) as e:
-                logger.error(f"IMAP connection failed: {e}")
-                return None
-        
-        if not self.mail:
-            logger.error("IMAP service is not connected.")
-            return None
-
         def _fetch_email() -> Optional[RawEmail]:
             try:
-                mailbox, uid = parse_contextual_id(message_id)
-                self.mail.select(f'"{mailbox}"', readonly=True)
-                
-                typ, data = self.mail.uid('fetch', uid.encode('utf-8'), '(RFC822)')
+                with self._connect() as mail:
+                    mailbox, uid = parse_contextual_id(message_id)
+                    mail.select(f'"{mailbox}"', readonly=True)
+                    
+                    typ, data = mail.uid('fetch', uid.encode('utf-8'), '(RFC822)')
 
-                if typ != 'OK' or not data or data[0] is None:
-                    logger.warning(f"Failed to fetch email with UID {uid} from mailbox {mailbox}")
+                    if typ != 'OK' or not data or data[0] is None:
+                        logger.warning(f"Failed to fetch email with UID {uid} from mailbox {mailbox}")
+                        return None
+
+                    for response_part in data:
+                        if isinstance(response_part, tuple):
+                            msg = email.message_from_bytes(response_part[1])
+                            # Return the original contextual ID for consistency
+                            return RawEmail(uid=message_id, msg=msg)
+                    
+                    logger.warning(f"Could not parse email content for UID {uid} from mailbox {mailbox}")
                     return None
-
-                for response_part in data:
-                    if isinstance(response_part, tuple):
-                        msg = email.message_from_bytes(response_part[1])
-                        # Return the original contextual ID for consistency
-                        return RawEmail(uid=message_id, msg=msg)
-                
-                logger.warning(f"Could not parse email content for UID {uid} from mailbox {mailbox}")
+            except (ValueError, ConnectionError) as e:
+                logger.error(f"IMAP connection failed during get_email: {e}")
                 return None
-
             except imaplib.IMAP4.error as e:
                 logger.error(f"Error fetching email with contextual ID {message_id}: {e}", exc_info=True)
-                self.disconnect()
                 return None
 
         return await asyncio.get_running_loop().run_in_executor(None, _fetch_email)
@@ -462,51 +468,42 @@ class IMAPService:
         """
         Fetches an entire email thread using the best available method.
         """
-        if not self.mail:
-            try:
-                await asyncio.get_running_loop().run_in_executor(None, self.connect)
-            except (ValueError, ConnectionError) as e:
-                logger.error(f"IMAP connection failed: {e}")
-                return []
-        
-        if not self.mail:
-            logger.error("IMAP service is not connected.")
-            return []
-
         def _fetch_thread() -> List[RawEmail]:
             try:
-                # The threading service needs to start from a specific email.
-                # We select the initial mailbox before calling it.
-                initial_mailbox, initial_uid = parse_contextual_id(message_id)
-                self.mail.select(f'"{initial_mailbox}"', readonly=True)
-                
-                threading_service = ThreadingService(self.mail)
-                thread_mailbox, thread_uids = threading_service.get_thread_uids(initial_uid)
+                with self._connect() as mail:
+                    # The threading service needs to start from a specific email.
+                    # We select the initial mailbox before calling it.
+                    initial_mailbox, initial_uid = parse_contextual_id(message_id)
+                    mail.select(f'"{initial_mailbox}"', readonly=True)
+                    
+                    threading_service = ThreadingService(mail)
+                    thread_mailbox, thread_uids = threading_service.get_thread_uids(initial_uid)
 
-                if not thread_uids:
-                    return []
+                    if not thread_uids:
+                        return []
 
-                emails: List[RawEmail] = []
-                # After getting the UIDs, we must select the correct mailbox they belong to.
-                self.mail.select(f'"{thread_mailbox}"', readonly=True)
-                
-                for uid in thread_uids:
-                    typ, data = self.mail.uid('fetch', uid.encode('utf-8'), '(RFC822)')
-                    if typ == 'OK' and data and data[0] is not None:
-                        for response_part in data:
-                            if isinstance(response_part, tuple):
-                                msg = email.message_from_bytes(response_part[1])
-                                contextual_id = create_contextual_id(thread_mailbox, uid)
-                                emails.append(RawEmail(uid=contextual_id, msg=msg))
-                                break
-                    else:
-                        logger.warning(f"Failed to fetch email with UID {uid} from {thread_mailbox}.")
+                    emails: List[RawEmail] = []
+                    # After getting the UIDs, we must select the correct mailbox they belong to.
+                    mail.select(f'"{thread_mailbox}"', readonly=True)
+                    
+                    for uid in thread_uids:
+                        typ, data = mail.uid('fetch', uid.encode('utf-8'), '(RFC822)')
+                        if typ == 'OK' and data and data[0] is not None:
+                            for response_part in data:
+                                if isinstance(response_part, tuple):
+                                    msg = email.message_from_bytes(response_part[1])
+                                    contextual_id = create_contextual_id(thread_mailbox, uid)
+                                    emails.append(RawEmail(uid=contextual_id, msg=msg))
+                                    break
+                        else:
+                            logger.warning(f"Failed to fetch email with UID {uid} from {thread_mailbox}.")
 
-                return emails
-
+                    return emails
+            except (ValueError, ConnectionError) as e:
+                logger.error(f"IMAP connection failed during fetch_email_thread: {e}")
+                return []
             except imaplib.IMAP4.error as e:
                 logger.error(f"Error fetching email thread for contextual ID {message_id}: {e}", exc_info=True)
-                self.disconnect()
                 return []
 
         return await asyncio.get_running_loop().run_in_executor(None, _fetch_thread)
@@ -516,117 +513,11 @@ class IMAPService:
         pass
 
     async def draft_reply(self, message_id: str, body: str) -> Dict[str, Any]:
-        if not self.mail:
-            try:
-                await asyncio.get_running_loop().run_in_executor(None, self.connect)
-            except (ValueError, ConnectionError) as e:
-                logger.error(f"IMAP connection failed: {e}")
-                return {"success": False, "message": str(e)}
-
-        if not self.mail:
-            logger.error("IMAP service is not connected.")
-            return {"success": False, "message": "IMAP service is not connected."}
-
-        def _create_and_save_draft() -> Dict[str, Any]:
-            try:
-                # 1. Fetch the original email
-                original_raw_email = self.get_email_sync(message_id)
-                if not original_raw_email:
-                    return {"success": False, "message": f"Email with ID {message_id} not found."}
-                original_msg = original_raw_email.msg
-
-                # 2. Prepare reply headers
-                original_subject = "".join(
-                    part.decode(encoding or 'utf-8') if isinstance(part, bytes) else part
-                    for part, encoding in decode_header(original_msg['Subject'] or "(No Subject)")
-                )
-                reply_subject = original_subject if original_subject.lower().startswith("re:") else f"Re: {original_subject}"
-
-                # Use Reply-To header if available, otherwise From
-                reply_to_header = original_msg.get('Reply-To') or original_msg['From']
-                to_email = email.utils.parseaddr(reply_to_header)[1]
-
-                # 3. Create the reply message
-                reply_message = MIMEMultipart("alternative")
-                reply_message["Subject"] = reply_subject
-                reply_message["From"] = self.settings.IMAP_USERNAME
-                reply_message["To"] = to_email
-                
-                original_cc = original_msg.get('Cc')
-                logger.info(f"Original email Cc: {original_cc}")
-                if original_cc:
-                    # getaddresses returns a list of (realname, email-address) tuples
-                    cc_emails = [
-                        email_address for _, email_address 
-                        in email.utils.getaddresses([original_cc]) 
-                        if email_address
-                    ]
-                    logger.info(f"Parsed Cc emails: {cc_emails}")
-                    if cc_emails:
-                        reply_message['Cc'] = ', '.join(cc_emails)
-                        logger.info(f"Set Cc header on reply to: {reply_message['Cc']}")
-                else:
-                    logger.info("No Cc header found in the original email.")
-                
-                # Add threading headers
-                if original_msg.get('Message-ID'):
-                    reply_message["In-Reply-To"] = original_msg.get('Message-ID')
-                    reply_message["References"] = original_msg.get('Message-ID')
-                
-                reply_message["Date"] = email.utils.formatdate(localtime=True)
-
-                # 4. Get signature and append to body
-                plain_signature, html_signature = self.get_user_signature()
-
-                # Prepare plain part
-                full_plain_body = body
-                if plain_signature:
-                    full_plain_body = f"{body}\n\n{plain_signature}"
-
-                # Prepare HTML part
-                html_body = _markdown_to_html(body)
-                if html_signature:
-                    # If we have a native HTML signature, use it.
-                    # It's a full fragment, so we just append it.
-                    full_html_body = f"{html_body}{html_signature}"
-                elif plain_signature:
-                    # If not, convert the plain text signature to HTML as a fallback.
-                    html_fallback_sig = f"-- <br>{_markdown_to_html(plain_signature.replace('--', ''))}"
-                    full_html_body = f"{html_body}<br><br>{html_fallback_sig}"
-
-                # 5. Create body parts
-                part1 = MIMEText(full_plain_body, "plain")
-                part2 = MIMEText(full_html_body, "html")
-                reply_message.attach(part1)
-                reply_message.attach(part2)
-
-                # 6. Find drafts folder and save
-                drafts_folder = self._find_drafts_folder()
-                logger.info(f"Saving draft reply to folder: {drafts_folder}")
-                
-                message_string = reply_message.as_string()
-                result = self.mail.append(drafts_folder, None, None, message_string.encode("utf-8"))
-
-                if result[0] == "OK":
-                    return {"success": True, "message": f"Draft reply saved to {drafts_folder}."}
-                else:
-                    error_msg = f"Error creating draft reply: {result[1][0].decode() if result[1] else 'Unknown error'}"
-                    logger.error(error_msg)
-                    return {"success": False, "message": error_msg}
-
-            except Exception as e:
-                error_msg = f"Error creating draft reply: {str(e)}"
-                logger.error(error_msg, exc_info=True)
-                # Disconnect on critical error
-                self.disconnect()
-                return {"success": False, "message": error_msg}
-
-        # Need a synchronous version of get_email for the executor
-        def _fetch_email_sync(sync_message_id: str) -> Optional[RawEmail]:
+        def _get_email_sync(sync_message_id: str, mail: imaplib.IMAP4_SSL) -> Optional[RawEmail]:
             try:
                 mailbox, uid = parse_contextual_id(sync_message_id)
-                self.mail.select(f'"{mailbox}"', readonly=True)
-                typ, data = self.mail.uid('fetch', uid.encode('utf-8'), '(RFC822)')
+                mail.select(f'"{mailbox}"', readonly=True)
+                typ, data = mail.uid('fetch', uid.encode('utf-8'), '(RFC822)')
                 if typ != 'OK' or not data or data[0] is None:
                     return None
                 for response_part in data:
@@ -635,7 +526,105 @@ class IMAPService:
                 return None
             except imaplib.IMAP4.error:
                 return None
-        
-        self.get_email_sync = _fetch_email_sync
+
+        def _create_and_save_draft() -> Dict[str, Any]:
+            try:
+                with self._connect() as mail:
+                    # 1. Fetch the original email
+                    original_raw_email = _get_email_sync(message_id, mail)
+                    if not original_raw_email:
+                        return {"success": False, "message": f"Email with ID {message_id} not found."}
+                    original_msg = original_raw_email.msg
+
+                    # 2. Prepare reply headers
+                    original_subject = "".join(
+                        part.decode(encoding or 'utf-8') if isinstance(part, bytes) else part
+                        for part, encoding in decode_header(original_msg['Subject'] or "(No Subject)")
+                    )
+                    reply_subject = original_subject if original_subject.lower().startswith("re:") else f"Re: {original_subject}"
+
+                    # Use Reply-To header if available, otherwise From
+                    reply_to_header = original_msg.get('Reply-To') or original_msg['From']
+                    to_email = email.utils.parseaddr(reply_to_header)[1]
+
+                    # 3. Create the reply message
+                    reply_message = MIMEMultipart("alternative")
+                    reply_message["Subject"] = reply_subject
+                    reply_message["From"] = self.settings.IMAP_USERNAME
+                    reply_message["To"] = to_email
+                    
+                    original_cc = original_msg.get('Cc')
+                    logger.info(f"Original email Cc: {original_cc}")
+                    if original_cc:
+                        # getaddresses returns a list of (realname, email-address) tuples
+                        cc_emails = [
+                            email_address for _, email_address 
+                            in email.utils.getaddresses([original_cc]) 
+                            if email_address
+                        ]
+                        logger.info(f"Parsed Cc emails: {cc_emails}")
+                        if cc_emails:
+                            reply_message['Cc'] = ', '.join(cc_emails)
+                            logger.info(f"Set Cc header on reply to: {reply_message['Cc']}")
+                    else:
+                        logger.info("No Cc header found in the original email.")
+                    
+                    # Add threading headers
+                    if original_msg.get('Message-ID'):
+                        reply_message["In-Reply-To"] = original_msg.get('Message-ID')
+                        reply_message["References"] = original_msg.get('Message-ID')
+                    
+                    reply_message["Date"] = email.utils.formatdate(localtime=True)
+
+                    # 4. Get signature and append to body
+                    # This call is cached after the first run
+                    plain_signature, html_signature = self.get_user_signature()
+
+                    # Prepare plain part
+                    full_plain_body = body
+                    if plain_signature:
+                        full_plain_body = f"{body}\\n\\n{plain_signature}"
+
+                    # Prepare HTML part
+                    html_body = _markdown_to_html(body)
+                    if html_signature:
+                        # If we have a native HTML signature, use it.
+                        # It's a full fragment, so we just append it.
+                        full_html_body = f"{html_body}{html_signature}"
+                    elif plain_signature:
+                        # If not, convert the plain text signature to HTML as a fallback.
+                        html_fallback_sig = f"-- <br>{_markdown_to_html(plain_signature.replace('--', ''))}"
+                        full_html_body = f"{html_body}<br><br>{html_fallback_sig}"
+                    else:
+                        full_html_body = html_body
+
+                    # 5. Create body parts
+                    part1 = MIMEText(full_plain_body, "plain")
+                    part2 = MIMEText(full_html_body, "html")
+                    reply_message.attach(part1)
+                    reply_message.attach(part2)
+
+                    # 6. Find drafts folder and save
+                    drafts_folder = self._find_drafts_folder(mail)
+                    logger.info(f"Saving draft reply to folder: {drafts_folder}")
+                    
+                    message_string = reply_message.as_string()
+                    result = mail.append(drafts_folder, None, None, message_string.encode("utf-8"))
+
+                    if result[0] == "OK":
+                        return {"success": True, "message": f"Draft reply saved to {drafts_folder}."}
+                    else:
+                        error_msg = f"Error creating draft reply: {result[1][0].decode() if result[1] else 'Unknown error'}"
+                        logger.error(error_msg)
+                        return {"success": False, "message": error_msg}
+
+            except (ValueError, ConnectionError) as e:
+                error_msg = f"IMAP connection failed during draft_reply: {str(e)}"
+                logger.error(error_msg, exc_info=True)
+                return {"success": False, "message": error_msg}
+            except Exception as e:
+                error_msg = f"Error creating draft reply: {str(e)}"
+                logger.error(error_msg, exc_info=True)
+                return {"success": False, "message": error_msg}
         
         return await asyncio.get_running_loop().run_in_executor(None, _create_and_save_draft) 

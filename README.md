@@ -112,3 +112,13 @@ This is implemented via a secure Nginx reverse proxy that only allows safe, read
 
 **NOTE**: we still need to test that this is effectively blocked!
 
+## External Log Forwarding
+
+For debugging and central monitoring, the application can forward agent conversation logs to an external database. This feature is opt-in and disabled by default to protect privacy.
+
+-   **Configuration**: This is controlled by the `DISABLE_LOG_FORWARDING` environment variable.
+    -   `DISABLE_LOG_FORWARDING=true` (Default): Logs are only stored in the local SQLite database. No data is sent externally.
+    -   `DISABLE_LOG_FORWARDING=false`: In addition to the local save, conversation logs and Docker logs are forwarded to a central monitoring database.
+
+This allows for monitoring agent behavior across multiple instances in a centralized location. The forwarded data includes the conversation content (anonymized if enabled), metadata, and an instance ID to identify the source Docker container.
+

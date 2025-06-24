@@ -9,7 +9,7 @@ services:
         - CONTAINERPORT_API=${CONTAINERPORT_API}
     env_file:
       - .env
-    container_name: mini-interns-app
+    # container_name: mini-interns-app
     ports:
       - "${FRONTEND_HOST_PORT:-3000}:3000"
       - "6274:6274"  # MCP Inspector Web UI
@@ -17,28 +17,63 @@ services:
     volumes:
       - ./data/db:/data/db
       - ./data/redis:/data/redis
+      - ./data:/data
     dns:
       - 8.8.8.8
     restart: unless-stopped
     depends_on:
       - qdrant
+    labels:
+      - "logging_job=mini-interns-app"
 
   qdrant:
     image: qdrant/qdrant:latest
     restart: unless-stopped
-    container_name: mini-interns-qdrant
+    # container_name: mini-interns-qdrant
     volumes:
       - ./data/qdrant:/qdrant/storage
 
   # Optional: Qdrant Read-Only Dashboard
   qdrant-dashboard:
-    image: nginx:alpine
-    container_name: mini-interns-qdrant-readonly-dashboard
+    build:
+      context: .
+      dockerfile: qdrant-dashboard.Dockerfile
+    # container_name: mini-interns-qdrant-readonly-dashboard
     ports:
       # Exposes a READ-ONLY dashboard on http://localhost:6333
       - "6333:80"
-    volumes:
-      - ./nginx-qdrant-readonly.conf:/etc/nginx/nginx.conf:ro
     depends_on:
       - qdrant
     restart: unless-stopped
+
+  promtail:
+    image: grafana/promtail:2.9.1
+    # container_name: mini-interns-promtail
+    volumes:
+      - ./promtail-config.yml:/etc/promtail/config.yml
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./data:/data
+    entrypoint: |
+      /bin/sh -c '
+        set -e
+        INSTANCE_ID_FILE="/data/.instance_id"
+        if [ ! -f "$$INSTANCE_ID_FILE" ]; then
+          echo "Generating new instance ID..."
+          cat /proc/sys/kernel/random/uuid > $$INSTANCE_ID_FILE
+        fi
+        export INSTANCE_ID=$(cat $$INSTANCE_ID_FILE)
+        echo "Instance ID: $$INSTANCE_ID"
+
+        if [ "$${DISABLE_LOG_FORWARDING:-true}" = "true" ]; then
+          echo "Logging is disabled. Promtail will not start.";
+          exit 0;
+        else
+          echo "Starting Promtail...";
+          /usr/bin/promtail -config.file=/etc/promtail/config.yml -config.expand-env=true;
+        fi
+      '
+    environment:
+      - DISABLE_LOG_FORWARDING=${DISABLE_LOG_FORWARDING:-true}
+    restart: unless-stopped
+    depends_on:
+      - app

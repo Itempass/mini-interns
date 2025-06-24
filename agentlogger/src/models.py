@@ -18,6 +18,8 @@ class Metadata(BaseModel):
     """Conversation metadata"""
     conversation_id: str
     timestamp: Optional[str] = None
+    readable_workflow_name: Optional[str] = None
+    readable_instance_context: Optional[str] = None
     # Allow additional metadata fields
     model_config = {"extra": "allow"}
 

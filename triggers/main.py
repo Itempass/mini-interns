@@ -98,8 +98,12 @@ Body:
         try:
             # Log the conversation
             contextual_uid = create_contextual_id('INBOX', msg.uid) # Create a UID for logging
-            await save_conversation(ConversationData(
-                metadata=Metadata(conversation_id=f"trigger_{contextual_uid}"),
+            save_conversation_sync(ConversationData(
+                metadata=Metadata(
+                    conversation_id=f"trigger_{contextual_uid}",
+                    readable_workflow_name="Trigger Check",
+                    readable_instance_context=f"{msg.from_} - {msg.subject}"
+                ),
                 messages=[Message(**m) for m in messages if m.get("content") is not None]
             ))
             logger.info(f"Trigger check conversation for {contextual_uid} logged successfully.")
@@ -204,7 +208,7 @@ def main():
 def process_message(msg, contextual_uid: str):
     logger.info("--------------------")
     logger.info(f"New Email Received:")
-    logger.info(f"  UID: {msg.uid} (Contextual: {contextual_uid})")
+    logger.info(f"  UID: {contextual_uid}")
     logger.info(f"  From: {msg.from_}")
     logger.info(f"  To: {msg.to}")
     logger.info(f"  Date: {msg.date_str}")
@@ -244,46 +248,27 @@ def process_message(msg, contextual_uid: str):
             logger.info("Draft creation is paused. Skipping workflow and draft creation.")
             return
 
-        # --- New Agent Workflow ---
-        logger.info("Starting new agent workflow...")
-        try:
-            # 1. Get the default agent ID
-            agent_id = await get_or_create_default_agent_id()
+    # 1. Fetch prompts from Redis
+    agent_instructions = redis_client.get(RedisKeys.AGENT_INSTRUCTIONS)
 
-            # 2. Fetch the agent object
-            agent_model = await agent_client.get_agent(agent_id)
-            if not agent_model:
-                logger.error(f"Failed to retrieve agent with ID: {agent_id}. Skipping.")
-                return
+    if not all([agent_instructions]):
+        logger.warning("One or more agent settings (system prompt, user context, steps, instructions) not set in Redis. Skipping agent.")
+        return
 
-            # 3. Create and run an instance
-            user_input = f"""
-This is the email to be processed:
-UID: {msg.uid}
-From: {msg.from_}
-To: {msg.to}
-Date: {msg.date_str}
-Subject: {msg.subject}
-Body:
-{body[:4000]}
-"""
-            logger.info(f"Creating instance for agent {agent_model.name} ({agent_model.uuid})")
-            instance_model = await agent_client.create_agent_instance(agent_uuid=agent_model.uuid, user_input=user_input)
-            completed_instance_model = await agent_client.run_agent_instance(agent_model, instance_model)
-            logger.info(f"Agent instance {completed_instance_model.uuid} finished.")
+    # Run the Agent
+    agent = EmailAgent(
+        app_settings=app_settings,
+        trigger_conditions=trigger_conditions,
+        agent_instructions=agent_instructions
+    )
+    agent_result = agent.run(msg, contextual_uid)
 
-            # 4. Log the conversation
-            await save_conversation(ConversationData(
-                metadata=Metadata(conversation_id=f"agent_{contextual_uid}"),
-                messages=[msg.model_dump() for msg in completed_instance_model.messages]
-            ))
-            logger.info(f"Conversation for instance {completed_instance_model.uuid} logged successfully.")
-
-        except Exception as e:
-            logger.error(f"An error occurred during the new agent workflow: {e}", exc_info=True)
-        # --- End New Agent Workflow ---
-        
-    asyncio.run(_process_async())
+    # Check if we should create a draft
+    if agent_result and agent_result.get("success"):
+        logger.info("Agent created draft successfully!")
+        logger.info(agent_result["message"])
+    else:
+        logger.error(f"Agent failed to create draft: {agent_result.get('message', 'Unknown reason')}")
 
 if __name__ == "__main__":
     main() 

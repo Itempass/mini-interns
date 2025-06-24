@@ -1,22 +1,23 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional, List
 
 class FilterRules(BaseModel):
     """
     Pydantic model for filter rules.
     """
-    email_blacklist: Optional[List[str]] = []
-    email_whitelist: Optional[List[str]] = []
-    domain_blacklist: Optional[List[str]] = []
-    domain_whitelist: Optional[List[str]] = []
+    email_blacklist: List[str] = Field(default_factory=list)
+    email_whitelist: List[str] = Field(default_factory=list)
+    domain_blacklist: List[str] = Field(default_factory=list)
+    domain_whitelist: List[str] = Field(default_factory=list)
 
 class AgentSettings(BaseModel):
     """
     A Pydantic model for agent settings.
     """
-    system_prompt: Optional[str] = None
-    trigger_conditions: Optional[str] = None
-    user_context: Optional[str] = None
-    filter_rules: Optional[FilterRules] = None
-    agent_steps: Optional[str] = None
-    agent_instructions: Optional[str] = None 
+    #system_prompt: Optional[str] = None
+    trigger_conditions: str | None = None
+    #user_context: Optional[str] = None
+    filter_rules: FilterRules | None = None
+    #agent_steps: Optional[str] = None
+    agent_instructions: str | None = None
+    agent_tools: dict | None = None 

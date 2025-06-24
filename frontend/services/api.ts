@@ -23,6 +23,7 @@ export interface AgentSettings {
   filter_rules?: FilterRules;
   agent_steps?: string;
   agent_instructions?: string;
+  agent_tools?: { [key: string]: { enabled: boolean; required: boolean; order?: number } };
 }
 
 export const getSettings = async (): Promise<AppSettings> => {
