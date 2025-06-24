@@ -12,6 +12,7 @@ from email_reply_parser import EmailReplyParser
 from ..mcp_builder import mcp_builder
 from ..services.imap_service import IMAPService
 from ..types.imap_models import RawEmail
+from ..utils.contextual_id import is_valid_contextual_id
 from shared.qdrant.qdrant_client import semantic_search, search_by_vector
 from shared.services.embedding_service import get_embedding
 
@@ -219,6 +220,10 @@ async def draft_reply(messageId: str, body: str) -> Dict[str, Any]:
     Drafts a reply to a given email and saves it in the drafts folder.
     It does NOT send the email.
     """
+    
+    if not is_valid_contextual_id(messageId):
+        return {"error": f"Invalid messageId format. It must be a contextual ID (e.g., 'SU5CT1g=:1234'). You must use a valid messageId from another tool."}
+
     return await imap_service.draft_reply(message_id=messageId, body=body)
 
 # The following tools are not directly related to IMAP but are often used in the same context.
