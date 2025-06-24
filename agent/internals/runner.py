@@ -97,12 +97,13 @@ async def _execute_run(agent_model: AgentModel, instance: AgentInstanceModel) ->
         system_prompt = agent_model.system_prompt.replace("<<CURRENT_DATE>>", current_date)
         user_instructions = agent_model.user_instructions.replace("<<CURRENT_DATE>>", current_date)
         
-        system_prompt += f"\n\nYou have multiple tools available to you. You MUST use the required tools, and you MUST use them in this order: {', '.join(required_tools_sequence)}." if required_tools_sequence else ""
+        required_tools_prompt = f"\n\nYou have multiple tools available to you. You MUST use the required tools, and you MUST use them in this order: {', '.join(required_tools_sequence)}." if required_tools_sequence else ""
 
         messages_for_run = [
+            MessageModel(role="system", content=user_instructions),
             MessageModel(role="system", content=system_prompt),
-            MessageModel(role="user", content=user_instructions),
-            MessageModel(role="user", content=instance.user_input)
+            MessageModel(role="user", content=instance.user_input),
+            MessageModel(role="system", content=required_tools_prompt)
         ]
         instance.messages.extend(messages_for_run)
 
