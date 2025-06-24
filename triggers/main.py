@@ -236,9 +236,6 @@ def process_message(msg, contextual_uid: str):
         return
 
     # 1. Fetch prompts from Redis
-    #system_prompt = redis_client.get(RedisKeys.SYSTEM_PROMPT)
-    #user_context = redis_client.get(RedisKeys.USER_CONTEXT)
-    #agent_steps = redis_client.get(RedisKeys.AGENT_STEPS)
     agent_instructions = redis_client.get(RedisKeys.AGENT_INSTRUCTIONS)
 
     if not all([agent_instructions]):
@@ -249,9 +246,6 @@ def process_message(msg, contextual_uid: str):
     agent = EmailAgent(
         app_settings=app_settings,
         trigger_conditions=trigger_conditions,
-        #system_prompt=system_prompt,
-        #user_context=user_context,
-        #agent_steps=agent_steps,
         agent_instructions=agent_instructions
     )
     agent_result = agent.run(msg, contextual_uid)
