@@ -202,7 +202,11 @@ class EmailAgent:
                     # After the loop, log the full conversation
                     try:
                         await save_conversation(ConversationData(
-                            metadata=Metadata(conversation_id=f"agent_{contextual_uid}"),
+                            metadata=Metadata(
+                                conversation_id=f"agent_{contextual_uid}",
+                                readable_workflow_name="Email Agent",
+                                readable_instance_context=f"{original_message.from_} - {original_message.subject}"
+                            ),
                             messages=[Message(**m) for m in messages if m.get("content") is not None]
                         ))
                         logger.info("Conversation logged successfully")

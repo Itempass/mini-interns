@@ -95,7 +95,11 @@ Body:
             # Log the conversation
             contextual_uid = create_contextual_id('INBOX', msg.uid) # Create a UID for logging
             save_conversation_sync(ConversationData(
-                metadata=Metadata(conversation_id=f"trigger_{contextual_uid}"),
+                metadata=Metadata(
+                    conversation_id=f"trigger_{contextual_uid}",
+                    readable_workflow_name="Trigger Check",
+                    readable_instance_context=f"{msg.from_} - {msg.subject}"
+                ),
                 messages=[Message(**m) for m in messages if m.get("content") is not None]
             ))
             logger.info(f"Trigger check conversation for {contextual_uid} logged successfully.")
