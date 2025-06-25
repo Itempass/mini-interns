@@ -22,15 +22,6 @@ class Settings(BaseSettings):
     EMBEDDING_VOYAGE_API_KEY: str
     EMBEDDING_VOYAGE_MODEL: str
     QDRANT_NAMESPACE_UUID: str = 'a1b2c3d4-e5f6-7890-1234-567890abcdef' # For deterministic UUID generation for Qdrant points
-
-    @model_validator(mode='before')
-    @classmethod
-    def remove_empty_strings(cls, data: Any) -> Any:
-        """Remove empty string values so Pydantic uses the defined defaults instead."""
-        """This is needed because of how we are using docker compose to set the environment variables."""
-        if isinstance(data, dict):
-            return {key: value for key, value in data.items() if value != ""}
-        return data
     
     model_config = SettingsConfigDict(env_file=(".env", ".env.local"), extra='ignore')
 

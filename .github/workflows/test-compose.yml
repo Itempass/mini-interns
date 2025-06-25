@@ -62,7 +62,7 @@ jobs:
 
       # STEP 2: Run Docker Compose using ONLY the generated .env.ci file
       - name: Build and Run Application
-        run: docker compose up -d --build --abort-on-container-exit
+        run: docker compose up -d --build
 
       # STEP 3: Check the status of the running containers
       - name: Check Container Status
