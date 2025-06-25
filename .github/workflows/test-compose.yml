@@ -36,6 +36,7 @@ jobs:
           FRONTEND_HOST_PORT: ${{ secrets.FRONTEND_HOST_PORT }}
           CONTAINERPORT_MCP_IMAP: ${{ secrets.CONTAINERPORT_MCP_IMAP }}
           CONTAINERPORT_QDRANT: ${{ secrets.CONTAINERPORT_QDRANT }}
+          DISABLE_LOG_FORWARDING: ${{ secrets.DISABLE_LOG_FORWARDING }}
           # Add every other secret your compose file needs here
           # ANOTHER_VARIABLE: ${{ secrets.ANOTHER_VARIABLE }}
           # DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
