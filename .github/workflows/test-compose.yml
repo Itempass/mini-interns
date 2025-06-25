@@ -16,11 +16,26 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      # 👇 ADD THIS NEW DEBUGGING STEP 👇
+      - name: Debug Environment Variables
+        env:
+          CONTAINERPORT_API: ${{ secrets.CONTAINERPORT_API }}
+        run: |
+          echo "Debug Step:"
+          echo "The value for CONTAINERPORT_API is: '$CONTAINERPORT_API'"
+          if [ -z "$CONTAINERPORT_API" ]; then
+            echo "ERROR: CONTAINERPORT_API is empty!"
+            exit 1
+          fi
+
       - name: Run Docker Compose
         # This 'env' block makes the GitHub Secrets available as
         # environment variables for the 'docker compose' command.
         env:
           CONTAINERPORT_API: ${{ secrets.CONTAINERPORT_API }}
+          FRONTEND_HOST_PORT: ${{ secrets.FRONTEND_HOST_PORT }}
+          CONTAINERPORT_MCP_IMAP: ${{ secrets.CONTAINERPORT_MCP_IMAP }}
+          CONTAINERPORT_QDRANT: ${{ secrets.CONTAINERPORT_QDRANT }}
           # Add every other secret your compose file needs here
           # ANOTHER_VARIABLE: ${{ secrets.ANOTHER_VARIABLE }}
           # DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
