@@ -1,6 +1,7 @@
 import logging
 from functools import lru_cache
 from typing import List, Dict, Any, Optional
+import httpx
 
 from qdrant_client import QdrantClient, models
 from qdrant_client.http.models import PointStruct
@@ -9,8 +10,18 @@ from shared.services.embedding_service import get_embedding
 
 logger = logging.getLogger(__name__)
 
-# Global instances for Qdrant client
-qdrant_client = QdrantClient(host="qdrant", port=settings.CONTAINERPORT_QDRANT)
+# Global instances for Qdrant client with enhanced connection settings
+qdrant_client = QdrantClient(
+    host="qdrant", 
+    port=settings.CONTAINERPORT_QDRANT,
+    grpc_port=6334,
+    prefer_grpc=True,  # Use gRPC for better performance and connection handling
+    timeout=30,  # 30 second timeout to prevent hanging connections
+    limits=httpx.Limits(
+        max_connections=20,  # Connection pool size
+        max_keepalive_connections=5  # Keep some connections alive for reuse
+    )
+)
 
 def _ensure_collection_exists(client: QdrantClient, collection_name: str, vector_size: int):
     """Ensures a collection exists, creating it if necessary."""
@@ -67,7 +78,7 @@ def get_qdrant_client():
 
 def upsert_points(collection_name: str, points: List[models.PointStruct]):
     """
-    Upserts a list of points into a Qdrant collection.
+    Upserts a list of points into a Qdrant collection using built-in batch upload with retry logic.
     """
     client = get_qdrant_client()
     
@@ -75,12 +86,16 @@ def upsert_points(collection_name: str, points: List[models.PointStruct]):
         return
 
     try:
-        operation_info = client.upsert(
+        # Use upload_points which has built-in retry logic and better batch handling
+        client.upload_points(
             collection_name=collection_name,
-            wait=True,
-            points=points
+            points=points,
+            batch_size=len(points),  # Upload all points in one batch since we're already batching
+            max_retries=3,  # Built-in retry logic
+            wait=True,  # Wait for completion
+            parallel=1  # Single thread to avoid overwhelming the server
         )
-        logger.info(f"Upserted {len(points)} points to collection '{collection_name}'. Status: {operation_info.status}")
+        logger.info(f"Upserted {len(points)} points to collection '{collection_name}'. Status: completed")
     except Exception as e:
         logger.error(f"Error upserting points to Qdrant collection '{collection_name}': {e}", exc_info=True)
         raise Exception("Failed to upsert points to Qdrant.") from e
