@@ -241,18 +241,21 @@ def process_message(msg, contextual_uid: str):
 
     # 1. Fetch prompts from Redis
     agent_instructions = redis_client.get(RedisKeys.AGENT_INSTRUCTIONS)
+    logger.info(f"Agent instructions: {agent_instructions}")
 
     if not all([agent_instructions]):
         logger.warning("One or more agent settings (system prompt, user context, steps, instructions) not set in Redis. Skipping agent.")
         return
 
     # Run the Agent
+    logger.info("Running agent...")
     agent = EmailAgent(
         app_settings=app_settings,
         trigger_conditions=trigger_conditions,
         agent_instructions=agent_instructions
     )
     agent_result = agent.run(msg, contextual_uid)
+    logger.info(f"Agent ran!")
 
     # Check if we should create a draft
     if agent_result and agent_result.get("success"):

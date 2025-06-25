@@ -7,9 +7,13 @@ services:
       dockerfile: Dockerfile
       args:
         - CONTAINERPORT_API=${CONTAINERPORT_API}
+    #env_file:
+    #  - .env
+    # container_name: mini-interns-app
+
     env_file:
       - .env
-    # container_name: mini-interns-app
+      
     ports:
       - "${FRONTEND_HOST_PORT:-3000}:3000"
       - "6274:6274"  # MCP Inspector Web UI
