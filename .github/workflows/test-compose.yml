@@ -2,7 +2,6 @@
 
 name: Test Docker Compose
 
-# Run this workflow on every push to the main branch
 on:
   push:
     branches: [ main ]
@@ -11,27 +10,24 @@ on:
 
 jobs:
   build-and-test:
-    # Use a standard, clean Ubuntu virtual machine
     runs-on: ubuntu-latest
 
     steps:
-      # 1. Check out your repository's code
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # 2. Build and run your containers in the background
       - name: Run Docker Compose
+        # This 'env' block makes the GitHub Secrets available as
+        # environment variables for the 'docker compose' command.
+        env:
+          CONTAINERPORT_API: ${{ secrets.CONTAINERPORT_API }}
+          # Add every other secret your compose file needs here
+          # ANOTHER_VARIABLE: ${{ secrets.ANOTHER_VARIABLE }}
+          # DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
         run: docker compose up -d --build
 
-      # 3. Wait a few seconds for services to initialize (optional but good practice)
       - name: Wait for services
         run: sleep 10
 
-      # 4. Check if the containers are running and healthy
       - name: Check running containers
         run: docker compose ps
-
-      # 5. Optional: Add a simple test, like checking if a web server responds
-      #    This assumes you have a service named 'web' running on port 8000
-      # - name: Test web service
-      #   run: curl --fail http://localhost:8000/
