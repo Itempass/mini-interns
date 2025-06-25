@@ -531,6 +531,108 @@ class IMAPService:
 
         return await asyncio.get_running_loop().run_in_executor(None, _fetch_thread)
 
+    async def fetch_recent_threads(self, max_emails_to_scan: int = 500) -> List[List[RawEmail]]:
+        """
+        Efficiently fetches recent unique threads from the sent folder within a single connection.
+        This method correctly handles threads that span multiple mailboxes by grouping fetches.
+        """
+        def _fetch_threads_optimized() -> List[List[RawEmail]]:
+            try:
+                with self._connect() as mail:
+                    # 1. Start in the 'Sent' folder to find recent conversations
+                    sent_folder = self._find_sent_folder(mail)
+                    try:
+                        mail.select(f'"{sent_folder}"', readonly=True)
+                    except imaplib.IMAP4.error:
+                        logger.error(f"Could not select sent folder '{sent_folder}'.")
+                        return []
+
+                    typ, data = mail.uid('search', None, 'ALL')
+                    if typ != 'OK' or not data or not data[0]:
+                        return []
+                    
+                    email_uids_bytes = data[0].split()
+                    latest_email_uids_bytes = email_uids_bytes[-max_emails_to_scan:]
+
+                    # 2. Discover all unique threads, returning the mailbox and UIDs for each.
+                    #    This must be done from a selected mailbox, so we stay in 'sent_folder' for discovery.
+                    threading_service = ThreadingService(mail)
+                    processed_thread_identifiers = set() 
+                    threads_to_fetch = [] # List of (mailbox, uids_list)
+                    logger.info(f"Starting thread discovery from initial folder: {sent_folder}")
+
+                    for uid_bytes in reversed(latest_email_uids_bytes):
+                        uid_str = uid_bytes.decode()
+                        
+                        if uid_str in processed_thread_identifiers:
+                            continue
+
+                        # HARD RESET: Re-select the starting folder before every call to the state-polluting
+                        # ThreadingService. This ensures the connection is in a known-good state.
+                        mail.select(f'"{sent_folder}"', readonly=True)
+                        logger.info(f"[{sent_folder}] Handing off UID {uid_str} to ThreadingService.")
+                        thread_mailbox, thread_uids = threading_service.get_thread_uids(uid_str)
+                        if thread_uids:
+                            # A thread is uniquely identified by its list of UIDs
+                            thread_identifier = tuple(sorted(thread_uids))
+                            if thread_identifier not in processed_thread_identifiers:
+                                threads_to_fetch.append((thread_mailbox, thread_uids))
+                                processed_thread_identifiers.add(thread_identifier)
+                                processed_thread_identifiers.add(uid_str) # Add starting UID too
+
+                    # 3. Group the threads by their mailbox to minimize SELECT commands
+                    threads_by_mailbox = {}
+                    for mailbox, uids in threads_to_fetch:
+                        if mailbox not in threads_by_mailbox:
+                            threads_by_mailbox[mailbox] = []
+                        threads_by_mailbox[mailbox].append(uids)
+
+                    # 4. Fetch all messages, selecting each mailbox only once
+                    all_threads = []
+                    for mailbox, list_of_thread_uids in threads_by_mailbox.items():
+                        try:
+                            mail.select(f'"{mailbox}"', readonly=True)
+                            logger.info(f"Switched to mailbox '{mailbox}' to fetch {len(list_of_thread_uids)} threads.")
+                        except imaplib.IMAP4.error:
+                            logger.error(f"Failed to select mailbox '{mailbox}'. Skipping threads.")
+                            continue
+
+                        for thread_uids in list_of_thread_uids:
+                            current_thread_emails = []
+                            for uid in thread_uids:
+                                raw_msg = self._fetch_raw_message_from_selected_mailbox(mail, uid, mailbox)
+                                if raw_msg:
+                                    current_thread_emails.append(raw_msg)
+                            
+                            if current_thread_emails:
+                                all_threads.append(current_thread_emails)
+                    
+                    return all_threads
+
+            except (ValueError, ConnectionError) as e:
+                logger.error(f"IMAP connection failed during fetch_recent_threads: {e}")
+                return []
+            except imaplib.IMAP4.error as e:
+                logger.error(f"Error fetching recent threads: {e}", exc_info=True)
+                return []
+
+        return await asyncio.get_running_loop().run_in_executor(None, _fetch_threads_optimized)
+
+    def _fetch_raw_message_from_selected_mailbox(self, mail: imaplib.IMAP4_SSL, uid: str, mailbox: str) -> Optional[RawEmail]:
+        """
+        Fetches a single raw email message from the already selected mailbox.
+        Helper for bulk operations.
+        """
+        typ, data = mail.uid('fetch', uid.encode(), '(RFC822)')
+        if typ == 'OK' and data and data[0] is not None:
+            for response_part in data:
+                if isinstance(response_part, tuple):
+                    msg = email.message_from_bytes(response_part[1])
+                    contextual_id = create_contextual_id(mailbox, uid)
+                    return RawEmail(uid=contextual_id, msg=msg)
+        logger.warning(f"Failed to fetch raw message for UID {uid} from selected mailbox {mailbox}")
+        return None
+
     async def search_emails(self, query: str, max_results: int = 10):
         # Placeholder for searching emails
         pass

@@ -129,6 +129,7 @@ class ThreadingService:
 
             # Now, search for all UIDs with that thread ID in '[Gmail]/All Mail'.
             try:
+                logger.warning(f"Switching to '[Gmail]/All Mail' to search for thread {gmail_thread_id}. This will change the connection's selected mailbox.")
                 self.mail.select(mailbox='"[Gmail]/All Mail"', readonly=True)
             except imaplib.IMAP4.error as e:
                 logger.error(f"Could not select '[Gmail]/All Mail'. Aborting Gmail-specific search. Error: {e}")

@@ -11,11 +11,11 @@ from shared.redis.keys import RedisKeys
 from shared.services.embedding_service import get_embedding
 from mcp_servers.imap_mcpserver.src.types.imap_models import RawEmail
 from mcp_servers.imap_mcpserver.src.utils.contextual_id import parse_contextual_id
+from shared.config import settings
 
 logger = logging.getLogger(__name__)
 
 BATCH_SIZE = 10
-QDRANT_NAMESPACE_UUID = uuid.UUID('a1b2c3d4-e5f6-7890-1234-567890abcdef') # Namespace for deterministic UUIDs
 
 def get_cleaned_email_body(raw_email: RawEmail) -> str:
     """Extracts and cleans the plain text body from a RawEmail object."""
@@ -51,7 +51,7 @@ def get_cleaned_email_body(raw_email: RawEmail) -> str:
 
 async def initialize_inbox():
     """
-    Initializes the user's inbox by fetching sent emails,
+    Initializes the user's inbox by fetching recent email threads,
     vectorizing them, and storing them in Qdrant.
     """
     logger.info("Starting inbox initialization...")
@@ -60,51 +60,53 @@ async def initialize_inbox():
     
     try:
         imap_service = IMAPService()
-        await asyncio.get_running_loop().run_in_executor(None, imap_service.connect)
 
-        sent_emails = await imap_service.list_sent_emails(max_results=100)
-        logger.info(f"Fetched {len(sent_emails)} sent emails.")
+        # Fetch all unique threads in one go
+        recent_threads = await imap_service.fetch_recent_threads(max_emails_to_scan=100)
+        logger.info(f"Fetched {len(recent_threads)} unique threads from recent emails.")
 
         points_batch = []
 
-        for email in sent_emails:
+        for thread in recent_threads:
             try:
-                thread = await imap_service.fetch_email_thread(email.uid)
-                logger.info(f"Fetched thread for email {email.uid} with {len(thread)} messages.")
-
+                # Combine the content of all messages in the thread
+                full_thread_content = ""
+                thread_uids = []
                 for message in thread:
                     cleaned_body = get_cleaned_email_body(message)
+                    full_thread_content += cleaned_body + "\\n\\n"
+                    thread_uids.append(message.uid)
 
-                    if cleaned_body:
-                        embedding = get_embedding(cleaned_body)
-                        _, uid = parse_contextual_id(message.uid)
-                        
-                        # Qdrant requires a UUID or integer for the point ID.
-                        # We create a deterministic UUID from the contextual message UID.
-                        # That way it is always the same for the same message.
-                        point_id = str(uuid.uuid5(QDRANT_NAMESPACE_UUID, message.uid))
-                        
-                        point = models.PointStruct(
-                            id=point_id,
-                            vector=embedding,
-                            payload={
-                                "contextual_id": message.uid,
-                                "message_id": uid
-                            }
-                        )
-                        points_batch.append(point)
+                if full_thread_content.strip():
+                    embedding = get_embedding(full_thread_content.strip())
+                    
+                    # Use the first message's UID for a stable, deterministic thread ID
+                    thread_id_source = thread[0].uid
+                    point_id = str(uuid.uuid5(uuid.UUID(settings.QDRANT_NAMESPACE_UUID), thread_id_source))
+                    
+                    point = models.PointStruct(
+                        id=point_id,
+                        vector=embedding,
+                        payload={
+                            "thread_id": thread_id_source,
+                            "message_uids": thread_uids,
+                        }
+                    )
+                    points_batch.append(point)
 
-                        if len(points_batch) >= BATCH_SIZE:
-                            logger.info(f"Upserting batch of {len(points_batch)} points.")
-                            upsert_points(collection_name="emails", points=points_batch)
-                            points_batch = []
+                    if len(points_batch) >= BATCH_SIZE:
+                        logger.info(f"Upserting batch of {len(points_batch)} thread points.")
+                        upsert_points(collection_name="email_threads", points=points_batch)
+                        points_batch = []
 
             except Exception as e:
-                logger.error(f"Error processing email {email.uid}: {e}", exc_info=True)
+                # Use the UID of the first message for logging context if the thread is not empty
+                thread_context = thread[0].uid if thread else "unknown"
+                logger.error(f"Error processing thread starting with {thread_context}: {e}", exc_info=True)
 
         if points_batch:
-            logger.info(f"Upserting remaining {len(points_batch)} points.")
-            upsert_points(collection_name="emails", points=points_batch)
+            logger.info(f"Upserting remaining {len(points_batch)} thread points.")
+            upsert_points(collection_name="email_threads", points=points_batch)
 
         logger.info("Inbox initialization completed successfully.")
         redis_client.set(RedisKeys.INBOX_INITIALIZATION_STATUS, "completed")
@@ -112,6 +114,3 @@ async def initialize_inbox():
     except Exception as e:
         logger.error(f"Inbox initialization failed: {e}", exc_info=True)
         redis_client.set(RedisKeys.INBOX_INITIALIZATION_STATUS, "failed")
-    finally:
-        if 'imap_service' in locals() and imap_service.mail:
-            imap_service.disconnect()

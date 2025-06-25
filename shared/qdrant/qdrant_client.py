@@ -1,6 +1,6 @@
 import logging
 from functools import lru_cache
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 from qdrant_client import QdrantClient, models
 from qdrant_client.http.models import PointStruct
@@ -33,7 +33,8 @@ def get_qdrant_client():
         # The vector size is determined by the embedding model.
         vector_size = settings.EMBEDDING_VECTOR_SIZE 
         _ensure_collection_exists(qdrant_client, "emails", vector_size)
-        logger.info("Successfully connected to Qdrant and ensured 'emails' collection exists.")
+        _ensure_collection_exists(qdrant_client, "email_threads", vector_size)
+        logger.info("Successfully connected to Qdrant and ensured collections exist.")
         return qdrant_client
     except Exception as e:
         logger.error(f"Could not connect to Qdrant: {e}")
@@ -101,21 +102,18 @@ def search_by_vector(
     collection_name: str,
     query_vector: List[float],
     top_k: int = 5,
-    exclude_contextual_id: str = None,
+    exclude_ids: Optional[List[str]] = None,
 ) -> List[Dict[str, Any]]:
     """
-    Performs a vector search in a Qdrant collection, with an option to exclude a specific contextual ID.
+    Performs a vector search in a Qdrant collection, with an option to exclude specific point IDs.
     """
     client = get_qdrant_client()
 
     qdrant_filter = None
-    if exclude_contextual_id:
+    if exclude_ids:
         qdrant_filter = models.Filter(
             must_not=[
-                models.FieldCondition(
-                    key="contextual_id",
-                    match=models.MatchValue(value=exclude_contextual_id),
-                )
+                models.HasIdCondition(has_id=exclude_ids)
             ]
         )
 

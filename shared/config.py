@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     EMBEDDING_VECTOR_SIZE: int
     EMBEDDING_MODEL_NAME: str
     EMBEDDING_OPENAI_API_KEY: Optional[str] = None
+    QDRANT_NAMESPACE_UUID: str = 'a1b2c3d4-e5f6-7890-1234-567890abcdef' # For deterministic UUID generation for Qdrant points
 
     
     model_config = SettingsConfigDict(env_file=(".env", ".env.local"), extra='ignore')

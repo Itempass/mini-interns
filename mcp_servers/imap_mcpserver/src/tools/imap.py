@@ -15,6 +15,8 @@ from ..types.imap_models import RawEmail
 from ..utils.contextual_id import is_valid_contextual_id
 from shared.qdrant.qdrant_client import semantic_search, search_by_vector
 from shared.services.embedding_service import get_embedding
+from shared.config import settings
+import uuid
 
 # Instantiate the services that the tools will use
 imap_service = IMAPService()
@@ -173,7 +175,7 @@ async def list_inbox_emails(maxResults: Optional[int] = 10) -> List[str]:
         for email_data in raw_emails
     ]
 
-@mcp_builder.tool()
+#@mcp_builder.tool()
 async def get_email(messageId: str) -> Union[str, Dict[str, Any]]:
     """Retrieves a specific email by its ID."""
     raw_email = await imap_service.get_email(message_id=messageId)
@@ -209,7 +211,7 @@ async def get_full_thread_for_email(messageId: str) -> Union[str, Dict[str, Any]
     
     return formatted_thread
 
-@mcp_builder.tool()
+#@mcp_builder.tool()
 async def search_emails(query: str, max_results: int = 10) -> List[Dict[str, Any]]:
     """Searches for emails matching a query."""
     return await imap_service.search_emails(query=query, max_results=max_results)
@@ -218,7 +220,7 @@ async def search_emails(query: str, max_results: int = 10) -> List[Dict[str, Any
 async def draft_reply(messageId: str, body: str) -> Dict[str, Any]:
     """
     Drafts a reply to a given email and saves it in the drafts folder.
-    It does NOT send the email.
+    It does NOT send the email. Draft_reply will include the signature automatically, so you do not need to include it in the body.
     """
 
     if not is_valid_contextual_id(messageId):
@@ -248,7 +250,7 @@ async def semantic_search_emails(query: str, top_k: Optional[int] = 10) -> List[
     
     return {"search_results": searched_emails, "llm_instructions": "Use get_full_thread_for_email to get the full thread of a search result email."}
 
-@mcp_builder.tool()
+#@mcp_builder.tool()
 async def find_similar_emails(messageId: str, top_k: Optional[int] = 5) -> List[Dict[str, Any]]:
     """Finds emails with similar content to a given email and returns this message without any other messages in the thread. Use get_full_thread_for_email to get the full thread of a similar email."""
     source_email = await imap_service.get_email(message_id=messageId)
@@ -360,6 +362,71 @@ async def find_similar_emails_with_their_reply(messageId: str, top_k: Optional[i
     return {
         "similar_conversations": similar_conversations,
         "llm_instructions": "These are conversations similar to the original email. Each item contains a parent email and its direct reply, if one was found."
+    }
+
+@mcp_builder.tool()
+async def find_similar_threads(messageId: str, top_k: Optional[int] = 3) -> Dict[str, Any]:
+    """
+    Finds email threads with similar content to the thread of a given email ID.
+    """
+    # 1. Get the full thread for the source email
+    source_thread = await imap_service.fetch_email_thread(message_id=messageId)
+    if not source_thread:
+        return {"error": f"Could not retrieve the thread for email ID {messageId} to find similar conversations."}
+
+    # 2. Combine the content and generate a single embedding for the source thread
+    full_thread_content = ""
+    for message in source_thread:
+        full_thread_content += _get_cleaned_email_body(message) + "\\n\\n"
+    
+    if not full_thread_content.strip():
+        return {"error": f"Could not extract any content from the source thread of email {messageId}."}
+    
+    source_embedding = get_embedding(full_thread_content.strip())
+
+    # 3. Determine the Qdrant point ID of the source thread to exclude it from search results
+    source_thread_id_for_qdrant = source_thread[0].uid
+    source_point_id = str(uuid.uuid5(uuid.UUID(settings.QDRANT_NAMESPACE_UUID), source_thread_id_for_qdrant))
+
+    # 4. Perform the vector search in the 'email_threads' collection
+    similar_hits = search_by_vector(
+        collection_name="email_threads",
+        query_vector=source_embedding,
+        top_k=top_k or 3,
+        exclude_ids=[source_point_id],
+    )
+
+    # 5. Fetch and format the full threads for each search result
+    similar_threads_formatted = []
+    for hit in similar_hits:
+        thread_id = hit.get("thread_id")
+        if not thread_id:
+            continue
+        
+        # Fetch the full thread using the ID from the payload
+        thread_emails = await imap_service.fetch_email_thread(message_id=thread_id)
+        if not thread_emails:
+            continue
+
+        # Sort emails by date
+        def get_date(raw_email: RawEmail):
+            try:
+                return dateutil.parser.parse(raw_email.msg['Date'])
+            except (ValueError, TypeError):
+                return dateutil.parser.parse("1900-01-01 00:00:00+00:00")
+
+        thread_emails.sort(key=get_date)
+        
+        # Format the entire thread into a single string
+        formatted_thread = "\\n\\n---\\n\\n".join(
+            _format_email_as_markdown(email.msg, email.uid)
+            for email in thread_emails
+        )
+        similar_threads_formatted.append(formatted_thread)
+
+    return {
+        "similar_threads": similar_threads_formatted,
+        "llm_instructions": "These are full conversation threads that are semantically similar to the original email's thread."
     }
 
 # --- Non-Gmail/IMAP tools ---
