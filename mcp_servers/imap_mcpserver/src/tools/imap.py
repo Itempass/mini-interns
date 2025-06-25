@@ -166,7 +166,7 @@ def _get_cleaned_email_body(raw_email: RawEmail) -> str:
 
 # --- Tool Implementations ---
 
-@mcp_builder.tool()
+# @mcp_builder.tool()
 async def list_inbox_emails(maxResults: Optional[int] = 10) -> List[str]:
     """Lists the user's inbox emails (excluding drafts) with basic details."""
     raw_emails: List[RawEmail] = await imap_service.list_inbox_emails(max_results=maxResults)
@@ -183,7 +183,7 @@ async def get_email(messageId: str) -> Union[str, Dict[str, Any]]:
         return _format_email_as_markdown(raw_email.msg, raw_email.uid)
     return {"error": f"Email with ID {messageId} not found."}
 
-@mcp_builder.tool()
+# @mcp_builder.tool()
 async def get_full_thread_for_email(messageId: str) -> Union[str, Dict[str, Any]]:
     """
     Retrieves the full email thread for a given email ID, sorts it chronologically,
@@ -280,7 +280,7 @@ async def find_similar_emails(messageId: str, top_k: Optional[int] = 5) -> List[
 
     return {"similar_emails": similar_emails, "llm_instructions": "Use get_full_thread_for_email to get the full thread of a similar email."}
 
-@mcp_builder.tool()
+# @mcp_builder.tool()
 async def find_similar_emails_with_their_reply(messageId: str, top_k: Optional[int] = 5) -> Dict[str, Any]:
     """
     Finds emails with similar content to a given email and returns each message

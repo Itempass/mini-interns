@@ -150,6 +150,28 @@ export const initializeInbox = async () => {
   }
 };
 
+export const reinitializeInbox = async () => {
+  console.log('Re-initializing inbox...');
+  try {
+    const response = await fetch(`${API_URL}/agent/reinitialize-inbox`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+    if (!response.ok) {
+      console.error('Failed to re-initialize inbox. Status:', response.status);
+      throw new Error('Failed to re-initialize inbox');
+    }
+    const result = await response.json();
+    console.log('Successfully triggered inbox re-initialization:', result);
+    return result;
+  } catch (error) {
+    console.error('An error occurred while re-initializing inbox:', error);
+    return null;
+  }
+};
+
 export const getInboxInitializationStatus = async (): Promise<string> => {
   try {
     const response = await fetch(`${API_URL}/agent/initialize-inbox/status`);

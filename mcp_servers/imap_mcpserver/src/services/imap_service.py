@@ -500,7 +500,7 @@ class IMAPService:
                     mail.select(f'"{initial_mailbox}"', readonly=True)
                     
                     threading_service = ThreadingService(mail)
-                    thread_mailbox, thread_uids = threading_service.get_thread_uids(initial_uid)
+                    thread_mailbox, thread_uids = threading_service.get_thread_uids(initial_uid, current_mailbox=initial_mailbox)
 
                     if not thread_uids:
                         return []
@@ -567,11 +567,8 @@ class IMAPService:
                         if uid_str in processed_thread_identifiers:
                             continue
 
-                        # HARD RESET: Re-select the starting folder before every call to the state-polluting
-                        # ThreadingService. This ensures the connection is in a known-good state.
-                        mail.select(f'"{sent_folder}"', readonly=True)
                         logger.info(f"[{sent_folder}] Handing off UID {uid_str} to ThreadingService.")
-                        thread_mailbox, thread_uids = threading_service.get_thread_uids(uid_str)
+                        thread_mailbox, thread_uids = threading_service.get_thread_uids(uid_str, current_mailbox=sent_folder)
                         if thread_uids:
                             # A thread is uniquely identified by its list of UIDs
                             thread_identifier = tuple(sorted(thread_uids))

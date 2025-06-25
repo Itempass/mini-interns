@@ -1,6 +1,6 @@
 'use client';
 import React, { useState, useEffect } from 'react';
-import { getSettings, setSettings, AppSettings, initializeInbox, getInboxInitializationStatus, testImapConnection } from '../../services/api';
+import { getSettings, setSettings, AppSettings, initializeInbox, getInboxInitializationStatus, testImapConnection, reinitializeInbox } from '../../services/api';
 import { Copy } from 'lucide-react';
 import TopBar from '../../components/TopBar';
 
@@ -86,6 +86,14 @@ const SettingsPage = () => {
     setInboxStatus(status);
   };
 
+  const handleRevectorize = async () => {
+    if (window.confirm('Are you sure you want to re-vectorize? This will delete all existing email vector data and start from scratch. This action cannot be undone.')) {
+      await reinitializeInbox();
+      const status = await getInboxInitializationStatus();
+      setInboxStatus(status);
+    }
+  };
+
   const getStatusClasses = (status: string | null): string => {
     const baseClasses = 'font-bold';
     switch (status) {
@@ -122,7 +130,10 @@ const SettingsPage = () => {
               {inboxStatus ? inboxStatus.charAt(0).toUpperCase() + inboxStatus.slice(1).replace('_', ' ') : 'Loading...'}
             </span>
           </div>
-          <button className={buttonClasses} onClick={handleVectorize}>Start Inbox Vectorization</button>
+          <div className="flex justify-center items-center space-x-4">
+            <button className={buttonClasses.replace('block mx-auto', '')} onClick={handleVectorize}>Start Inbox Vectorization</button>
+            <button className={`${buttonClasses.replace('block mx-auto', '')} bg-amber-600`} onClick={handleRevectorize}>Re-vectorize Inbox</button>
+          </div>
         </div>
         <div className={settingsSectionClasses}>
           <h2 className="text-center mb-5 text-2xl font-bold">Connection Settings</h2>

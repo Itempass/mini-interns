@@ -28,12 +28,12 @@ class ThreadingService:
         logger.warning("Could not fetch server capabilities.")
         return []
 
-    def get_thread_uids(self, message_uid: str) -> Tuple[Optional[str], List[str]]:
+    def get_thread_uids(self, message_uid: str, current_mailbox: str) -> Tuple[Optional[str], List[str]]:
         """
         Orchestrates fetching thread UIDs using the best available strategy.
         Returns the mailbox where the thread was found and a list of UIDs.
         """
-        logger.info(f"Starting thread fetch for UID: {message_uid}")
+        logger.info(f"Starting thread fetch for UID: {message_uid} from mailbox: {current_mailbox}")
         
         # Layer 1: Try server-side THREAD command
         if 'THREAD=REFERENCES' in self.capabilities:
@@ -41,8 +41,8 @@ class ThreadingService:
             thread_uids = self._thread_with_references(message_uid)
             if thread_uids:
                 logger.info(f"Successfully fetched thread for UID {message_uid} using THREAD=REFERENCES.")
-                # This command runs on the currently selected mailbox. The caller selected 'inbox'.
-                return 'inbox', thread_uids
+                # This command runs on the currently selected mailbox.
+                return current_mailbox, thread_uids
 
         # Layer 2: Try Gmail's X-GM-THRID
         if 'X-GM-EXT-1' in self.capabilities:
@@ -52,16 +52,26 @@ class ThreadingService:
                 logger.info(f"Successfully fetched thread for UID {message_uid} using X-GM-THRID.")
                 # Gmail search should happen in All Mail for completeness.
                 return '[Gmail]/All Mail', thread_uids
+            else:
+                # IMPORTANT: If Gmail search fails, it may have polluted the connection state
+                # by selecting '[Gmail]/All Mail'. We must reset to the original mailbox.
+                logger.warning(f"Gmail search failed. Resetting selected mailbox to '{current_mailbox}'.")
+                try:
+                    self.mail.select(f'"{current_mailbox}"', readonly=True)
+                except imaplib.IMAP4.error as e:
+                    logger.error(f"FATAL: Could not reset mailbox to '{current_mailbox}' after failed search. Aborting. Error: {e}")
+                    # If we can't even reset, something is very wrong. Return to prevent further errors.
+                    return current_mailbox, [message_uid]
 
         # Layer 3: Fallback to client-side header parsing
         logger.info(f"Falling back to header-based threading for UID {message_uid}.")
         thread_uids = self._thread_with_headers(message_uid)
         if thread_uids:
             logger.info(f"Successfully fetched thread for UID {message_uid} using header parsing.")
-            return 'inbox', thread_uids
+            return current_mailbox, thread_uids
         
         logger.warning(f"Could not find thread for UID {message_uid}. Returning single message.")
-        return 'inbox', [message_uid]
+        return current_mailbox, [message_uid]
 
 
     def _thread_with_references(self, message_uid: str) -> Optional[List[str]]:
@@ -135,7 +145,10 @@ class ThreadingService:
                 logger.error(f"Could not select '[Gmail]/All Mail'. Aborting Gmail-specific search. Error: {e}")
                 return None # Fallback to next method in orchestrator.
 
-            typ, data = self.mail.uid('search', None, f'(X-GM-THRID {gmail_thread_id})')
+            # Use Gmail's advanced search to find all messages in the thread, excluding drafts.
+            search_query = f'thrid:{gmail_thread_id} -in:drafts'
+            typ, data = self.mail.uid('search', None, f'(X-GM-RAW "{search_query}")')
+
             if typ != 'OK' or not data or not data[0]:
                 logger.warning(f"Search for X-GM-THRID {gmail_thread_id} failed in '[Gmail]/All Mail'.")
                 return None

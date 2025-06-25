@@ -24,6 +24,17 @@ def _ensure_collection_exists(client: QdrantClient, collection_name: str, vector
         )
         logger.info(f"Collection '{collection_name}' created.")
 
+def recreate_collection(client: QdrantClient, collection_name: str, vector_size: int):
+    """Deletes and recreates a collection to ensure it's empty."""
+    try:
+        logger.warning(f"Deleting collection '{collection_name}'...")
+        client.delete_collection(collection_name=collection_name)
+        logger.info(f"Collection '{collection_name}' deleted.")
+    except Exception as e:
+        logger.info(f"Could not delete collection '{collection_name}' (it might not exist): {e}")
+    
+    _ensure_collection_exists(client, collection_name, vector_size)
+
 @lru_cache(maxsize=None)
 def get_qdrant_client():
     """
