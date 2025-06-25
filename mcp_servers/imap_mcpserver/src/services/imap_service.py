@@ -57,7 +57,7 @@ class IMAPService:
     Each method call creates a new, isolated connection to ensure thread safety.
     """
     def __init__(self):
-        self.settings: AppSettings = load_app_settings()
+        pass
 
     @contextlib.contextmanager
     def _connect(self) -> Generator[imaplib.IMAP4_SSL, None, None]:
@@ -65,15 +65,16 @@ class IMAPService:
         Connects to the IMAP server, logs in, and yields the connection.
         Ensures logout and connection closure.
         """
-        if not self.settings.IMAP_SERVER or not self.settings.IMAP_USERNAME or not self.settings.IMAP_PASSWORD:
+        settings = load_app_settings()
+        if not settings.IMAP_SERVER or not settings.IMAP_USERNAME or not settings.IMAP_PASSWORD:
             logger.error("IMAP settings are not configured. Cannot connect.")
             raise ValueError("IMAP settings (server, username, password) are not fully configured.")
         
         mail = None
         try:
-            logger.info(f"Connecting to IMAP server: {self.settings.IMAP_SERVER}")
-            mail = imaplib.IMAP4_SSL(self.settings.IMAP_SERVER)
-            mail.login(self.settings.IMAP_USERNAME, self.settings.IMAP_PASSWORD)
+            logger.info(f"Connecting to IMAP server: {settings.IMAP_SERVER}")
+            mail = imaplib.IMAP4_SSL(settings.IMAP_SERVER)
+            mail.login(settings.IMAP_USERNAME, settings.IMAP_PASSWORD)
             logger.info("IMAP login successful.")
             yield mail
         except imaplib.IMAP4.error as e:
@@ -652,6 +653,9 @@ class IMAPService:
         def _create_and_save_draft() -> Dict[str, Any]:
             try:
                 with self._connect() as mail:
+                    # Load fresh settings for this operation
+                    settings = load_app_settings()
+                    
                     # 1. Fetch the original email
                     original_raw_email = _get_email_sync(message_id, mail)
                     if not original_raw_email:
@@ -672,7 +676,7 @@ class IMAPService:
                     # 3. Create the reply message
                     reply_message = MIMEMultipart("alternative")
                     reply_message["Subject"] = reply_subject
-                    reply_message["From"] = self.settings.IMAP_USERNAME
+                    reply_message["From"] = settings.IMAP_USERNAME
                     reply_message["To"] = to_email
                     
                     original_cc = original_msg.get('Cc')

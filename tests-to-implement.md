@@ -1,1 +1,2 @@
 - docker build from scratch, without cache! -> on another pc, now issue was that a folder didn't exist on git
+- credentials update: case Hendrik -> bij trigger werden deze wel gerefreshd, bij imap service niet
