@@ -16,13 +16,89 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Definitive Secret Check
+        env:
+          # --- PASTE ALL YOUR SECRETS HERE ---
+          CONTAINERPORT_API: ${{ secrets.CONTAINERPORT_API }}
+          REDIS_URL: ${{ secrets.REDIS_URL }}
+          CONTAINERPORT_MCP_IMAP: ${{ secrets.CONTAINERPORT_MCP_IMAP }}
+          CONTAINERPORT_QDRANT: ${{ secrets.CONTAINERPORT_QDRANT }}
+          EMBEDDING_VECTOR_SIZE: ${{ secrets.EMBEDDING_VECTOR_SIZE }}
+          EMBEDDING_OPENAI_MODEL_NAME: ${{ secrets.EMBEDDING_OPENAI_MODEL_NAME }}
+          EMBEDDING_VOYAGE_API_KEY: ${{ secrets.EMBEDDING_VOYAGE_API_KEY }}
+          EMBEDDING_VOYAGE_MODEL: ${{ secrets.EMBEDDING_VOYAGE_MODEL }}
+          AGENTLOGGER_ENABLE_ANONIMIZER: ${{ secrets.AGENTLOGGER_ENABLE_ANONIMIZER }}
+          AGENTLOGGER_OPENROUTER_ANONIMIZER_API_KEY: ${{ secrets.AGENTLOGGER_OPENROUTER_ANONIMIZER_API_KEY }}
+          AGENTLOGGER_OPENROUTER_ANONIMIZER_MODEL: ${{ secrets.AGENTLOGGER_OPENROUTER_ANONIMIZER_MODEL }}
+          EMBEDDING_OPENAI_API_KEY: ${{ secrets.EMBEDDING_OPENAI_API_KEY }}
+          DISABLE_LOG_FORWARDING: ${{ secrets.DISABLE_LOG_FORWARDING }}
+          QDRANT_NAMESPACE_UUID: ${{ secrets.QDRANT_NAMESPACE_UUID }}
+          FRONTEND_HOST_PORT: ${{ secrets.FRONTEND_HOST_PORT }}
+
+        run: |
+          echo "--- Checking all required secrets from config.py ---"
+          
+          if [ -z "$REDIS_URL" ]; then echo "❌ ERROR: REDIS_URL is empty."; else echo "✅ REDIS_URL is set."; fi
+          if [ -z "$CONTAINERPORT_MCP_IMAP" ]; then echo "❌ ERROR: CONTAINERPORT_MCP_IMAP is empty."; else echo "✅ CONTAINERPORT_MCP_IMAP is set."; fi
+          if [ -z "$CONTAINERPORT_API" ]; then echo "❌ ERROR: CONTAINERPORT_API is empty."; else echo "✅ CONTAINERPORT_API is set."; fi
+          if [ -z "$CONTAINERPORT_QDRANT" ]; then echo "❌ ERROR: CONTAINERPORT_QDRANT is empty."; else echo "✅ CONTAINERPORT_QDRANT is set."; fi
+          if [ -z "$EMBEDDING_VECTOR_SIZE" ]; then echo "❌ ERROR: EMBEDDING_VECTOR_SIZE is empty."; else echo "✅ EMBEDDING_VECTOR_SIZE is set."; fi
+          if [ -z "$EMBEDDING_OPENAI_MODEL_NAME" ]; then echo "❌ ERROR: EMBEDDING_OPENAI_MODEL_NAME is empty."; else echo "✅ EMBEDDING_OPENAI_MODEL_NAME is set."; fi
+          if [ -z "$EMBEDDING_VOYAGE_API_KEY" ]; then echo "❌ ERROR: EMBEDDING_VOYAGE_API_KEY is empty."; else echo "✅ EMBEDDING_VOYAGE_API_KEY is set."; fi
+          if [ -z "$EMBEDDING_VOYAGE_MODEL" ]; then echo "❌ ERROR: EMBEDDING_VOYAGE_MODEL is empty."; else echo "✅ EMBEDDING_VOYAGE_MODEL is set."; fi
+          if [ -z "$AGENTLOGGER_ENABLE_ANONIMIZER" ]; then echo "❌ ERROR: AGENTLOGGER_ENABLE_ANONIMIZER is empty."; else echo "✅ AGENTLOGGER_ENABLE_ANONIMIZER is set."; fi
+          if [ -z "$AGENTLOGGER_OPENROUTER_ANONIMIZER_API_KEY" ]; then echo "❌ ERROR: AGENTLOGGER_OPENROUTER_ANONIMIZER_API_KEY is empty."; else echo "✅ AGENTLOGGER_OPENROUTER_ANONIMIZER_API_KEY is set."; fi
+          if [ -z "$AGENTLOGGER_OPENROUTER_ANONIMIZER_MODEL" ]; then echo "❌ ERROR: AGENTLOGGER_OPENROUTER_ANONIMIZER_MODEL is empty."; else echo "✅ AGENTLOGGER_OPENROUTER_ANONIMIZER_MODEL is set."; fi
+          if [ -z "$EMBEDDING_OPENAI_API_KEY" ]; then echo "❌ ERROR: EMBEDDING_OPENAI_API_KEY is empty."; else echo "✅ EMBEDDING_OPENAI_API_KEY is set."; fi
+          if [ -z "$DISABLE_LOG_FORWARDING" ]; then echo "❌ ERROR: DISABLE_LOG_FORWARDING is empty."; else echo "✅ DISABLE_LOG_FORWARDING is set."; fi
+          if [ -z "$QDRANT_NAMESPACE_UUID" ]; then echo "❌ ERROR: QDRANT_NAMESPACE_UUID is empty."; else echo "✅ QDRANT_NAMESPACE_UUID is set."; fi
+          if [ -z "$FRONTEND_HOST_PORT" ]; then echo "❌ ERROR: FRONTEND_HOST_PORT is empty."; else echo "✅ FRONTEND_HOST_PORT is set."; fi
+
+          echo "--- Check complete. Now failing the job if any required variable was empty. ---"
+          
+          if [ -z "$REDIS_URL" ] || \
+             [ -z "$CONTAINERPORT_MCP_IMAP" ] || \
+             [ -z "$CONTAINERPORT_API" ] || \
+             [ -z "$CONTAINERPORT_QDRANT" ] || \
+             [ -z "$EMBEDDING_VECTOR_SIZE" ] || \
+             [ -z "$EMBEDDING_OPENAI_MODEL_NAME" ] || \
+             [ -z "$EMBEDDING_VOYAGE_API_KEY" ] || \
+             [ -z "$EMBEDDING_VOYAGE_MODEL" ] || \
+             [ -z "$AGENTLOGGER_ENABLE_ANONIMIZER" ] || \
+             [ -z "$AGENTLOGGER_OPENROUTER_ANONIMIZER_API_KEY" ] || \
+             [ -z "$AGENTLOGGER_OPENROUTER_ANONIMIZER_MODEL" ] || \
+             [ -z "$EMBEDDING_OPENAI_API_KEY" ] || \
+             [ -z "$DISABLE_LOG_FORWARDING" ] || \
+             [ -z "$QDRANT_NAMESPACE_UUID" ] || \
+             [ -z "$FRONTEND_HOST_PORT" ]; then
+            echo "A required secret was empty. See list above for details."
+            exit 1
+          fi
+
+
+# .github/workflows/test-compose.yml
+
+name: Test Docker Compose
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
       - name: Build and Run with Verbose Logs
         env:
           # --- PASTE ALL YOUR SECRETS HERE ---
           # The build args need this one
           CONTAINERPORT_API: ${{ secrets.CONTAINERPORT_API }}
-          
-          # The run command will need the rest
           REDIS_URL: ${{ secrets.REDIS_URL }}
           CONTAINERPORT_MCP_IMAP: ${{ secrets.CONTAINERPORT_MCP_IMAP }}
           CONTAINERPORT_QDRANT: ${{ secrets.CONTAINERPORT_QDRANT }}
