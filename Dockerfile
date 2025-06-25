@@ -44,9 +44,9 @@ COPY nginx-qdrant-readonly.conf .
 COPY qdrant-dashboard.Dockerfile .
 
 # Copy the built frontend from the builder stage
-COPY --from=frontend-builder /app/frontend/public ./frontend/public
-COPY --from=frontend-builder /app/frontend/.next/standalone ./frontend/.next/standalone
-COPY --from=frontend-builder /app/frontend/.next/static ./frontend/.next/static
+COPY --from=frontend-builder /app/frontend/.next ./frontend/.next
+COPY --from=frontend-builder /app/frontend/package.json ./frontend/package.json
+COPY --from=frontend-builder /app/frontend/node_modules ./frontend/node_modules
 
 # Make entrypoint script executable
 COPY entrypoint.sh .

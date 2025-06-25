@@ -13,7 +13,6 @@ const serverEnv = serverEnvSchema.parse(process.env);
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  output: 'standalone',
   reactStrictMode: true,
   async rewrites() {
     return [
