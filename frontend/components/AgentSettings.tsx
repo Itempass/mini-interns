@@ -151,7 +151,7 @@ const AgentSettings: React.FC<AgentSettingsProps> = ({ agent }) => {
   return (
     <div className="flex-1 p-8 overflow-y-auto">
       <div className="max-w-7xl mx-auto">
-        <div className="flex justify-between items-start mb-6">
+        <div className="sticky top-0 z-10 bg-white pt-4 pb-4 mb-6 flex justify-between items-center border-b">
           <h1 className="text-2xl font-bold">{editableAgent.name}</h1>
           <button
             onClick={handleSave}
@@ -169,11 +169,11 @@ const AgentSettings: React.FC<AgentSettingsProps> = ({ agent }) => {
             <div className="space-y-4 mt-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700">Name</label>
-                <input type="text" name="name" value={editableAgent.name} onChange={handleInputChange} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm" />
+                <input type="text" name="name" value={editableAgent.name} onChange={handleInputChange} className="mt-1 block w-full rounded-md border-gray-400 shadow-sm sm:text-sm p-2 border" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700">Description</label>
-                <textarea name="description" value={editableAgent.description} onChange={handleInputChange} rows={2} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm" />
+                <textarea name="description" value={editableAgent.description} onChange={handleInputChange} rows={2} className="mt-1 block w-full rounded-md border-gray-400 shadow-sm sm:text-sm p-2 border" />
               </div>
             </div>
           </div>
@@ -184,30 +184,30 @@ const AgentSettings: React.FC<AgentSettingsProps> = ({ agent }) => {
             <div className="space-y-4 mt-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700">Trigger Instructions</label>
-                <textarea name="trigger_conditions" value={editableAgent.trigger_conditions} onChange={handleInputChange} rows={5} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm" />
+                <textarea name="trigger_conditions" value={editableAgent.trigger_conditions} onChange={handleInputChange} rows={5} className="mt-1 block w-full rounded-md border-gray-400 shadow-sm sm:text-sm p-2 border" />
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700">Email Blacklist (comma-separated)</label>
-                  <textarea name="email_blacklist" value={filterRuleStrings.email_blacklist} onChange={handleFilterRuleChange} rows={2} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm" />
+                  <textarea name="email_blacklist" value={filterRuleStrings.email_blacklist} onChange={handleFilterRuleChange} rows={2} className="mt-1 block w-full rounded-md border-gray-400 shadow-sm sm:text-sm p-2 border" />
                   <p className="text-xs text-gray-600 mt-1">Stop processing emails from these specific addresses. Ex: spam@example.com, junk@mail.net</p>
                   {filterErrors.email_blacklist && <p className="text-xs text-red-600 mt-1">{filterErrors.email_blacklist}</p>}
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700">Email Whitelist (comma-separated)</label>
-                  <textarea name="email_whitelist" value={filterRuleStrings.email_whitelist} onChange={handleFilterRuleChange} rows={2} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm" />
+                  <textarea name="email_whitelist" value={filterRuleStrings.email_whitelist} onChange={handleFilterRuleChange} rows={2} className="mt-1 block w-full rounded-md border-gray-400 shadow-sm sm:text-sm p-2 border" />
                   <p className="text-xs text-gray-600 mt-1">If used, only emails from these addresses will proceed. Ex: boss@mycompany.com</p>
                   {filterErrors.email_whitelist && <p className="text-xs text-red-600 mt-1">{filterErrors.email_whitelist}</p>}
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700">Domain Blacklist (comma-separated)</label>
-                  <textarea name="domain_blacklist" value={filterRuleStrings.domain_blacklist} onChange={handleFilterRuleChange} rows={2} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm" />
+                  <textarea name="domain_blacklist" value={filterRuleStrings.domain_blacklist} onChange={handleFilterRuleChange} rows={2} className="mt-1 block w-full rounded-md border-gray-400 shadow-sm sm:text-sm p-2 border" />
                   <p className="text-xs text-gray-600 mt-1">Stop processing emails from these domains. Ex: evil-corp.com, bad-actors.org</p>
                   {filterErrors.domain_blacklist && <p className="text-xs text-red-600 mt-1">{filterErrors.domain_blacklist}</p>}
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700">Domain Whitelist (comma-separated)</label>
-                  <textarea name="domain_whitelist" value={filterRuleStrings.domain_whitelist} onChange={handleFilterRuleChange} rows={2} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm" />
+                  <textarea name="domain_whitelist" value={filterRuleStrings.domain_whitelist} onChange={handleFilterRuleChange} rows={2} className="mt-1 block w-full rounded-md border-gray-400 shadow-sm sm:text-sm p-2 border" />
                   <p className="text-xs text-gray-600 mt-1">If used, only emails from these domains will proceed. Ex: mycompany.com</p>
                   {filterErrors.domain_whitelist && <p className="text-xs text-red-600 mt-1">{filterErrors.domain_whitelist}</p>}
                 </div>
@@ -221,7 +221,7 @@ const AgentSettings: React.FC<AgentSettingsProps> = ({ agent }) => {
             <div className="space-y-4 mt-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700">User Instructions</label>
-                <textarea name="user_instructions" value={editableAgent.user_instructions} onChange={handleInputChange} rows={5} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm" />
+                <textarea name="user_instructions" value={editableAgent.user_instructions} onChange={handleInputChange} rows={10} className="mt-1 block w-full rounded-md border-gray-400 shadow-sm sm:text-sm p-2 border" />
               </div>
               <div>
                 <h3 className="text-lg font-medium text-gray-900 mb-2">Tools</h3>

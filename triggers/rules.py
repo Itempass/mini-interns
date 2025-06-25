@@ -20,12 +20,18 @@ def passes_filter(email_from: str, rules: Dict[str, Any]) -> bool:
         return True
 
     from_domain = get_domain(email_from)
+    logger.info(f"From domain: {from_domain}")
 
     # Use .get() to safely access dictionary keys
     email_blacklist = rules.get("email_blacklist", [])
     domain_blacklist = rules.get("domain_blacklist", [])
     email_whitelist = rules.get("email_whitelist", [])
     domain_whitelist = rules.get("domain_whitelist", [])
+
+    logger.info(f"Email blacklist: {email_blacklist}")
+    logger.info(f"Domain blacklist: {domain_blacklist}")
+    logger.info(f"Email whitelist: {email_whitelist}")
+    logger.info(f"Domain whitelist: {domain_whitelist}")
 
     # 1. Blacklist checks
     if email_blacklist and email_from in email_blacklist:
