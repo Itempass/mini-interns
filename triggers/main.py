@@ -2,6 +2,7 @@ import logging
 import time
 import requests
 import asyncio
+import uuid
 from imap_tools import MailBox, A, MailMessage
 from shared.app_settings import load_app_settings, AppSettings
 from shared.redis.keys import RedisKeys
@@ -91,16 +92,17 @@ Body:
 
         try:
             # We are now handling logging directly within this function.
+            conversation_id = f"trigger_{uuid.uuid4()}"
             contextual_uid = create_contextual_id('INBOX', msg.uid)
             await save_conversation(ConversationData(
                 metadata=Metadata(
-                    conversation_id=f"trigger_{contextual_uid}",
+                    conversation_id=conversation_id,
                     readable_workflow_name=f"Trigger: {agent_name}",
                     readable_instance_context=f"{msg.from_} - {msg.subject}"
                 ),
                 messages=[Message(**m) for m in messages_for_llm if m.get("content") is not None]
             ))
-            logger.info(f"Trigger check conversation for {contextual_uid} logged successfully.")
+            logger.info(f"Trigger check conversation for email {contextual_uid} logged with conversation_id {conversation_id}.")
         except Exception as e:
             logger.error(f"Failed to log trigger check conversation: {e}", exc_info=True)
 

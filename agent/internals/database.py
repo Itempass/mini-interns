@@ -89,6 +89,11 @@ async def _update_agent_in_db(agent: AgentModel) -> AgentModel:
         await db.commit()
     return agent
 
+async def _delete_agent_from_db(uuid: UUID):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("DELETE FROM agents WHERE uuid = ?", (str(uuid),))
+        await db.commit()
+
 async def _create_instance_in_db(instance: AgentInstanceModel) -> AgentInstanceModel:
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(

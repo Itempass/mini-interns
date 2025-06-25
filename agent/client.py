@@ -8,7 +8,9 @@ from agent.models import AgentModel, AgentInstanceModel, TriggerModel
 from agent.internals.database import (
     _create_agent_in_db,
     _get_agent_from_db,
+    _list_agents_from_db,
     _update_agent_in_db,
+    _delete_agent_from_db,
     _create_instance_in_db,
     _update_instance_in_db,
     _create_trigger_in_db,
@@ -49,11 +51,23 @@ async def get_agent(uuid: UUID) -> AgentModel | None:
     """
     return await _get_agent_from_db(uuid)
 
+async def list_agents() -> List[AgentModel]:
+    """
+    Lists all available agents from the database.
+    """
+    return await _list_agents_from_db()
+
 async def save_agent(agent_model: AgentModel) -> None:
     """
     Saves the current state of the Agent to the database.
     """
     await _update_agent_in_db(agent_model)
+
+async def delete_agent(uuid: UUID) -> None:
+    """
+    Deletes an agent from the database.
+    """
+    await _delete_agent_from_db(uuid)
 
 # --- Tooling Functions ---
 async def discover_mcp_tools() -> List[Dict[str, Any]]:
