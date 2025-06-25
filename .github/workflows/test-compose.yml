@@ -16,41 +16,32 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # 👇 ADD THIS NEW DEBUGGING STEP 👇
-      - name: Debug Environment Variables
+      - name: Run and Get Logs
         env:
-          CONTAINERPORT_API: ${{ secrets.CONTAINERPORT_API }}
-        run: |
-          echo "Debug Step:"
-          echo "The value for CONTAINERPORT_API is: '$CONTAINERPORT_API'"
-          if [ -z "$CONTAINERPORT_API" ]; then
-            echo "ERROR: CONTAINERPORT_API is empty!"
-            exit 1
-          fi
-
-      - name: Run Docker Compose
-        # This 'env' block makes the GitHub Secrets available as
-        # environment variables for the 'docker compose' command.
-        env:
-          DISABLE_LOG_FORWARDING: ${{ secrets.DISABLE_LOG_FORWARDING }}
+          # --- PASTE ALL YOUR SECRETS HERE ---
+          # This must include every variable from your config.py
           REDIS_URL: ${{ secrets.REDIS_URL }}
           CONTAINERPORT_API: ${{ secrets.CONTAINERPORT_API }}
-          FRONTEND_HOST_PORT: ${{ secrets.FRONTEND_HOST_PORT }}
           CONTAINERPORT_MCP_IMAP: ${{ secrets.CONTAINERPORT_MCP_IMAP }}
           CONTAINERPORT_QDRANT: ${{ secrets.CONTAINERPORT_QDRANT }}
-          AGENTLOGGER_ENABLE_ANONIMIZER: ${{ secrets.AGENTLOGGER_ENABLE_ANONIMIZER }}
           EMBEDDING_VECTOR_SIZE: ${{ secrets.EMBEDDING_VECTOR_SIZE }}
           EMBEDDING_OPENAI_MODEL_NAME: ${{ secrets.EMBEDDING_OPENAI_MODEL_NAME }}
-          EMBEDDING_OPENAI_API_KEY: ${{ secrets.EMBEDDING_OPENAI_API_KEY }}
-          EMBEDDING_VOYAGE_MODEL: ${{ secrets.EMBEDDING_VOYAGE_MODEL }}
           EMBEDDING_VOYAGE_API_KEY: ${{ secrets.EMBEDDING_VOYAGE_API_KEY }}
-          # Add every other secret your compose file needs here
-          # ANOTHER_VARIABLE: ${{ secrets.ANOTHER_VARIABLE }}
-          # DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
-        run: docker compose up -d --build
+          EMBEDDING_VOYAGE_MODEL: ${{ secrets.EMBEDDING_VOYAGE_MODEL }}
+          
+          # These are optional but good to include
+          AGENTLOGGER_ENABLE_ANONIMIZER: ${{ secrets.AGENTLOGGER_ENABLE_ANONIMIZER }}
+          AGENTLOGGER_OPENROUTER_ANONIMIZER_API_KEY: ${{ secrets.AGENTLOGGER_OPENROUTER_ANONIMIZER_API_KEY }}
+          AGENTLOGGER_OPENROUTER_ANONIMIZER_MODEL: ${{ secrets.AGENTLOGGER_OPENROUTER_ANONIMIZER_MODEL }}
+          EMBEDDING_OPENAI_API_KEY: ${{ secrets.EMBEDDING_OPENAI_API_KEY }}
+          
+          # These have defaults but should be set
+          DISABLE_LOG_FORWARDING: ${{ secrets.DISABLE_LOG_FORWARDING }}
+          QDRANT_NAMESPACE_UUID: ${{ secrets.QDRANT_NAMESPACE_UUID }}
+          
+          # This one is for docker-compose.yml, not config.py
+          FRONTEND_HOST_PORT: ${{ secrets.FRONTEND_HOST_PORT }}
 
-      - name: Wait for services
-        run: sleep 10
-
-      - name: Check running containers
-        run: docker compose ps
+        # This single command builds, runs, and prints all logs.
+        # If any container crashes (like your 'app' container), it will stop and fail the step.
+        run: docker compose up --build --abort-on-container-exit
