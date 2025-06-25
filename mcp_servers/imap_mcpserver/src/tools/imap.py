@@ -14,7 +14,7 @@ from ..services.imap_service import IMAPService
 from ..types.imap_models import RawEmail
 from ..utils.contextual_id import is_valid_contextual_id
 from shared.qdrant.qdrant_client import semantic_search, search_by_vector
-from shared.services.embedding_service import get_embedding
+from shared.services.embedding_service import get_embedding, rerank_documents
 from shared.config import settings
 import uuid
 
@@ -365,9 +365,10 @@ async def find_similar_emails_with_their_reply(messageId: str, top_k: Optional[i
     }
 
 @mcp_builder.tool()
-async def find_similar_threads(messageId: str, top_k: Optional[int] = 3) -> Dict[str, Any]:
+async def find_similar_threads(messageId: str, top_k: Optional[int] = 5) -> Dict[str, Any]:
     """
     Finds email threads with similar content to the thread of a given email ID.
+    Uses vector search followed by reranking for improved relevance.
     """
     # 1. Get the full thread for the source email
     source_thread = await imap_service.fetch_email_thread(message_id=messageId)
@@ -382,51 +383,81 @@ async def find_similar_threads(messageId: str, top_k: Optional[int] = 3) -> Dict
     if not full_thread_content.strip():
         return {"error": f"Could not extract any content from the source thread of email {messageId}."}
     
-    source_embedding = get_embedding(full_thread_content.strip())
+    source_embedding = get_embedding(f"embed this email, focus on the meaning of the conversation: {full_thread_content.strip()}")
 
     # 3. Determine the Qdrant point ID of the source thread to exclude it from search results
     source_thread_id_for_qdrant = source_thread[0].uid
     source_point_id = str(uuid.uuid5(uuid.UUID(settings.QDRANT_NAMESPACE_UUID), source_thread_id_for_qdrant))
 
-    # 4. Perform the vector search in the 'email_threads' collection
+    # 4. Perform initial vector search in the 'email_threads' collection (get more results for reranking)
+    initial_search_k = max(top_k * 3, 10)  # Get 3x more results for reranking
     similar_hits = search_by_vector(
         collection_name="email_threads",
         query_vector=source_embedding,
-        top_k=top_k or 3,
+        top_k=initial_search_k,
         exclude_ids=[source_point_id],
     )
 
-    # 5. Fetch and format the full threads for each search result
-    similar_threads_formatted = []
+    if not similar_hits:
+        return {"similar_threads": [], "llm_instructions": "No similar threads found."}
+
+    # 5. Prepare documents for reranking using thread_content from vector search results
+    thread_contents = []
+    thread_metadata = []
+    
     for hit in similar_hits:
-        thread_id = hit.get("thread_id")
-        if not thread_id:
-            continue
+        thread_content = hit.get("thread_content", "")
+        messages_metadata = hit.get("messages", [])
         
-        # Fetch the full thread using the ID from the payload
-        thread_emails = await imap_service.fetch_email_thread(message_id=thread_id)
-        if not thread_emails:
-            continue
+        if thread_content and messages_metadata:
+            thread_contents.append(thread_content)
+            thread_metadata.append(messages_metadata)
 
-        # Sort emails by date
-        def get_date(raw_email: RawEmail):
-            try:
-                return dateutil.parser.parse(raw_email.msg['Date'])
-            except (ValueError, TypeError):
-                return dateutil.parser.parse("1900-01-01 00:00:00+00:00")
+    if not thread_contents:
+        return {"similar_threads": [], "llm_instructions": "No valid thread content found for reranking."}
 
-        thread_emails.sort(key=get_date)
-        
-        # Format the entire thread into a single string
-        formatted_thread = "\\n\\n---\\n\\n".join(
-            _format_email_as_markdown(email.msg, email.uid)
-            for email in thread_emails
+    # 6. Use reranker to improve ordering based on relevance
+    try:
+        reranked_results = rerank_documents(
+            query="Find similar threads to the following email and contain content that is relevant to the following email: " + full_thread_content.strip(),
+            documents=thread_contents,
+            top_k=top_k
         )
-        similar_threads_formatted.append(formatted_thread)
+    except Exception as e:
+        logger.warning(f"Reranking failed, falling back to vector search results: {e}")
+        # Fallback to original vector search results
+        reranked_results = [{"index": i} for i in range(min(len(thread_contents), top_k or 3))]
+
+    # 7. Format threads using the reranked order and stored metadata
+    similar_threads_formatted = []
+    
+    for result in reranked_results:
+        index = result["index"]
+        if index < len(thread_metadata):
+            messages_metadata = thread_metadata[index]
+            
+            def _format_from_metadata(msg_meta: dict) -> str:
+                """Format a message using stored metadata in the same format as _format_email_as_markdown"""
+                return (
+                    f"## Subject: {msg_meta.get('subject', '')}\n"
+                    f"* id: {msg_meta.get('uid', '')}\n"
+                    f"* from: {msg_meta.get('from', '')}\n"
+                    f"* to: {msg_meta.get('to', '') or 'N/A'}\n"
+                    f"* cc: {msg_meta.get('cc', '') or 'N/A'}\n"
+                    f"* date: {msg_meta.get('date', 'N/A')}\n\n"
+                    f"{msg_meta.get('body', '').strip()}"
+                )
+            
+            # Format the entire thread into a single string using stored metadata
+            formatted_thread = "\\n\\n---\\n\\n".join(
+                _format_from_metadata(msg_meta)
+                for msg_meta in messages_metadata
+            )
+            similar_threads_formatted.append(formatted_thread)
 
     return {
         "similar_threads": similar_threads_formatted,
-        "llm_instructions": "These are full conversation threads that are semantically similar to the original email's thread."
+        "llm_instructions": "These are full conversation threads that are semantically similar to the original email's thread, ordered by relevance using AI reranking."
     }
 
 # --- Non-Gmail/IMAP tools ---
