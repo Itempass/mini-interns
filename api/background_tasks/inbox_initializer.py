@@ -10,6 +10,7 @@ from qdrant_client import models
 from shared.redis.redis_client import get_redis_client
 from shared.redis.keys import RedisKeys
 from shared.services.embedding_service import get_embedding
+from shared.services.text_utils import clean_email_text_for_storage
 from mcp_servers.imap_mcpserver.src.types.imap_models import RawEmail
 from mcp_servers.imap_mcpserver.src.utils.contextual_id import parse_contextual_id
 from shared.config import settings
@@ -90,6 +91,9 @@ def extract_email_metadata(raw_email: RawEmail) -> dict:
             logger.warning(f"Could not decode body for email: {e}")
             body = "[Could not decode body]"
     
+    # Clean the body text for storage using the new utility
+    cleaned_body = clean_email_text_for_storage(body)
+    
     return {
         'subject': msg.get('Subject', ''),
         'from': msg.get('From', ''),
@@ -97,7 +101,7 @@ def extract_email_metadata(raw_email: RawEmail) -> dict:
         'cc': msg.get('Cc', ''),
         'date': date_iso,
         'uid': raw_email.uid,
-        'body': body.strip()
+        'body': cleaned_body
     }
 
 async def initialize_inbox():

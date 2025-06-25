@@ -15,6 +15,7 @@ from ..types.imap_models import RawEmail
 from ..utils.contextual_id import is_valid_contextual_id
 from shared.qdrant.qdrant_client import semantic_search, search_by_vector
 from shared.services.embedding_service import get_embedding, rerank_documents
+from shared.services.text_utils import format_email_for_display, format_thread_separator, clean_email_text_for_storage
 from shared.config import settings
 import uuid
 
@@ -378,7 +379,10 @@ async def find_similar_threads(messageId: str, top_k: Optional[int] = 5) -> Dict
     # 2. Combine the content and generate a single embedding for the source thread
     full_thread_content = ""
     for message in source_thread:
-        full_thread_content += _get_cleaned_email_body(message) + "\\n\\n"
+        cleaned_body = _get_cleaned_email_body(message)
+        # Apply the same cleaning methodology as inbox_initializer.py
+        cleaned_body = clean_email_text_for_storage(cleaned_body)
+        full_thread_content += cleaned_body + "\\n\\n"
     
     if not full_thread_content.strip():
         return {"error": f"Could not extract any content from the source thread of email {messageId}."}
@@ -436,23 +440,21 @@ async def find_similar_threads(messageId: str, top_k: Optional[int] = 5) -> Dict
         if index < len(thread_metadata):
             messages_metadata = thread_metadata[index]
             
-            def _format_from_metadata(msg_meta: dict) -> str:
-                """Format a message using stored metadata in the same format as _format_email_as_markdown"""
-                return (
-                    f"## Subject: {msg_meta.get('subject', '')}\n"
-                    f"* id: {msg_meta.get('uid', '')}\n"
-                    f"* from: {msg_meta.get('from', '')}\n"
-                    f"* to: {msg_meta.get('to', '') or 'N/A'}\n"
-                    f"* cc: {msg_meta.get('cc', '') or 'N/A'}\n"
-                    f"* date: {msg_meta.get('date', 'N/A')}\n\n"
-                    f"{msg_meta.get('body', '').strip()}"
+            # Format each message in the thread using the new utility
+            formatted_messages = []
+            for msg_meta in messages_metadata:
+                formatted_message = format_email_for_display(
+                    subject=msg_meta.get('subject', ''),
+                    from_addr=msg_meta.get('from', ''),
+                    to_addr=msg_meta.get('to', ''),
+                    cc_addr=msg_meta.get('cc', ''),
+                    date=msg_meta.get('date', 'N/A'),
+                    body=msg_meta.get('body', '')
                 )
+                formatted_messages.append(formatted_message)
             
-            # Format the entire thread into a single string using stored metadata
-            formatted_thread = "\\n\\n---\\n\\n".join(
-                _format_from_metadata(msg_meta)
-                for msg_meta in messages_metadata
-            )
+            # Join messages with thread separators
+            formatted_thread = format_thread_separator().join(formatted_messages)
             similar_threads_formatted.append(formatted_thread)
 
     return {
