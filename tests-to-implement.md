@@ -1,1 +1,1 @@
-- docker build from scratch, without cache! 
+- docker build from scratch, without cache! -> on another pc, now issue was that a folder didn't exist on git

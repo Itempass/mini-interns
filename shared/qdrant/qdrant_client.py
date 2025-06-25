@@ -16,13 +16,27 @@ def _ensure_collection_exists(client: QdrantClient, collection_name: str, vector
     """Ensures a collection exists, creating it if necessary."""
     try:
         client.get_collection(collection_name=collection_name)
-    except Exception:
-        logger.info(f"Collection '{collection_name}' not found. Creating...")
-        client.create_collection(
-            collection_name=collection_name,
-            vectors_config=models.VectorParams(size=vector_size, distance=models.Distance.COSINE),
-        )
-        logger.info(f"Collection '{collection_name}' created.")
+        logger.info(f"Collection '{collection_name}' already exists.")
+    except Exception as e:
+        # Check if it's a "not found" type error, in which case we should create the collection
+        if "not found" in str(e).lower() or "doesn't exist" in str(e).lower():
+            logger.info(f"Collection '{collection_name}' not found. Creating...")
+            try:
+                client.create_collection(
+                    collection_name=collection_name,
+                    vectors_config=models.VectorParams(size=vector_size, distance=models.Distance.COSINE),
+                )
+                logger.info(f"Collection '{collection_name}' created.")
+            except Exception as create_error:
+                # If creation fails because collection already exists (race condition), that's fine
+                if "already exists" in str(create_error).lower():
+                    logger.info(f"Collection '{collection_name}' was created by another process.")
+                else:
+                    logger.error(f"Failed to create collection '{collection_name}': {create_error}")
+                    raise
+        else:
+            logger.error(f"Unexpected error checking collection '{collection_name}': {e}")
+            raise
 
 def recreate_collection(client: QdrantClient, collection_name: str, vector_size: int):
     """Deletes and recreates a collection to ensure it's empty."""
