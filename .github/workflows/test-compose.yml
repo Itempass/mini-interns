@@ -75,46 +75,5 @@ jobs:
             exit 1
           fi
 
-
-# .github/workflows/test-compose.yml
-
-name: Test Docker Compose
-
-on:
-  push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
-
-jobs:
-  build-and-test:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Build and Run with Verbose Logs
-        env:
-          # --- PASTE ALL YOUR SECRETS HERE ---
-          # The build args need this one
-          CONTAINERPORT_API: ${{ secrets.CONTAINERPORT_API }}
-          REDIS_URL: ${{ secrets.REDIS_URL }}
-          CONTAINERPORT_MCP_IMAP: ${{ secrets.CONTAINERPORT_MCP_IMAP }}
-          CONTAINERPORT_QDRANT: ${{ secrets.CONTAINERPORT_QDRANT }}
-          EMBEDDING_VECTOR_SIZE: ${{ secrets.EMBEDDING_VECTOR_SIZE }}
-          EMBEDDING_OPENAI_MODEL_NAME: ${{ secrets.EMBEDDING_OPENAI_MODEL_NAME }}
-          EMBEDDING_VOYAGE_API_KEY: ${{ secrets.EMBEDDING_VOYAGE_API_KEY }}
-          EMBEDDING_VOYAGE_MODEL: ${{ secrets.EMBEDDING_VOYAGE_MODEL }}
-          AGENTLOGGER_ENABLE_ANONIMIZER: ${{ secrets.AGENTLOGGER_ENABLE_ANONIMIZER }}
-          AGENTLOGGER_OPENROUTER_ANONIMIZER_API_KEY: ${{ secrets.AGENTLOGGER_OPENROUTER_ANONIMIZER_API_KEY }}
-          AGENTLOGGER_OPENROUTER_ANONIMIZER_MODEL: ${{ secrets.AGENTLOGGER_OPENROUTER_ANONIMIZER_MODEL }}
-          EMBEDDING_OPENAI_API_KEY: ${{ secrets.EMBEDDING_OPENAI_API_KEY }}
-          DISABLE_LOG_FORWARDING: ${{ secrets.DISABLE_LOG_FORWARDING }}
-          QDRANT_NAMESPACE_UUID: ${{ secrets.QDRANT_NAMESPACE_UUID }}
-          FRONTEND_HOST_PORT: ${{ secrets.FRONTEND_HOST_PORT }}
-
-        # This new command isolates the build and forces detailed logging
-        run: |
-          docker compose build --progress=plain --no-cache
-          docker compose up --abort-on-container-exit
+         # docker compose build --progress=plain --no-cache
+         # docker compose up --abort-on-container-exit
