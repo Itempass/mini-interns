@@ -16,14 +16,9 @@ from typing import List, Dict, Set, Optional, Tuple
 from collections import defaultdict
 
 from .models import EmailMessage, EmailThread
+from .helpers.contextual_id import create_contextual_id
 
 logger = logging.getLogger(__name__)
-
-def _create_contextual_id(mailbox: str, uid: str) -> str:
-    """Creates a contextual ID from a mailbox and a UID."""
-    import base64
-    encoded_mailbox = base64.b64encode(mailbox.encode('utf-8')).decode('utf-8')
-    return f"{encoded_mailbox}:{uid}"
 
 def _extract_body_formats(msg) -> Dict[str, str]:
     """Extract body in multiple formats: raw, markdown, and cleaned"""
@@ -231,7 +226,7 @@ def _fetch_bulk_threads_sync(
                                 uid_match = re.search(r'(\d+) \(', header_info)
                                 uid = uid_match.group(1) if uid_match else thread_uids[len(messages)]
                                 
-                                contextual_id = _create_contextual_id('[Gmail]/All Mail', uid)
+                                contextual_id = create_contextual_id('[Gmail]/All Mail', uid)
                                 
                                 # Extract Gmail labels
                                 labels = []

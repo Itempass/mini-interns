@@ -20,6 +20,7 @@ except ImportError:
 
 from .models import EmailMessage, EmailThread
 from .bulk_threading import fetch_recent_threads_bulk
+from .helpers.contextual_id import create_contextual_id
 
 load_dotenv(override=True)
 
@@ -30,11 +31,6 @@ IMAP_SERVER = "imap.gmail.com"
 IMAP_USERNAME = os.getenv("IMAP_USERNAME", "arthur@itempass.com")
 IMAP_PASSWORD = os.getenv("IMAP_PASSWORD")
 IMAP_PORT = 993
-
-def _create_contextual_id(mailbox: str, uid: str) -> str:
-    """Creates a contextual ID from a mailbox and a UID."""
-    encoded_mailbox = base64.b64encode(mailbox.encode('utf-8')).decode('utf-8')
-    return f"{encoded_mailbox}:{uid}"
 
 def _extract_reply_from_gmail_html(html_body: str) -> str:
     """Extract only the reply portion from Gmail HTML, removing quoted content"""
@@ -221,7 +217,7 @@ def _fetch_single_message(mail: imaplib.IMAP4_SSL, uid: str, folder: str) -> Opt
             return None
         
         # Create contextual ID
-        contextual_id = _create_contextual_id(folder, uid)
+        contextual_id = create_contextual_id(folder, uid)
         
         # Extract Gmail labels from header info
         labels = []
@@ -313,7 +309,7 @@ def _get_complete_thread_sync(message_id: str) -> Optional[EmailThread]:
                     uid = uid_match.group(1) if uid_match else thread_uids[len(messages)]
                     
                     # Create contextual ID
-                    contextual_id = _create_contextual_id('[Gmail]/All Mail', uid)
+                    contextual_id = create_contextual_id('[Gmail]/All Mail', uid)
                     
                     # Extract Gmail labels from header info
                     labels = []
@@ -442,7 +438,7 @@ def _get_recent_messages_from_folder_sync(folder: str, count: int = 20) -> List[
                     uid = uid_match.group(1) if uid_match else recent_uids[len(messages)].decode()
                     
                     # Create contextual ID
-                    contextual_id = _create_contextual_id(folder, uid)
+                    contextual_id = create_contextual_id(folder, uid)
                     
                     # Extract Gmail labels from header info
                     labels = []
