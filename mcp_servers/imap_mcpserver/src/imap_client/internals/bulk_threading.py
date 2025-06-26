@@ -15,8 +15,8 @@ import logging
 from typing import List, Dict, Set, Optional, Tuple
 from collections import defaultdict
 
-from .models import EmailMessage, EmailThread
-from .helpers.contextual_id import create_contextual_id
+from mcp_servers.imap_mcpserver.src.imap_client.models import EmailMessage, EmailThread
+from mcp_servers.imap_mcpserver.src.imap_client.helpers.contextual_id import create_contextual_id
 
 logger = logging.getLogger(__name__)
 

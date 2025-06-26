@@ -18,9 +18,9 @@ try:
 except ImportError:
     html2text = None
 
-from .models import EmailMessage, EmailThread
-from .bulk_threading import fetch_recent_threads_bulk
-from .helpers.contextual_id import create_contextual_id
+from mcp_servers.imap_mcpserver.src.imap_client.models import EmailMessage, EmailThread
+from mcp_servers.imap_mcpserver.src.imap_client.internals.bulk_threading import fetch_recent_threads_bulk
+from mcp_servers.imap_mcpserver.src.imap_client.helpers.contextual_id import create_contextual_id
 
 load_dotenv(override=True)
 
@@ -531,10 +531,120 @@ def _find_drafts_folder(mail: imaplib.IMAP4_SSL) -> str:
     return "[Gmail]/Drafts"
 
 def _get_user_signature() -> Tuple[Optional[str], Optional[str]]:
-    """Get user signature from recent sent emails (simplified version)"""
-    # For now, return None - we can implement signature detection later
-    # This is a simplified version to get the basic functionality working
-    return None, None
+    """Get user signature from recent sent emails using Gmail signature shortcut"""
+    try:
+        mail = imaplib.IMAP4_SSL(IMAP_SERVER, IMAP_PORT)
+        mail.login(IMAP_USERNAME, IMAP_PASSWORD)
+        
+        try:
+            # Select Gmail sent folder
+            mail.select('"[Gmail]/Sent Mail"', readonly=True)
+            typ, data = mail.uid('search', None, 'ALL')
+            
+            if typ != 'OK' or not data or not data[0]:
+                logger.info("No emails found in sent folder.")
+                return None, None
+            
+            email_uids = data[0].split()
+            if not email_uids:
+                return None, None
+            
+            # Get last 5 sent emails (smaller sample for Gmail shortcut)
+            latest_email_uids = email_uids[-10:]
+            logger.info(f"Analyzing last {len(latest_email_uids)} sent emails for Gmail signature.")
+            
+            html_bodies = []
+            plain_bodies = []
+            
+            for uid in latest_email_uids:
+                typ, data = mail.uid('fetch', uid, '(RFC822)')
+                if typ != 'OK':
+                    continue
+                
+                for response_part in data:
+                    if isinstance(response_part, tuple):
+                        msg = email.message_from_bytes(response_part[1])
+                        plain_body = ""
+                        html_body = ""
+                        
+                        if msg.is_multipart():
+                            for part in msg.walk():
+                                ctype = part.get_content_type()
+                                cdisp = str(part.get('Content-Disposition'))
+                                if ctype == 'text/plain' and 'attachment' not in cdisp:
+                                    plain_body = part.get_payload(decode=True).decode(part.get_content_charset() or 'utf-8', errors='ignore')
+                                elif ctype == 'text/html' and 'attachment' not in cdisp:
+                                    html_body = part.get_payload(decode=True).decode(part.get_content_charset() or 'utf-8', errors='ignore')
+                        else:
+                            plain_body = msg.get_payload(decode=True).decode(msg.get_content_charset() or 'utf-8', errors='ignore')
+                        
+                        if html_body:
+                            html_bodies.append(html_body)
+                        if plain_body:
+                            plain_bodies.append(plain_body)
+            
+            if len(html_bodies) < 2:
+                logger.info("Not enough HTML emails to detect Gmail signature.")
+                return None, None
+            
+            # Gmail signature shortcut - look for gmail_signature class
+            try:
+                from bs4 import BeautifulSoup
+                from collections import Counter
+                
+                parsed_bodies = [BeautifulSoup(html, 'lxml') for html in html_bodies]
+                
+                # Look for Gmail signature class
+                signature_candidates = []
+                for soup in parsed_bodies:
+                    gmail_sig = soup.find(class_='gmail_signature')
+                    if gmail_sig:
+                        signature_candidates.append(str(gmail_sig))
+                
+                if len(signature_candidates) >= 2:
+                    # Find most common signature
+                    most_common_sig, count = Counter(signature_candidates).most_common(1)[0]
+                    if count >= 2:
+                        logger.info(f"Found Gmail signature in {count} emails using gmail_signature class")
+                        
+                        # Extract plain text version from the same emails
+                        plain_signature = None
+                        if plain_bodies:
+                            # Simple approach: look for common trailing lines in plain text
+                            from email_reply_parser import EmailReplyParser
+                            plain_replies = []
+                            for plain_body in plain_bodies:
+                                try:
+                                    reply = EmailReplyParser.parse_reply(plain_body)
+                                    if reply != plain_body:  # If parsing removed something, it was likely a signature
+                                        # Get the removed part as potential signature
+                                        signature_part = plain_body.replace(reply, '').strip()
+                                        if signature_part:
+                                            plain_replies.append(signature_part)
+                                except:
+                                    pass
+                            
+                            if plain_replies and len(plain_replies) >= 2:
+                                most_common_plain, plain_count = Counter(plain_replies).most_common(1)[0]
+                                if plain_count >= 2:
+                                    plain_signature = most_common_plain.strip()
+                        
+                        return plain_signature, most_common_sig
+                
+                logger.info("Gmail signature shortcut did not find consistent signatures.")
+                return None, None
+                
+            except ImportError:
+                logger.warning("BeautifulSoup not available for HTML signature detection")
+                return None, None
+            
+        finally:
+            mail.close()
+            mail.logout()
+            
+    except Exception as e:
+        logger.error(f"Error getting Gmail signature: {e}")
+        return None, None
 
 def _draft_reply_sync(original_message: EmailMessage, reply_body: str) -> Dict[str, Any]:
     """Synchronous function to create a draft reply"""

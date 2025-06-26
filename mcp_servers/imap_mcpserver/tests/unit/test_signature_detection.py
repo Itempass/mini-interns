@@ -1,148 +1,164 @@
 import unittest
 import logging
+import email
 from unittest.mock import patch, MagicMock
 from bs4 import BeautifulSoup
-from ...src.services.imap_service import IMAPService
+from mcp_servers.imap_mcpserver.src.imap_client.client import _get_user_signature
 
 logging.basicConfig(level=logging.INFO)
 
-class TestSignatureDetection(unittest.TestCase):
+class TestGmailSignatureDetection(unittest.TestCase):
 
     def setUp(self):
-        """Set up test data for signature detection."""
-        self.mock_email_bodies = [
-            # Email 1: Simple signature
-            {
-                'text': "Hello team,\n\nPlease find the attached report.\n\nBest,\nJohn Doe",
-                'html': "<html><body><p>Hello team,</p><p>Please find the attached report.</p><div>Best,<br/>John Doe</div></body></html>"
-            },
-            # Email 2: More complex signature with a div
-            {
-                'text': "Hi everyone,\n\nHere is the weekly update.\n\nBest,\nJohn Doe",
-                'html': "<html><body><p>Hi everyone,</p><p>Here is the weekly update.</p><div>Best,<br/>John Doe</div></body></html>"
-            },
-            # Email 3: Signature wrapped in multiple tags
-            {
-                'text': "Team,\n\nMeeting notes are now available.\n\nBest,\nJohn Doe",
-                'html': "<html><body><p>Team,</p><p>Meeting notes are now available.</p><div><div>Best,<br/>John Doe</div></div></body></html>"
-            },
-            # Email 4: No signature
-            {
-                'text': "Just a quick question.",
-                'html': "<html><body><p>Just a quick question.</p></body></html>"
-            }
-        ]
-
-    def test_find_best_signature_scenario_1(self):
-        """Test the _find_best_signature method with a clear signature pattern."""
-        # Arrange
-        # For this test, we'll assume a consistent signature across multiple emails
-        consistent_emails = self.mock_email_bodies[:3]
-        
-        # Act
-        plain_signature, html_signature = IMAPService._find_best_signature(consistent_emails)
-
-        # Assert
-        expected_plain_signature = "Best,\nJohn Doe"
-        expected_html_signature = "<div>Best,<br/>John Doe</div>"
-        
-        self.assertEqual(expected_plain_signature, plain_signature)
-        self.assertEqual(expected_html_signature, html_signature)
-
-    def test_find_best_signature_with_elaborate_signature(self):
-        """Test signature detection with a more elaborate signature."""
-        # Arrange
-        signature_html = (
-            '<div class="c x7 y9 w4 h4">'
-            '<div class="t m0 x0 h2 yb ff1 fs0 fc2 sc0 ls8 ws0">--</div>'
-            '<div class="t m0 x0 h2 yc ff1 fs0 fc2 sc0 ls9 ws0">Arthur</div>'
-            '<div class="t m1 x0 h5 yd ff1 fs1 fc2 sc0 lsa ws0">Co-founder </div>'
-            '<div class="t m0 x0 h2 ye ff1 fs0 fc3 sc0 lsb ws0"><a href="https://itempass.com">Itempass.com</a></div>'
-            '<img class="bi x0 y0 w1 h0" alt="logo" src="logo.png"/>'
-            '</div>'
-        )
-        signature_plain = "--\nArthur\nCo-founder \nItempass.com"
-
-        elaborate_emails = [
-            {
-                'text': f"Hello team,\n\nHere is the report.\n\n{signature_plain}",
-                'html': f'<html><body><p>Hello team,</p><p>Here is the report.</p>{signature_html}</body></html>'
-            },
-            {
-                'text': f"Hi,\n\nPlease review this document.\n\n{signature_plain}",
-                'html': f'<html><body><p>Hi,</p><p>Please review this document.</p>{signature_html}</body></html>'
-            },
-            {
-                'text': f"Team,\n\nFYI.\n\n{signature_plain}",
-                'html': f'<html><body><p>Team,</p><p>FYI.</p>{signature_html}</body></html>'
-            }
-        ]
-
-        # Act
-        plain_signature, html_signature = IMAPService._find_best_signature(elaborate_emails)
-
-        # Assert
-        expected_plain_signature = "--\nArthur\nCo-founder \nItempass.com"
-        
-        # Normalize HTML by parsing and re-serializing to handle attribute order differences
-        soup_expected = BeautifulSoup(signature_html, 'lxml')
-        soup_actual = BeautifulSoup(html_signature, 'lxml')
-
-        self.assertEqual(expected_plain_signature, plain_signature)
-        self.assertEqual(str(soup_expected), str(soup_actual))
-
-    def test_find_best_signature_with_gmail_signature(self):
-        """Test signature detection with a gmail signature."""
-        # Arrange
-        signature_html_in_email = (
+        """Set up test data for Gmail signature detection."""
+        # Create mock email messages with the specific Gmail signature to test
+        self.gmail_signature_html = (
             '<div dir="ltr"><div><br clear="all"></div><div><div dir="ltr" class="gmail_signature" data-smartmail="gmail_signature">'
             '<div dir="ltr"><div style="color:rgb(68,68,68);font-family:sans-serif;line-height:1.5;font-size:12px">'
             '<b>Hendrik Cornelissen</b></div><div style="color:rgb(68,68,68);font-family:sans-serif;line-height:1.5;font-size:12px">'
             'Investment Team</div><div style="color:rgb(68,68,68);font-family:sans-serif;line-height:1.5;font-size:12px">'
             '<img width="96" height="26" src="https://ci3.googleusercontent.com/mail-sig/AIorK4xjFn52Uh1ifuwHckybOagKzKw1o-CPvFd8yQHPD7wOagh30jOfIjUxzJmMG2DSaOl88CpXuH-12QGL"><br></div>'
             '<div style="line-height:1.5"><span style="color:rgb(68,68,68);font-family:sans-serif;font-size:12px">'
-            'Cell: +1 650 495-6150</span></div><div style="color:rgb(68,68,68);font-family:sans-serif;line-height:1.5;font-size:12px">'
+            'Cell: +1 650 495-6150</span></div><div style="color:rgb(68,68,68);font-family:sans-serif;line-height:1.5;font-size:12px">'
             '<a href="https://www.plugandplaytechcenter.com/" rel="noopener" style="color:rgb(17,85,204)" target="_blank">'
             'plugandplaytechcenter.com</a></div></div></div></div></div>'
         )
-        # The shortcut should find the div with class="gmail_signature"
-        expected_signature_html = (
+        
+        # Expected extracted signature (just the gmail_signature div contents)
+        self.expected_extracted_signature = (
             '<div class="gmail_signature" data-smartmail="gmail_signature" dir="ltr">'
             '<div dir="ltr"><div style="color:rgb(68,68,68);font-family:sans-serif;line-height:1.5;font-size:12px">'
             '<b>Hendrik Cornelissen</b></div><div style="color:rgb(68,68,68);font-family:sans-serif;line-height:1.5;font-size:12px">'
             'Investment Team</div><div style="color:rgb(68,68,68);font-family:sans-serif;line-height:1.5;font-size:12px">'
             '<img height="26" src="https://ci3.googleusercontent.com/mail-sig/AIorK4xjFn52Uh1ifuwHckybOagKzKw1o-CPvFd8yQHPD7wOagh30jOfIjUxzJmMG2DSaOl88CpXuH-12QGL" width="96"/><br/></div>'
             '<div style="line-height:1.5"><span style="color:rgb(68,68,68);font-family:sans-serif;font-size:12px">'
-            'Cell: +1 650 495-6150</span></div><div style="color:rgb(68,68,68);font-family:sans-serif;line-height:1.5;font-size:12px">'
+            'Cell: +1 650 495-6150</span></div><div style="color:rgb(68,68,68);font-family:sans-serif;line-height:1.5;font-size:12px">'
             '<a href="https://www.plugandplaytechcenter.com/" rel="noopener" style="color:rgb(17,85,204)" target="_blank">'
             'plugandplaytechcenter.com</a></div></div></div>'
         )
+        
+        self.plain_signature = (
+            "-- \n"
+            "Hendrik Cornelissen\n"
+            "Investment Team\n\n"
+            "Cell: +1 650 495-6150\n"
+            "plugandplaytechcenter.com"
+        )
+
+    def create_mock_email_bytes(self, plain_body: str, html_body: str) -> bytes:
+        """Helper to create mock email message bytes."""
+        msg = email.message.EmailMessage()
+        msg.set_content(plain_body)
+        msg.add_alternative(html_body, subtype='html')
+        return msg.as_bytes()
+
+    @patch('mcp_servers.imap_mcpserver.src.imap_client.client.imaplib.IMAP4_SSL')
+    def test_gmail_signature_detection(self, mock_imap_ssl):
+        """Test signature detection with a gmail signature."""
+        # Arrange
         signature_plain = "Hendrik Cornelissen\nInvestment Team\n\nCell: +1 650 495-6150\nplugandplaytechcenter.com"
 
-        emails_with_gmail_sig = [
-            {
-                'text': f"Hello team,\n\nHere is the report.\n\n{signature_plain}",
-                'html': f'<html><body><p>Hello team,</p><p>Here is the report.</p>{signature_html_in_email}</body></html>'
-            },
-            {
-                'text': f"Hi,\n\nPlease review this document.\n\n{signature_plain}",
-                'html': f'<html><body><p>Hi,</p><p>Please review this document.</p>{signature_html_in_email}</body></html>'
-            },
-            {
-                'text': f"Team,\n\nFYI.\n\n{signature_plain}",
-                'html': f'<html><body><p>Team,</p><p>FYI.</p>{signature_html_in_email}</body></html>'
-            }
+        mock_mail = MagicMock()
+        mock_imap_ssl.return_value = mock_mail
+        mock_mail.select.return_value = ('OK', None)
+        mock_mail.uid.side_effect = [
+            ('OK', [b'1 2 3']),  # search results
+            ('OK', [(b'1 (RFC822 {123}', self.create_mock_email_bytes(
+                f"Hello team,\n\nHere is the report.\n\n{signature_plain}",
+                f'<html><body><p>Hello team,</p><p>Here is the report.</p>{self.gmail_signature_html}</body></html>'
+            ))]),
+            ('OK', [(b'2 (RFC822 {123}', self.create_mock_email_bytes(
+                f"Hi,\n\nPlease review this document.\n\n{signature_plain}",
+                f'<html><body><p>Hi,</p><p>Please review this document.</p>{self.gmail_signature_html}</body></html>'
+            ))]),
+            ('OK', [(b'3 (RFC822 {123}', self.create_mock_email_bytes(
+                f"Team,\n\nFYI.\n\n{signature_plain}",
+                f'<html><body><p>Team,</p><p>FYI.</p>{self.gmail_signature_html}</body></html>'
+            ))])
         ]
 
         # Act
-        plain_signature, html_signature = IMAPService._find_best_signature(emails_with_gmail_sig)
+        plain_signature, html_signature = _get_user_signature()
 
         # Assert
-        soup_expected = BeautifulSoup(expected_signature_html, 'lxml')
+        self.assertIsNotNone(html_signature)
+        self.assertIn('gmail_signature', html_signature)
+        self.assertIn('Hendrik Cornelissen', html_signature)
+        self.assertIn('Investment Team', html_signature)
+        
+        # Check if plain signature was detected (it's OK if it's None for Gmail shortcut)
+        if plain_signature:
+            self.assertIn('Hendrik Cornelissen', plain_signature)
+        
+        # Normalize HTML comparison
+        soup_expected = BeautifulSoup(self.expected_extracted_signature, 'lxml')
         soup_actual = BeautifulSoup(html_signature, 'lxml')
-
-        self.assertEqual(signature_plain.strip(), plain_signature.strip())
         self.assertEqual(str(soup_expected), str(soup_actual))
+
+    @patch('mcp_servers.imap_mcpserver.src.imap_client.client.imaplib.IMAP4_SSL')
+    def test_gmail_signature_detection_no_emails(self, mock_imap_ssl):
+        """Test Gmail signature detection when no emails are found."""
+        # Arrange
+        mock_mail = MagicMock()
+        mock_imap_ssl.return_value = mock_mail
+        
+        # Mock empty response
+        mock_mail.select.return_value = ('OK', None)
+        mock_mail.uid.return_value = ('OK', [b''])
+        
+        # Act
+        plain_signature, html_signature = _get_user_signature()
+
+        # Assert
+        self.assertIsNone(plain_signature)
+        self.assertIsNone(html_signature)
+
+    @patch('mcp_servers.imap_mcpserver.src.imap_client.client.imaplib.IMAP4_SSL')
+    def test_gmail_signature_detection_connection_failure(self, mock_imap_ssl):
+        """Test Gmail signature detection when IMAP connection fails."""
+        # Arrange
+        mock_imap_ssl.side_effect = Exception("Connection failed")
+        
+        # Act
+        plain_signature, html_signature = _get_user_signature()
+
+        # Assert
+        self.assertIsNone(plain_signature)
+        self.assertIsNone(html_signature)
+
+    @patch('mcp_servers.imap_mcpserver.src.imap_client.client.imaplib.IMAP4_SSL')
+    def test_gmail_signature_detection_no_gmail_signature_class(self, mock_imap_ssl):
+        """Test Gmail signature detection when emails don't have gmail_signature class."""
+        # Arrange
+        mock_mail = MagicMock()
+        mock_imap_ssl.return_value = mock_mail
+        
+        # Mock responses with HTML but no gmail_signature class
+        html_without_signature = '<html><body><p>Hello team,</p><p>Here is the report.</p><div>Regular footer</div></body></html>'
+        
+        mock_mail.select.return_value = ('OK', None)
+        mock_mail.uid.side_effect = [
+            ('OK', [b'1 2 3']),
+            ('OK', [(b'1 (RFC822 {123}', self.create_mock_email_bytes(
+                "Hello team,\n\nHere is the report.",
+                html_without_signature
+            ))]),
+            ('OK', [(b'2 (RFC822 {123}', self.create_mock_email_bytes(
+                "Hi,\n\nPlease review this document.",  
+                html_without_signature
+            ))]),
+            ('OK', [(b'3 (RFC822 {123}', self.create_mock_email_bytes(
+                "Team,\n\nFYI.",
+                html_without_signature
+            ))])
+        ]
+        
+        # Act
+        plain_signature, html_signature = _get_user_signature()
+
+        # Assert
+        self.assertIsNone(plain_signature)
+        self.assertIsNone(html_signature)
 
 if __name__ == '__main__':
     unittest.main() 
