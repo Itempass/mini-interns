@@ -11,6 +11,7 @@ import re
 import logging
 from typing import Dict
 from email_reply_parser import EmailReplyParser
+from bs4 import BeautifulSoup
 
 try:
     import html2text
@@ -19,35 +20,56 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-def extract_reply_from_gmail_html(html_body: str) -> str:
-    """Extract only the reply portion from Gmail HTML, removing quoted content"""
-    try:
-        # Gmail patterns to identify quoted content
-        quote_patterns = [
-            r'<div class="gmail_quote[^"]*">.*?</div>',  # Gmail quote container
-            r'<blockquote[^>]*class="[^"]*gmail_quote[^"]*"[^>]*>.*?</blockquote>',  # Gmail blockquote
-            r'<div[^>]*class="[^"]*gmail_attr[^"]*"[^>]*>.*?</div>',  # Gmail attribution
-        ]
+def extract_reply_from_html(html_body: str) -> str:
+    """
+    Extracts the reply portion from an HTML email body using BeautifulSoup
+    to find and remove quoted content from various email clients like
+    Outlook, Gmail, and Apple Mail.
+    """
+    if not html_body:
+        return ""
 
-        # Remove quoted sections
-        cleaned_html = html_body
-        for pattern in quote_patterns:
-            cleaned_html = re.sub(pattern, '', cleaned_html, flags=re.DOTALL | re.IGNORECASE)
+    soup = BeautifulSoup(html_body, 'html.parser')
 
-        # Also remove common quote patterns that might not have Gmail classes
-        other_patterns = [
-            r'<br><br><div class="gmail_quote">.*',  # Everything after gmail_quote start
-            r'<div class="gmail_quote.*',  # Everything from gmail_quote start
-        ]
+    # Strategy 1: Find Outlook's specific <hr> separator
+    # This is a reliable marker used by some versions of Outlook.
+    hr_marker = soup.find('hr', id='stopSpelling')
+    if hr_marker:
+        # When this marker is found, we remove it and everything that comes after it.
+        for element in hr_marker.find_all_next():
+            element.decompose()
+        hr_marker.decompose()
+        return str(soup).strip()
 
-        for pattern in other_patterns:
-            cleaned_html = re.sub(pattern, '', cleaned_html, flags=re.DOTALL | re.IGNORECASE)
+    # Strategy 2: Find Gmail's quote container
+    # This preserves the original logic but uses a proper HTML parser.
+    gmail_quote = soup.find('div', class_='gmail_quote')
+    if gmail_quote:
+        # Gmail often adds an attribution line (e.g., "On... wrote:") just
+        # before the quote div. We can try to remove that too.
+        attr_div = gmail_quote.find_previous_sibling('div', class_='gmail_attr')
+        if attr_div:
+            attr_div.decompose()
+        gmail_quote.decompose()
+        return str(soup).strip()
 
-        return cleaned_html.strip()
+    # Strategy 3: Find generic blockquotes that look like replies
+    # This targets Apple Mail's `type="cite"` and the common "On... wrote:" pattern.
+    for blockquote in soup.find_all('blockquote'):
+        # Check for Apple Mail's `type="cite"`
+        if blockquote.get('type') == 'cite':
+            blockquote.decompose()
+            return str(soup).strip()
+        
+        # Check for the common "On [date], [person] wrote:" pattern
+        # inside the blockquote, which is a strong signal of a quoted reply.
+        if re.search(r'On\s.*(wrote|écrit):', blockquote.get_text(), re.IGNORECASE):
+            blockquote.decompose()
+            return str(soup).strip()
 
-    except Exception as e:
-        logger.warning(f"Error extracting reply from Gmail HTML: {e}")
-        return html_body
+    # If no specific quote markers are found, we return the original content
+    # to avoid accidentally removing parts of a valid email.
+    return str(soup)
 
 
 def extract_body_formats(msg) -> Dict[str, str]:
@@ -97,7 +119,7 @@ def extract_body_formats(msg) -> Dict[str, str]:
     # Determine the raw body (prefer HTML if available, otherwise plain text)
     # For HTML, extract only the reply portion
     if html_body:
-        raw_body = extract_reply_from_gmail_html(html_body)
+        raw_body = extract_reply_from_html(html_body)
     else:
         raw_body = reply_text if reply_text else text_body
 
@@ -106,7 +128,7 @@ def extract_body_formats(msg) -> Dict[str, str]:
     if html_body and html2text:
         try:
             # Extract only the reply part from Gmail HTML before converting to markdown
-            reply_html = extract_reply_from_gmail_html(html_body)
+            reply_html = extract_reply_from_html(html_body)
 
             h = html2text.HTML2Text()
             h.ignore_links = False
