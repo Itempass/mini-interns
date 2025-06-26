@@ -8,7 +8,7 @@ import pytest
 # Add the src directory to the path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'src'))
 
-from imap_client.client import (
+from mcp_servers.imap_mcpserver.src.imap_client.client import (
     get_recent_inbox_message_ids,
     get_message_by_id,
     get_complete_thread,

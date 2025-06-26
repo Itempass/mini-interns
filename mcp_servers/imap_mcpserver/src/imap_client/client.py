@@ -21,16 +21,11 @@ except ImportError:
 from mcp_servers.imap_mcpserver.src.imap_client.models import EmailMessage, EmailThread
 from mcp_servers.imap_mcpserver.src.imap_client.internals.bulk_threading import fetch_recent_threads_bulk
 from mcp_servers.imap_mcpserver.src.imap_client.helpers.contextual_id import create_contextual_id
+from mcp_servers.imap_mcpserver.src.imap_client.connection_manager import imap_connection, IMAPConnectionError
 
 load_dotenv(override=True)
 
 logger = logging.getLogger(__name__)
-
-# IMAP connection details
-IMAP_SERVER = "imap.gmail.com"
-IMAP_USERNAME = os.getenv("IMAP_USERNAME", "arthur@itempass.com")
-IMAP_PASSWORD = os.getenv("IMAP_PASSWORD")
-IMAP_PORT = 993
 
 def _extract_reply_from_gmail_html(html_body: str) -> str:
     """Extract only the reply portion from Gmail HTML, removing quoted content"""
@@ -171,10 +166,7 @@ def _get_message_by_id_sync(message_id: str) -> Optional[EmailMessage]:
     Searches across INBOX and [Gmail]/All Mail to find the message.
     """
     try:
-        mail = imaplib.IMAP4_SSL(IMAP_SERVER, IMAP_PORT)
-        mail.login(IMAP_USERNAME, IMAP_PASSWORD)
-        
-        try:
+        with imap_connection() as mail:
             # Search in INBOX first
             mail.select('INBOX', readonly=True)
             typ, data = mail.uid('search', None, f'(HEADER Message-ID "{message_id}")')
@@ -192,10 +184,6 @@ def _get_message_by_id_sync(message_id: str) -> Optional[EmailMessage]:
                 return _fetch_single_message(mail, uid, '[Gmail]/All Mail')
             
             return None
-            
-        finally:
-            mail.close()
-            mail.logout()
         
     except Exception as e:
         logger.error(f"Error getting message by ID {message_id}: {e}")
@@ -254,11 +242,7 @@ def _fetch_single_message(mail: imaplib.IMAP4_SSL, uid: str, folder: str) -> Opt
 def _get_complete_thread_sync(message_id: str) -> Optional[EmailThread]:
     """Synchronous function to get complete thread"""
     try:
-        # Connect to Gmail
-        mail = imaplib.IMAP4_SSL(IMAP_SERVER, IMAP_PORT)
-        mail.login(IMAP_USERNAME, IMAP_PASSWORD)
-        
-        try:
+        with imap_connection() as mail:
             # Step 1: Find the message and get its thread ID
             uid, mailbox = _find_uid_by_message_id(mail, message_id)
             if not uid:
@@ -346,10 +330,6 @@ def _get_complete_thread_sync(message_id: str) -> Optional[EmailThread]:
             
             return None
             
-        finally:
-            mail.close()
-            mail.logout()
-            
     except Exception as e:
         logger.error(f"Error getting thread: {e}")
         return None
@@ -357,11 +337,7 @@ def _get_complete_thread_sync(message_id: str) -> Optional[EmailThread]:
 def _get_recent_message_ids_sync(count: int = 20) -> List[str]:
     """Synchronous function to get recent Message-IDs from INBOX"""
     try:
-        # Connect to Gmail
-        mail = imaplib.IMAP4_SSL(IMAP_SERVER, IMAP_PORT)
-        mail.login(IMAP_USERNAME, IMAP_PASSWORD)
-        
-        try:
+        with imap_connection() as mail:
             mail.select('"INBOX"', readonly=True)
             typ, data = mail.uid('search', None, 'ALL')
             
@@ -387,10 +363,6 @@ def _get_recent_message_ids_sync(count: int = 20) -> List[str]:
             
             return message_ids
             
-        finally:
-            mail.close()
-            mail.logout()
-            
     except Exception as e:
         logger.error(f"Error getting inbox message IDs: {e}")
         return []
@@ -398,11 +370,7 @@ def _get_recent_message_ids_sync(count: int = 20) -> List[str]:
 def _get_recent_messages_from_folder_sync(folder: str, count: int = 20) -> List[EmailMessage]:
     """Synchronous function to get recent messages from a specific folder"""
     try:
-        # Connect to Gmail
-        mail = imaplib.IMAP4_SSL(IMAP_SERVER, IMAP_PORT)
-        mail.login(IMAP_USERNAME, IMAP_PASSWORD)
-        
-        try:
+        with imap_connection() as mail:
             mail.select(f'"{folder}"', readonly=True)
             typ, data = mail.uid('search', None, 'ALL')
             
@@ -471,10 +439,6 @@ def _get_recent_messages_from_folder_sync(folder: str, count: int = 20) -> List[
             
             return messages
             
-        finally:
-            mail.close()
-            mail.logout()
-            
     except Exception as e:
         logger.error(f"Error getting messages from {folder}: {e}")
         return []
@@ -533,10 +497,7 @@ def _find_drafts_folder(mail: imaplib.IMAP4_SSL) -> str:
 def _get_user_signature() -> Tuple[Optional[str], Optional[str]]:
     """Get user signature from recent sent emails using Gmail signature shortcut"""
     try:
-        mail = imaplib.IMAP4_SSL(IMAP_SERVER, IMAP_PORT)
-        mail.login(IMAP_USERNAME, IMAP_PASSWORD)
-        
-        try:
+        with imap_connection() as mail:
             # Select Gmail sent folder
             mail.select('"[Gmail]/Sent Mail"', readonly=True)
             typ, data = mail.uid('search', None, 'ALL')
@@ -638,21 +599,17 @@ def _get_user_signature() -> Tuple[Optional[str], Optional[str]]:
                 logger.warning("BeautifulSoup not available for HTML signature detection")
                 return None, None
             
-        finally:
-            mail.close()
-            mail.logout()
-            
+    except IMAPConnectionError as e:
+        logger.error(f"IMAP connection error getting Gmail signature: {e}")
+        return None, None
     except Exception as e:
-        logger.error(f"Error getting Gmail signature: {e}")
+        logger.error(f"Unexpected error getting Gmail signature: {e}")
         return None, None
 
 def _draft_reply_sync(original_message: EmailMessage, reply_body: str) -> Dict[str, Any]:
     """Synchronous function to create a draft reply"""
     try:
-        mail = imaplib.IMAP4_SSL(IMAP_SERVER, IMAP_PORT)
-        mail.login(IMAP_USERNAME, IMAP_PASSWORD)
-        
-        try:
+        with imap_connection() as mail:
             # Prepare reply headers
             original_subject = original_message.subject
             reply_subject = original_subject if original_subject.lower().startswith("re:") else f"Re: {original_subject}"
@@ -664,7 +621,7 @@ def _draft_reply_sync(original_message: EmailMessage, reply_body: str) -> Dict[s
             # Create the reply message
             reply_message = MIMEMultipart("alternative")
             reply_message["Subject"] = reply_subject
-            reply_message["From"] = IMAP_USERNAME
+            reply_message["From"] = os.getenv("IMAP_USERNAME")
             reply_message["To"] = to_email
             
             # Handle CC
@@ -722,12 +679,6 @@ def _draft_reply_sync(original_message: EmailMessage, reply_body: str) -> Dict[s
                 error_msg = f"Error creating draft reply: {result[1][0].decode() if result[1] else 'Unknown error'}"
                 logger.error(error_msg)
                 return {"success": False, "message": error_msg}
-                
-        finally:
-            try:
-                mail.logout()
-            except Exception as e:
-                logger.warning(f"Error during logout: {e}")
             
     except Exception as e:
         error_msg = f"Error creating draft reply: {str(e)}"
@@ -814,8 +765,8 @@ async def get_recent_threads_bulk(target_thread_count: int = 50, max_age_months:
     return await fetch_recent_threads_bulk(
         target_thread_count=target_thread_count,
         max_age_months=max_age_months,
-        imap_server=IMAP_SERVER,
-        imap_username=IMAP_USERNAME,
-        imap_password=IMAP_PASSWORD,
-        imap_port=IMAP_PORT
+        imap_server=os.getenv("IMAP_SERVER", "imap.gmail.com"),
+        imap_username=os.getenv("IMAP_USERNAME"),
+        imap_password=os.getenv("IMAP_PASSWORD"),
+        imap_port=993
     ) 
