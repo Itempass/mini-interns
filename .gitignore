@@ -1,0 +1,30 @@
+# Git
+.git
+
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+/data/db/
+/data/redis/
+/data/qdrant/
+.env
+
+# Node
+node_modules/
+frontend/node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+frontend/.next/
+
+# Editor/OS specific
+.vscode/
+.idea/
+.DS_Store
+
+# Instance ID
+.instance_id 
