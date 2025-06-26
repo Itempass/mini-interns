@@ -7,15 +7,15 @@ import os
 # Add the src directory to the path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-from imap_client.client import get_complete_thread
+from imap_client.client import get_message_by_id, get_complete_thread
 
 async def main():
     # The Message-ID from the Google OAuth verification email
     message_id = "000000000000d68c0e0637e4a5e0@google.com"
     
     print(f"Getting thread for Message-ID: {message_id}")
-    
-    thread = await get_complete_thread(message_id)
+    message = await get_message_by_id(message_id)
+    thread = await get_complete_thread(message)
     
     if thread:
         print(f"\n✅ Thread found with {len(thread.messages)} messages!")
@@ -40,6 +40,9 @@ async def main():
             print(f"Message ID: {message.message_id}")
     else:
         print("❌ Thread not found")
+
+
+    print(f"Thread markdown: {thread.markdown}")
 
 if __name__ == "__main__":
     asyncio.run(main()) 

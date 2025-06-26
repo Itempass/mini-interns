@@ -67,5 +67,30 @@ class EmailThread(BaseModel):
             last_message_date=sorted_messages[-1].date,
             folders=list(all_folders)
         )
+    
+    @property
+    def markdown(self) -> str:
+        """Format the entire thread as markdown"""
+        lines = []
+        lines.append("# Email Thread")
+        lines.append("")
+        
+        for i, message in enumerate(self.messages, 1):
+            lines.append(f"## Message {i}:")
+            lines.append("")
+            lines.append(f"* **From:** {message.from_}")
+            lines.append(f"* **To:** {message.to}")
+            if message.cc:
+                lines.append(f"* **CC:** {message.cc}")
+            lines.append(f"* **Date:** {message.date}")
+            lines.append(f"* **Message ID:** {message.message_id}")
+            lines.append(f"* **Subject:** {message.subject}")
+            lines.append("")
+            lines.append(message.body_markdown)
+            lines.append("")
+            lines.append("---")
+            lines.append("")
+        
+        return "\n".join(lines)
 
  
