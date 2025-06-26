@@ -7,6 +7,7 @@ efficient way to fetch an email thread from an IMAP server.
 import imaplib
 import logging
 import email
+import re
 from email.message import Message
 from typing import List, Optional, Set, Tuple
 
@@ -111,33 +112,26 @@ class ThreadingService:
     def _thread_with_gmail_thrid(self, message_uid: str) -> Optional[List[str]]:
         """
         Fetches a thread using Gmail's proprietary X-GM-THRID.
-        This implementation now searches '[Gmail]/All Mail' for UIDs.
+        This implementation searches '[Gmail]/All Mail' for the most complete thread results.
         """
         try:
             # First, fetch the X-GM-THRID from the specific message in the current mailbox.
-            typ, data = self.mail.uid('fetch', message_uid.encode(), '(X-GM-THRID)')
+            typ, data = self.mail.uid('fetch', message_uid, '(X-GM-THRID)')
             if typ != 'OK' or not data or not data[0]:
                 logger.warning(f"Could not fetch X-GM-THRID for UID {message_uid}.")
                 return None
             
-            # Response is like: b'1 (X-GM-THRID 17...)'
-            thrid_match = email.message_from_bytes(data[0]).get('X-GM-THRID')
+            # Parse the thread ID from the response
+            # Response format: b'1234 (X-GM-THRID 1835938577604292726 UID 1234)'
+            thrid_match = re.search(rb'X-GM-THRID (\d+)', data[0])
             if not thrid_match:
-                 # Fallback for different response format
-                match = imaplib.re.search(b'X-GM-THRID (\\d+)', data[0])
-                if not match:
-                    logger.warning(f"Could not parse X-GM-THRID from response for UID {message_uid}")
-                    return None
-                thrid_match = match.group(1).decode()
-
-            if not thrid_match:
-                logger.warning(f"No X-GM-THRID found for UID {message_uid}")
+                logger.warning(f"Could not parse X-GM-THRID from response for UID {message_uid}")
                 return None
 
-            gmail_thread_id = thrid_match
+            gmail_thread_id = thrid_match.group(1).decode()
             logger.info(f"Found X-GM-THRID: {gmail_thread_id}, searching in '[Gmail]/All Mail'.")
 
-            # Now, search for all UIDs with that thread ID in '[Gmail]/All Mail'.
+            # Search for all UIDs with that thread ID in '[Gmail]/All Mail' for most complete results
             try:
                 logger.warning(f"Switching to '[Gmail]/All Mail' to search for thread {gmail_thread_id}. This will change the connection's selected mailbox.")
                 self.mail.select(mailbox='"[Gmail]/All Mail"', readonly=True)
@@ -145,15 +139,15 @@ class ThreadingService:
                 logger.error(f"Could not select '[Gmail]/All Mail'. Aborting Gmail-specific search. Error: {e}")
                 return None # Fallback to next method in orchestrator.
 
-            # Use Gmail's advanced search to find all messages in the thread, excluding drafts.
-            search_query = f'thrid:{gmail_thread_id} -in:drafts'
-            typ, data = self.mail.uid('search', None, f'(X-GM-RAW "{search_query}")')
+            # Use direct X-GM-THRID search (X-GM-RAW with thrid: syntax doesn't work)
+            typ, data = self.mail.uid('search', None, f'(X-GM-THRID {gmail_thread_id})')
 
             if typ != 'OK' or not data or not data[0]:
                 logger.warning(f"Search for X-GM-THRID {gmail_thread_id} failed in '[Gmail]/All Mail'.")
                 return None
 
             uids = data[0].split()
+            logger.info(f"Found {len(uids)} UIDs in thread using X-GM-THRID search.")
             return [uid.decode() for uid in uids] if uids else None
 
         except imaplib.IMAP4.error as e:
