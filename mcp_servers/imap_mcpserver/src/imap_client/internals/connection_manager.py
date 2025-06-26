@@ -8,11 +8,8 @@ thread safety and proper resource cleanup for IMAP operations.
 import contextlib
 import imaplib
 import logging
-import os
 from typing import Generator, Optional
-from dotenv import load_dotenv
-
-load_dotenv(override=True)
+from shared.app_settings import load_app_settings
 
 logger = logging.getLogger(__name__)
 
@@ -37,19 +34,27 @@ class IMAPConnectionManager:
         Initialize connection manager with IMAP settings.
         
         Args:
-            server: IMAP server hostname (defaults to env IMAP_SERVER or "imap.gmail.com")
-            username: IMAP username (defaults to env IMAP_USERNAME)
-            password: IMAP password (defaults to env IMAP_PASSWORD)
+            server: IMAP server hostname (defaults to app settings or "imap.gmail.com")
+            username: IMAP username (defaults to app settings)
+            password: IMAP password (defaults to app settings)
             port: IMAP port (defaults to 993)
         """
-        self.server = server or os.getenv("IMAP_SERVER", "imap.gmail.com")
-        self.username = username or os.getenv("IMAP_USERNAME")
-        self.password = password or os.getenv("IMAP_PASSWORD")
+        # Only load settings from app_settings if any parameters are missing
+        if not server or not username or not password:
+            settings = load_app_settings()
+            self.server = server or settings.IMAP_SERVER
+            self.username = username or settings.IMAP_USERNAME
+            self.password = password or settings.IMAP_PASSWORD
+        else:
+            # All parameters provided, use them directly
+            self.server = server
+            self.username = username
+            self.password = password
         self.port = port
         
         # Validate required settings
         if not self.username or not self.password:
-            raise ValueError("IMAP username and password must be provided or set in environment variables")
+            raise ValueError("IMAP username and password must be provided via parameters or app settings")
 
     @contextlib.contextmanager
     def connect(self) -> Generator[imaplib.IMAP4_SSL, None, None]:

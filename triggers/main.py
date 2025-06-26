@@ -11,12 +11,11 @@ from api.types.api_models.agent import FilterRules
 from triggers.agent import EmailAgent
 from shared.config import settings
 import json
-from mcp_servers.imap_mcpserver.src.utils.contextual_id import create_contextual_id
-from mcp_servers.imap_mcpserver.src.services.imap_service import IMAPService
-from shared.services.text_utils import format_email_for_display, format_thread_separator
+from mcp_servers.imap_mcpserver.src.imap_client import client as imap_client
 from openai import OpenAI
 from agentlogger.src.models import ConversationData, Message, Metadata
 from datetime import datetime
+import re
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -33,7 +32,7 @@ def set_last_uid(uid: str):
     redis_client = get_redis_client()
     redis_client.set(RedisKeys.LAST_EMAIL_UID, uid)
 
-async def passes_trigger_conditions_check(msg, trigger_conditions: str, app_settings, thread_context: str, contextual_uid: str) -> bool:
+async def passes_trigger_conditions_check(msg, trigger_conditions: str, app_settings, thread_context: str, message_id: str) -> bool:
     """
     Uses an LLM to check if the email passes the trigger conditions.
     Now uses full thread context for more informed trigger decisions.
@@ -70,7 +69,7 @@ Respond with a single JSON object in the format: {{"should_process": true}} or {
         user_prompt = f"""
 This is the email thread to be evaluated for processing:
 
-TRIGGERING MESSAGE UID: {contextual_uid}
+TRIGGERING MESSAGE ID: {message_id}
 
 {thread_context}
 
@@ -82,7 +81,7 @@ Focus on the triggering message while considering the full conversation context.
         email_body = msg.text or msg.html
         user_prompt = f"""
 This is the email to be processed (single message - no thread context available):
-UID: {contextual_uid}
+Message-ID: {message_id}
 From: {msg.from_}
 To: {msg.to}
 Date: {msg.date_str}
@@ -111,19 +110,23 @@ Body:
         logger.info(f"LLM trigger check raw response: '{response_content}'")
         
         messages.append({"role": "assistant", "content": response_content})
+        
+        # Sanitize message_id for use in conversation_id
+        safe_message_id = re.sub(r'[^a-zA-Z0-9_.-]', '_', message_id)
+
 
         try:
             # Log the conversation using async save_conversation
             from agentlogger.src.client import save_conversation
             await save_conversation(ConversationData(
                 metadata=Metadata(
-                    conversation_id=f"trigger_{contextual_uid}",
+                    conversation_id=f"trigger_{safe_message_id}",
                     readable_workflow_name="Trigger Check (with Thread Context)",
                     readable_instance_context=f"{msg.from_} - {msg.subject}"
                 ),
                 messages=[Message(**m) for m in messages if m.get("content") is not None]
             ))
-            logger.info(f"Trigger check conversation for {contextual_uid} logged successfully.")
+            logger.info(f"Trigger check conversation for {message_id} logged successfully.")
         except Exception as e:
             logger.error(f"Failed to log trigger check conversation: {e}", exc_info=True)
 
@@ -153,122 +156,6 @@ Body:
     except Exception as e:
         logger.error(f"Error during LLM trigger check: {e}", exc_info=True)
         return False
-
-def format_thread_for_agent(thread_emails, triggering_uid: str) -> str:
-    """
-    Format thread emails for agent consumption with clear triggering message identification.
-    
-    Args:
-        thread_emails: List of RawEmail objects from fetch_email_thread
-        triggering_uid: The contextual UID of the message that triggered the agent
-        
-    Returns:
-        Formatted string with full thread context and clear triggering message identification
-    """
-    if not thread_emails:
-        return "No thread context available."
-    
-    try:
-        # Sort emails chronologically
-        import dateutil.parser
-        def get_date(raw_email):
-            try:
-                return dateutil.parser.parse(raw_email.msg['Date'])
-            except (ValueError, TypeError):
-                return dateutil.parser.parse("1900-01-01 00:00:00+00:00")
-        
-        thread_emails.sort(key=get_date)
-        
-        # Format each email in the thread
-        formatted_messages = []
-        for email in thread_emails:
-            # Extract email metadata
-            msg = email.msg
-            subject = msg.get('Subject', '')
-            from_addr = msg.get('From', '')
-            to_addr = msg.get('To', '')
-            cc_addr = msg.get('Cc', '')
-            date = msg.get('Date', '')
-            
-            # Extract body
-            body = ""
-            if msg.is_multipart():
-                for part in msg.walk():
-                    ctype = part.get_content_type()
-                    cdispo = str(part.get('Content-Disposition'))
-                    if ctype == 'text/plain' and 'attachment' not in cdispo:
-                        try:
-                            charset = part.get_content_charset() or 'utf-8'
-                            payload = part.get_payload(decode=True)
-                            if payload:
-                                body = payload.decode(charset, errors='ignore')
-                                break
-                        except Exception as e:
-                            logger.warning(f"Could not decode body part: {e}")
-                            body = "[Could not decode body]"
-            else:
-                try:
-                    charset = msg.get_content_charset() or 'utf-8'
-                    payload = msg.get_payload(decode=True)
-                    if payload:
-                        body = payload.decode(charset, errors='ignore')
-                except Exception as e:
-                    logger.warning(f"Could not decode body: {e}")
-                    body = "[Could not decode body]"
-            
-            # Format this email
-            formatted_email = format_email_for_display(
-                subject=subject,
-                from_addr=from_addr,
-                to_addr=to_addr,
-                cc_addr=cc_addr,
-                date=date,
-                body=body
-            )
-            
-            # Mark if this is the triggering message
-            if email.uid == triggering_uid:
-                formatted_email = f"FULL THREAD (FIRST MESSAGE IS THE NEW MESSAGE):\n{formatted_email}"
-            
-            formatted_messages.append(formatted_email)
-        
-        # Join all messages with thread separators
-        thread_context = format_thread_separator().join(formatted_messages)
-        
-        return f"{thread_context}"
-        
-    except Exception as e:
-        logger.error(f"Error formatting thread for agent: {e}", exc_info=True)
-        return f"Error formatting thread context: {str(e)}"
-
-def format_single_message_for_agent(msg, contextual_uid: str) -> str:
-    """
-    Format a single message for agent when thread context is unavailable.
-    
-    Args:
-        msg: imap_tools Message object
-        contextual_uid: The contextual UID
-        
-    Returns:
-        Formatted string with single message context
-    """
-    try:
-        email_body = msg.text or msg.html or ""
-        
-        formatted_email = format_email_for_display(
-            subject=msg.subject or '',
-            from_addr=msg.from_ or '',
-            to_addr=msg.to or '',
-            cc_addr=msg.cc or '',
-            date=msg.date_str or '',
-            body=email_body
-        )
-        
-        return f"SINGLE MESSAGE (No thread context available):\n\n{formatted_email}"
-        
-    except Exception as e:
-        logger.error(f"Error formatting single message: {e}", exc_info=True)
-        return f"Error formatting message: {str(e)}"
 
 def main():
     """
@@ -317,8 +204,12 @@ def main():
                     if filtered_messages:
                         logger.info(f"Found {len(filtered_messages)} new email(s).")
                         for msg in filtered_messages:
-                            contextual_uid = create_contextual_id('INBOX', msg.uid)
-                            process_message(msg, contextual_uid)
+                            message_id_tuple = msg.headers.get('message-id')
+                            if not message_id_tuple:
+                                logger.warning(f"Skipping an email because it has no Message-ID.")
+                                continue
+                            message_id = message_id_tuple[0]
+                            process_message(msg, message_id.strip('<>'))
 
                         # Update last_uid to the latest one we've processed
                         latest_uid = filtered_messages[-1].uid
@@ -335,13 +226,13 @@ def main():
 
         time.sleep(30)
 
-def process_message(msg, contextual_uid: str):
+def process_message(msg, message_id: str):
     """Process a single message with full thread context."""
     
     async def _process_with_thread_context():
         logger.info("--------------------")
         logger.info(f"New Email Received:")
-        logger.info(f"  UID: {contextual_uid}")
+        logger.info(f"  Message-ID: {message_id}")
         logger.info(f"  From: {msg.from_}")
         logger.info(f"  To: {msg.to}")
         logger.info(f"  Date: {msg.date_str}")
@@ -370,24 +261,29 @@ def process_message(msg, contextual_uid: str):
             logger.warning("Trigger conditions not set. Skipping LLM check and agent workflow.")
             return
 
-        # MOVED: Fetch full thread context BEFORE trigger check
+        # Fetch full thread context using the new imap_client
         thread_context = None
         try:
-            logger.info(f"Fetching thread context for trigger and agent (UID: {contextual_uid})")
-            imap_service = IMAPService()
-            thread_emails = await imap_service.fetch_email_thread(contextual_uid)
-            if thread_emails:
-                thread_context = format_thread_for_agent(thread_emails, contextual_uid)
-                logger.info(f"Successfully fetched thread context with {len(thread_emails)} messages for trigger check")
+            logger.info(f"Fetching message and thread context for Message-ID: {message_id}")
+            email_message = await imap_client.get_message_by_id(message_id)
+            if email_message:
+                thread = await imap_client.get_complete_thread(email_message)
+                if thread:
+                    thread_context = thread.markdown
+                    logger.info(f"Successfully fetched thread context with {len(thread.messages)} messages.")
+                else:
+                    logger.warning("Could not fetch complete thread, using single message markdown.")
+                    thread_context = f"# Email Thread\n\n## Message 1:\n\n* **From:** {email_message.from_}\n* **To:** {email_message.to}\n* **CC:** {email_message.cc}\n* **Date:** {email_message.date}\n* **Message ID:** {email_message.message_id}\n* **Subject:** {email_message.subject}\n\n{email_message.body_markdown}\n\n---\n\n"
             else:
-                logger.warning("No thread emails found, using single message context for trigger")
-                thread_context = format_single_message_for_agent(msg, contextual_uid)
-        except Exception as e:
-            logger.warning(f"Failed to fetch thread context: {e}. Using single message context for trigger.")
-            thread_context = format_single_message_for_agent(msg, contextual_uid)
+                logger.warning(f"Could not find message with Message-ID: {message_id}. Cannot get thread context.")
 
-        # UPDATED: Trigger check now uses thread context
-        if not await passes_trigger_conditions_check(msg, trigger_conditions, app_settings, thread_context, contextual_uid):
+        except Exception as e:
+            logger.error(f"Failed to fetch thread context for {message_id}: {e}. Using single message for trigger.", exc_info=True)
+            # Fallback to single message from initial fetch if client fails
+            thread_context = f"SINGLE MESSAGE (No thread context available):\n\nFrom: {msg.from_}\nTo: {msg.to}\nSubject: {msg.subject}\n\n{body}"
+
+        # Trigger check now uses thread context
+        if not await passes_trigger_conditions_check(msg, trigger_conditions, app_settings, thread_context, message_id):
             logger.info("Email did not pass LLM trigger conditions check.")
             return
 
@@ -411,7 +307,7 @@ def process_message(msg, contextual_uid: str):
             trigger_conditions=trigger_conditions,
             agent_instructions=agent_instructions
         )
-        agent_result = await agent.run(msg, contextual_uid, thread_context)
+        agent_result = await agent.run(msg, message_id, thread_context)
         logger.info(f"Agent ran!")
 
         # Check if we should create a draft

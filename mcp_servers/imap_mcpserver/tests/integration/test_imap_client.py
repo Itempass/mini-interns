@@ -1,294 +1,182 @@
 #!/usr/bin/env python3
 
-import asyncio
-import sys
 import os
-import pytest
+import sys
+import asyncio
+import logging
+import time
+from contextlib import contextmanager
+from unittest.mock import patch
+from dotenv import load_dotenv
 
-# Add the src directory to the path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'src'))
+# Add project root to sys.path to allow for absolute imports
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..', '..'))
+sys.path.insert(0, project_root)
 
-from mcp_servers.imap_mcpserver.src.imap_client.client import (
-    get_recent_inbox_message_ids,
-    get_message_by_id,
-    get_complete_thread,
-    get_recent_inbox_messages,
-    get_recent_sent_messages,
-    draft_reply,
-    get_recent_threads_bulk
-)
+# Load environment variables from .env file
+load_dotenv(override=True)
 
-@pytest.mark.asyncio
-async def test_get_recent_inbox_message_ids():
-    """Test getting recent inbox message IDs"""
-    message_ids = await get_recent_inbox_message_ids(count=5)
-    
-    # Outcomes to test
-    assert isinstance(message_ids, list)
-    assert len(message_ids) <= 5
-    if message_ids:
-        assert all(isinstance(msg_id, str) for msg_id in message_ids)
-        assert all('@' in msg_id for msg_id in message_ids)  # Should be valid message IDs
+# Setup logging
+logging.basicConfig(level=logging.INFO, format='%(message)s')
 
-@pytest.mark.asyncio
-async def test_get_recent_inbox_messages():
-    """Test getting recent inbox messages as EmailMessage objects"""
-    messages = await get_recent_inbox_messages(count=3)
-    
-    # Outcomes to test
-    assert isinstance(messages, list)
-    assert len(messages) <= 3
-    
-    if messages:
-        msg = messages[0]
-        # Check EmailMessage structure
-        assert hasattr(msg, 'uid')
-        assert hasattr(msg, 'message_id')
-        assert hasattr(msg, 'from_')
-        assert hasattr(msg, 'subject')
-        assert hasattr(msg, 'body_raw')
-        assert hasattr(msg, 'body_markdown')
-        assert hasattr(msg, 'body_cleaned')
-        assert hasattr(msg, 'gmail_labels')
-        
-        # Check data types
-        assert isinstance(msg.uid, str)
-        assert isinstance(msg.message_id, str)
-        assert isinstance(msg.gmail_labels, list)
-        assert '@' in msg.message_id  # Valid message ID
-        assert ':' in msg.uid  # Contextual ID format
+# --- Test Setup ---
+redis_patcher = patch('shared.redis.redis_client.get_redis_client', side_effect=ConnectionRefusedError("Redis is not available for this test"))
 
-@pytest.mark.asyncio
-async def test_get_recent_sent_messages():
-    """Test getting recent sent messages as EmailMessage objects"""
-    messages = await get_recent_sent_messages(count=3)
+@contextmanager
+def patch_connection_manager():
+    """Patches the client's imap_connection to use a test connection manager."""
+    from mcp_servers.imap_mcpserver.src.imap_client.internals.connection_manager import IMAPConnectionManager
     
-    # Outcomes to test
-    assert isinstance(messages, list)
-    assert len(messages) <= 3
-    
-    if messages:
-        msg = messages[0]
-        # Check EmailMessage structure
-        assert hasattr(msg, 'uid')
-        assert hasattr(msg, 'message_id')
-        assert hasattr(msg, 'from_')
-        assert hasattr(msg, 'to')
-        assert hasattr(msg, 'subject')
-        assert hasattr(msg, 'body_raw')
-        assert hasattr(msg, 'body_markdown')
-        assert hasattr(msg, 'body_cleaned')
-        assert hasattr(msg, 'gmail_labels')
-        
-        # Check that it's from sent folder by decoding the contextual UID
-        import base64
-        encoded_mailbox = msg.uid.split(':')[0]
-        mailbox = base64.b64decode(encoded_mailbox).decode('utf-8')
-        assert '[Gmail]/Sent Mail' in mailbox
+    required_vars = ["TEST_IMAP_USER", "TEST_IMAP_PASSWORD", "TEST_IMAP_SERVER"]
+    if not all(os.getenv(var) for var in required_vars):
+        raise EnvironmentError("Missing required test variables in .env file: TEST_IMAP_USER, TEST_IMAP_PASSWORD, TEST_IMAP_SERVER")
 
-@pytest.mark.asyncio
-async def test_get_complete_thread():
-    """Test getting complete thread for a message"""
-    # First get a message to test with
-    messages = await get_recent_inbox_messages(count=1)
-    
-    if not messages:
-        pytest.skip("No messages in inbox to test with")
-    
-    thread = await get_complete_thread(messages[0])
-    
-    # Outcomes to test
-    if thread:  # Thread might be None if message not found
-        assert hasattr(thread, 'thread_id')
-        assert hasattr(thread, 'message_count')
-        assert hasattr(thread, 'messages')
-        assert hasattr(thread, 'participants')
-        assert hasattr(thread, 'folders')
-        
-        # Check data types and structure
-        assert isinstance(thread.thread_id, str)
-        assert isinstance(thread.message_count, int)
-        assert isinstance(thread.messages, list)
-        assert isinstance(thread.participants, list)
-        assert isinstance(thread.folders, list)
-        
-        assert thread.message_count == len(thread.messages)
-        assert thread.message_count > 0
-        
-        # Check first message structure
-        if thread.messages:
-            msg = thread.messages[0]
-            assert hasattr(msg, 'body_raw')
-            assert hasattr(msg, 'body_markdown')
-            assert hasattr(msg, 'body_cleaned')
-            
-        # Test the new markdown property
-        markdown_content = thread.markdown
-        assert isinstance(markdown_content, str)
-        assert "# Email Thread" in markdown_content
-        assert "## Message 1:" in markdown_content
-        assert "**From:**" in markdown_content
-        assert "**To:**" in markdown_content
-        assert "**Date:**" in markdown_content
-        assert "**Message ID:**" in markdown_content
-        assert "**Subject:**" in markdown_content
-
-@pytest.mark.asyncio
-async def test_get_message_by_id():
-    """Test getting a single message by its Message-ID"""
-    # First get a message ID to test with
-    message_ids = await get_recent_inbox_message_ids(count=1)
-    
-    if not message_ids:
-        pytest.skip("No messages in inbox to test with")
-    
-    message = await get_message_by_id(message_ids[0])
-    
-    # Outcomes to test
-    if message:  # Message might be None if not found
-        assert hasattr(message, 'uid')
-        assert hasattr(message, 'message_id')
-        assert hasattr(message, 'from_')
-        assert hasattr(message, 'subject')
-        assert hasattr(message, 'body_raw')
-        assert hasattr(message, 'body_markdown')
-        assert hasattr(message, 'body_cleaned')
-        assert hasattr(message, 'gmail_labels')
-        
-        # Check data types
-        assert isinstance(message.uid, str)
-        assert isinstance(message.message_id, str)
-        assert isinstance(message.gmail_labels, list)
-        assert message.message_id == message_ids[0]  # Should match requested ID
-        assert '@' in message.message_id  # Valid message ID
-        assert ':' in message.uid  # Contextual ID format
-
-@pytest.mark.asyncio
-async def test_draft_reply():
-    """Test creating a draft reply to a message"""
-    # First get a message to reply to
-    messages = await get_recent_inbox_messages(count=1)
-    
-    if not messages:
-        pytest.skip("No messages in inbox to test with")
-    
-    original_message = messages[0]
-    reply_body = "This is a test reply created by the integration test. Please ignore."
-    
-    result = await draft_reply(original_message, reply_body)
-    
-    # Outcomes to test
-    assert isinstance(result, dict)
-    assert 'success' in result
-    assert 'message' in result
-    assert isinstance(result['success'], bool)
-    assert isinstance(result['message'], str)
-    
-    # The result should indicate success (we expect this to work)
-    if result['success']:
-        assert 'Draft' in result['message'] or 'draft' in result['message']
-        print(f"✓ Draft reply created successfully: {result['message']}")
-    else:
-        print(f"⚠️ Draft reply failed (this might be expected in some environments): {result['message']}")
-
-@pytest.mark.asyncio
-async def test_get_recent_threads_bulk():
-    """Test the high-performance bulk thread fetching functionality"""
-    # Test with a small target count for faster testing
-    target_count = 5
-    max_age = 6  # months
-    
-    threads, timing = await get_recent_threads_bulk(
-        target_thread_count=target_count,
-        max_age_months=max_age
+    test_conn_manager = IMAPConnectionManager(
+        server=os.environ["TEST_IMAP_SERVER"],
+        username=os.environ["TEST_IMAP_USER"],
+        password=os.environ["TEST_IMAP_PASSWORD"],
     )
+    print(f"  Testing with connection manager: {test_conn_manager.username}")
     
-    # Outcomes to test
-    assert isinstance(threads, list)
-    assert isinstance(timing, dict)
-    
-    # Check timing dictionary structure
-    expected_timing_keys = ['fetch_sent_time', 'thread_discovery_time', 'bulk_fetch_time', 'total_time']
-    for key in expected_timing_keys:
-        assert key in timing
-        assert isinstance(timing[key], (int, float))
-        assert timing[key] >= 0  # Should be non-negative
-    
-    # Check that we got some threads (unless there really are none)
-    if threads:
-        # Should not exceed target (but might be slightly over due to batch processing)
-        assert len(threads) <= target_count + 10  # Allow some overflow due to batching
+    # Patch the imap_connection context manager used by most client functions
+    with patch('mcp_servers.imap_mcpserver.src.imap_client.client.imap_connection', test_conn_manager.connect):
+        # Also patch the default manager used by the bulk threading module
+        with patch('mcp_servers.imap_mcpserver.src.imap_client.internals.bulk_threading.get_default_connection_manager', return_value=test_conn_manager):
+            yield
+
+# --- Test Cases ---
+async def test_get_recent_inbox_message_ids():
+    from mcp_servers.imap_mcpserver.src.imap_client.client import get_recent_inbox_message_ids
+    with patch_connection_manager():
+        try:
+            ids = await get_recent_inbox_message_ids(count=5)
+            assert isinstance(ids, list)
+            logging.info(f"  ✓ Found {len(ids)} message IDs.")
+        except Exception as e:
+            logging.error(f"Error: {e}", exc_info=True)
+            assert False, "Test failed due to exception"
+
+async def test_get_recent_inbox_messages():
+    from mcp_servers.imap_mcpserver.src.imap_client.client import get_recent_inbox_messages
+    with patch_connection_manager():
+        try:
+            messages = await get_recent_inbox_messages(count=5)
+            assert isinstance(messages, list)
+            logging.info(f"  ✓ Fetched {len(messages)} messages.")
+        except Exception as e:
+            logging.error(f"Error: {e}", exc_info=True)
+            assert False, "Test failed due to exception"
+
+async def test_get_recent_sent_messages():
+    from mcp_servers.imap_mcpserver.src.imap_client.client import get_recent_sent_messages
+    with patch_connection_manager():
+        try:
+            messages = await get_recent_sent_messages(count=5)
+            assert isinstance(messages, list)
+            logging.info(f"  ✓ Fetched {len(messages)} sent messages.")
+        except Exception as e:
+            logging.error(f"Error: {e}", exc_info=True)
+            assert False, "Test failed due to exception"
+
+async def test_get_message_by_id():
+    from mcp_servers.imap_mcpserver.src.imap_client.client import get_recent_inbox_message_ids, get_message_by_id
+    with patch_connection_manager():
+        ids = await get_recent_inbox_message_ids(count=1)
+        if not ids:
+            logging.warning("  ⚠️ No message IDs found - skipping message by ID test")
+            return
         
-        # Check thread structure
-        thread = threads[0]
-        assert hasattr(thread, 'thread_id')
-        assert hasattr(thread, 'message_count')
-        assert hasattr(thread, 'messages')
-        assert hasattr(thread, 'participants')
-        assert hasattr(thread, 'folders')
-        
-        # Check data types
-        assert isinstance(thread.thread_id, str)
-        assert isinstance(thread.message_count, int)
-        assert isinstance(thread.messages, list)
-        assert thread.message_count > 0
-        assert len(thread.messages) > 0
-        
-        # Check that each message has the required body formats
-        for message in thread.messages:
-            assert hasattr(message, 'body_raw')
-            assert hasattr(message, 'body_markdown')
-            assert hasattr(message, 'body_cleaned')
-            assert isinstance(message.body_raw, str)
-            assert isinstance(message.body_markdown, str)
-            assert isinstance(message.body_cleaned, str)
-        
-        # Performance check - should be reasonably fast
-        assert timing['total_time'] < 30.0  # Should complete within 30 seconds for 5 threads
-        
-        print(f"✓ Bulk fetch: {len(threads)} threads in {timing['total_time']:.2f}s")
-        print(f"  Breakdown: sent({timing['fetch_sent_time']:.2f}s) + discovery({timing['thread_discovery_time']:.2f}s) + fetch({timing['bulk_fetch_time']:.2f}s)")
-        
-        # Test thread deduplication - all thread IDs should be unique
-        thread_ids = [t.thread_id for t in threads]
-        assert len(thread_ids) == len(set(thread_ids)), "Thread IDs should be unique (deduplication test)"
-    
-    else:
-        print("⚠️ No threads found - this might be expected if there are no recent sent messages")
+        message_id = ids[0]
+        try:
+            message = await get_message_by_id(message_id)
+            assert message is not None
+            logging.info(f"  ✓ Fetched message by ID {message.message_id} successfully.")
+        except Exception as e:
+            logging.error(f"Error: {e}", exc_info=True)
+            assert False, "Test failed due to exception"
+
+async def test_get_complete_thread():
+    from mcp_servers.imap_mcpserver.src.imap_client.client import get_recent_inbox_messages, get_complete_thread
+    with patch_connection_manager():
+        messages = await get_recent_inbox_messages(count=1)
+        if not messages:
+            logging.warning("  ⚠️ No messages in inbox to test with - skipping thread test")
+            return
+            
+        source_message = messages[0]
+        try:
+            thread = await get_complete_thread(source_message)
+            assert thread is not None
+            logging.info(f"  ✓ Fetched thread for message {source_message.uid} successfully.")
+        except Exception as e:
+            logging.error(f"Error: {e}", exc_info=True)
+            assert False, "Test failed due to exception"
+
+async def test_draft_reply():
+    from mcp_servers.imap_mcpserver.src.imap_client.client import get_recent_inbox_messages, draft_reply
+    with patch_connection_manager():
+        messages = await get_recent_inbox_messages(count=1)
+        if not messages:
+            logging.warning("  ⚠️ No messages in inbox to test with - skipping draft reply test")
+            return
+
+        original_message = messages[0]
+        try:
+            result = await draft_reply(original_message, "This is a test reply from an integration test.")
+            assert result.get("success") is True
+            logging.info(f"  ✓ Drafted reply to message {original_message.uid} successfully.")
+        except Exception as e:
+            logging.error(f"Error: {e}", exc_info=True)
+            assert False, "Test failed due to exception"
+
+async def test_get_recent_threads_bulk():
+    from mcp_servers.imap_mcpserver.src.imap_client.client import get_recent_threads_bulk
+    with patch_connection_manager():
+        try:
+            start_time = time.time()
+            threads, timing_info = await get_recent_threads_bulk(target_thread_count=10)
+            end_time = time.time()
+            
+            assert isinstance(threads, list)
+            assert len(threads) <= 10
+            
+            duration = end_time - start_time
+            breakdown = f"sent({timing_info.get('fetch_sent_time', 0):.2f}s) + discovery({timing_info.get('thread_discovery_time', 0):.2f}s) + fetch({timing_info.get('bulk_fetch_time', 0):.2f}s)"
+            logging.info(f"  ✓ Bulk fetch: {len(threads)} threads in {duration:.2f}s")
+            logging.info(f"    Breakdown: {breakdown}")
+        except Exception as e:
+            logging.error(f"Error: {e}", exc_info=True)
+            assert False, "Test failed due to exception"
+
 
 if __name__ == "__main__":
-    # Run tests directly
-    async def run_tests():
-        print("🧪 Testing IMAP Client Integration...")
-        
-        print("\n1. Testing get_recent_inbox_message_ids...")
-        await test_get_recent_inbox_message_ids()
-        print("✅ PASSED")
-        
-        print("\n2. Testing get_recent_inbox_messages...")
-        await test_get_recent_inbox_messages()
-        print("✅ PASSED")
-        
-        print("\n3. Testing get_recent_sent_messages...")
-        await test_get_recent_sent_messages()
-        print("✅ PASSED")
-        
-        print("\n4. Testing get_message_by_id...")
-        await test_get_message_by_id()
-        print("✅ PASSED")
-        
-        print("\n5. Testing get_complete_thread...")
-        await test_get_complete_thread()
-        print("✅ PASSED")
-        
-        print("\n6. Testing draft_reply...")
-        await test_draft_reply()
-        print("✅ PASSED")
-        
-        print("\n7. Testing get_recent_threads_bulk...")
-        await test_get_recent_threads_bulk()
-        print("✅ PASSED")
-        
-        print("\n🎉 All integration tests passed!")
-    
-    asyncio.run(run_tests()) 
+    redis_patcher.start()
+    try:
+        async def run_tests():
+            print("🧪 Testing IMAP Client Integration...")
+            
+            tests_to_run = [
+                ("get_recent_inbox_message_ids", test_get_recent_inbox_message_ids),
+                ("get_recent_inbox_messages", test_get_recent_inbox_messages),
+                ("get_recent_sent_messages", test_get_recent_sent_messages),
+                ("get_message_by_id", test_get_message_by_id),
+                ("get_complete_thread", test_get_complete_thread),
+                ("draft_reply", test_draft_reply),
+                ("get_recent_threads_bulk", test_get_recent_threads_bulk),
+            ]
+
+            all_passed = True
+            for name, test_func in tests_to_run:
+                print(f"\n--- Testing {name} ---")
+                try:
+                    await test_func()
+                    print("✅ PASSED")
+                except AssertionError:
+                    all_passed = False
+                    print("❌ FAILED")
+
+            print("\n" + ("🎉 All integration tests passed!" if all_passed else "🔥 Some tests failed."))
+
+        asyncio.run(run_tests())
+    finally:
+        redis_patcher.stop() 

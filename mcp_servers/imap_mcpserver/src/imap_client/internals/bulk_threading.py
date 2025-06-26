@@ -5,6 +5,7 @@ This module provides optimized functions for fetching multiple email threads
 efficiently using single-connection batching and smart deduplication.
 """
 
+from __future__ import annotations
 import asyncio
 import imaplib
 import email
@@ -14,11 +15,48 @@ import datetime
 import logging
 from typing import List, Dict, Set, Optional, Tuple
 from collections import defaultdict
+from email_reply_parser import EmailReplyParser
+try:
+    import html2text
+except ImportError:
+    html2text = None
 
 from mcp_servers.imap_mcpserver.src.imap_client.models import EmailMessage, EmailThread
 from mcp_servers.imap_mcpserver.src.imap_client.helpers.contextual_id import create_contextual_id
+from mcp_servers.imap_mcpserver.src.imap_client.internals.connection_manager import IMAPConnectionManager, get_default_connection_manager
+from mcp_servers.imap_mcpserver.src.imap_client.helpers.body_parser import extract_body_formats
 
 logger = logging.getLogger(__name__)
+
+def _extract_reply_from_gmail_html(html_body: str) -> str:
+    """Extract only the reply portion from Gmail HTML, removing quoted content"""
+    try:
+        # Gmail patterns to identify quoted content
+        quote_patterns = [
+            r'<div class="gmail_quote[^"]*">.*?</div>',  # Gmail quote container
+            r'<blockquote[^>]*class="[^"]*gmail_quote[^"]*"[^>]*>.*?</blockquote>',  # Gmail blockquote
+            r'<div[^>]*class="[^"]*gmail_attr[^"]*"[^>]*>.*?</div>',  # Gmail attribution
+        ]
+        
+        # Remove quoted sections
+        cleaned_html = html_body
+        for pattern in quote_patterns:
+            cleaned_html = re.sub(pattern, '', cleaned_html, flags=re.DOTALL | re.IGNORECASE)
+        
+        # Also remove common quote patterns that might not have Gmail classes
+        other_patterns = [
+            r'<br><br><div class="gmail_quote">.*',  # Everything after gmail_quote start
+            r'<div class="gmail_quote.*',  # Everything from gmail_quote start
+        ]
+        
+        for pattern in other_patterns:
+            cleaned_html = re.sub(pattern, '', cleaned_html, flags=re.DOTALL | re.IGNORECASE)
+        
+        return cleaned_html.strip()
+        
+    except Exception as e:
+        logger.warning(f"Error extracting reply from Gmail HTML: {e}")
+        return html_body
 
 def _extract_body_formats(msg) -> Dict[str, str]:
     """Extract body in multiple formats: raw, markdown, and cleaned"""
@@ -34,12 +72,12 @@ def _extract_body_formats(msg) -> Dict[str, str]:
             if content_type == "text/plain" and not text_body:
                 try:
                     text_body = part.get_payload(decode=True).decode(charset, errors='ignore')
-                except:
+                except (UnicodeDecodeError, AttributeError):
                     text_body = str(part.get_payload())
             elif content_type == "text/html" and not html_body:
                 try:
                     html_body = part.get_payload(decode=True).decode(charset, errors='ignore')
-                except:
+                except (UnicodeDecodeError, AttributeError):
                     html_body = str(part.get_payload())
     else:
         charset = msg.get_content_charset() or 'utf-8'
@@ -47,7 +85,7 @@ def _extract_body_formats(msg) -> Dict[str, str]:
         if isinstance(content, bytes):
             try:
                 content = content.decode(charset, errors='ignore')
-            except:
+            except (UnicodeDecodeError, AttributeError):
                 content = str(content)
         
         if msg.get_content_type() == "text/html":
@@ -55,10 +93,51 @@ def _extract_body_formats(msg) -> Dict[str, str]:
         else:
             text_body = content
     
-    # For bulk operations, use simplified body extraction for performance
-    raw_body = html_body if html_body else text_body
-    markdown_body = text_body if text_body else html_body
-    cleaned_body = text_body if text_body else html_body
+    # Use EmailReplyParser FIRST on plain text to extract only the reply
+    reply_text = ""
+    if text_body:
+        try:
+            reply_text = EmailReplyParser.parse_reply(text_body)
+        except Exception as e:
+            logger.warning(f"Error parsing email reply: {e}")
+            reply_text = text_body
+    
+    # Determine the raw body (prefer HTML if available, otherwise plain text)
+    # For HTML, extract only the reply portion
+    if html_body:
+        raw_body = _extract_reply_from_gmail_html(html_body)
+    else:
+        raw_body = reply_text if reply_text else text_body
+    
+    # Convert HTML to markdown if we have HTML
+    markdown_body = ""
+    if html_body and html2text:
+        try:
+            # Extract only the reply part from Gmail HTML before converting to markdown
+            reply_html = _extract_reply_from_gmail_html(html_body)
+            
+            h = html2text.HTML2Text()
+            h.ignore_links = False
+            h.body_width = 0  # Don't wrap lines
+            markdown_body = h.handle(reply_html).strip()
+        except Exception as e:
+            logger.warning(f"Error converting HTML to markdown: {e}")
+            markdown_body = text_body if text_body else html_body
+    else:
+        # No HTML or no html2text library, use plain text
+        markdown_body = text_body if text_body else html_body
+    
+    # Create cleaned version from the reply text
+    cleaned_body = ""
+    if reply_text:
+        # Remove markdown-like formatting for a super clean version
+        temp_cleaned = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', reply_text) # Links
+        temp_cleaned = re.sub(r'(\*\*|__)(.*?)\1', r'\2', temp_cleaned)     # Bold
+        temp_cleaned = re.sub(r'(\*|_)(.*?)\1', r'\2', temp_cleaned)       # Italics
+        temp_cleaned = re.sub(r'#+\s', '', temp_cleaned)                  # Headers
+        temp_cleaned = re.sub(r'`(.*?)`', r'\1', temp_cleaned)             # Code
+        # Normalize whitespace
+        cleaned_body = ' '.join(temp_cleaned.split())
     
     return {
         'raw': raw_body or "",
@@ -67,23 +146,17 @@ def _extract_body_formats(msg) -> Dict[str, str]:
     }
 
 def _fetch_bulk_threads_sync(
+    connection_manager: IMAPConnectionManager,
     target_thread_count: int,
     max_age_months: int,
-    imap_server: str,
-    imap_username: str,
-    imap_password: str,
-    imap_port: int = 993
-) -> Tuple[List[EmailThread], Dict[str, float]]:
+) -> tuple[list[EmailThread], dict[str, float]]:
     """
     Synchronous implementation of bulk thread fetching.
     
     Args:
+        connection_manager: An IMAPConnectionManager instance to handle connections.
         target_thread_count: Number of unique threads to return
         max_age_months: Maximum age of threads to consider (default 6 months)
-        imap_server: IMAP server hostname
-        imap_username: IMAP username
-        imap_password: IMAP password
-        imap_port: IMAP port (default 993)
         
     Returns:
         Tuple of (threads_list, timing_dict)
@@ -91,10 +164,7 @@ def _fetch_bulk_threads_sync(
     start_time = time.time()
     
     try:
-        mail = imaplib.IMAP4_SSL(imap_server, imap_port)
-        mail.login(imap_username, imap_password)
-        
-        try:
+        with connection_manager.connect() as mail:
             timing = {}
             
             # Step 1: Get all sent messages within age limit
@@ -237,7 +307,7 @@ def _fetch_bulk_threads_sync(
                                     labels = [label.replace('\\\\', '\\') for label in labels]
                                 
                                 # Extract body formats
-                                body_formats = _extract_body_formats(msg)
+                                body_formats = extract_body_formats(msg)
                                 
                                 messages.append(EmailMessage(
                                     uid=contextual_id,
@@ -275,12 +345,6 @@ def _fetch_bulk_threads_sync(
             
             return threads, timing
             
-        finally:
-            try:
-                mail.logout()
-            except:
-                pass
-                
     except Exception as e:
         logger.error(f"Error in bulk thread fetch: {e}", exc_info=True)
         return [], {"total_time": time.time() - start_time, "error": str(e)}
@@ -288,56 +352,26 @@ def _fetch_bulk_threads_sync(
 async def fetch_recent_threads_bulk(
     target_thread_count: int = 50,
     max_age_months: int = 6,
-    imap_server: str = "imap.gmail.com",
-    imap_username: Optional[str] = None,
-    imap_password: Optional[str] = None,
-    imap_port: int = 993
-) -> Tuple[List[EmailThread], Dict[str, float]]:
+) -> tuple[list[EmailThread], dict[str, float]]:
     """
     Fetch a target number of recent email threads efficiently.
     
-    This function uses optimized bulk operations to fetch email threads:
-    1. Dynamically scans sent messages until target thread count is reached
-    2. Respects max_age_months limit (default 6 months)
-    3. Uses batch X-GM-THRID fetches to reduce IMAP round trips
-    4. Smart thread deduplication to avoid processing duplicates
-    5. Single persistent IMAP connection for optimal performance
+    This function uses the default connection manager to fetch email threads
+    using optimized bulk operations.
     
     Args:
         target_thread_count: Number of unique threads to return (default 50)
         max_age_months: Maximum age of threads to consider in months (default 6)
-        imap_server: IMAP server hostname (default "imap.gmail.com")
-        imap_username: IMAP username (uses env var if None)
-        imap_password: IMAP password (uses env var if None)
-        imap_port: IMAP port (default 993)
         
     Returns:
-        Tuple of (threads_list, timing_dict) where:
-        - threads_list: List of EmailThread objects
-        - timing_dict: Dictionary with timing breakdown and metadata
-        
-    Example:
-        threads, timing = await fetch_recent_threads_bulk(target_thread_count=25)
-        print(f"Found {len(threads)} threads in {timing['total_time']:.2f}s")
+        Tuple of (threads_list, timing_dict)
     """
-    import os
-    
-    # Use environment variables if credentials not provided
-    if imap_username is None:
-        imap_username = os.getenv("IMAP_USERNAME", "arthur@itempass.com")
-    if imap_password is None:
-        imap_password = os.getenv("IMAP_PASSWORD")
-    
-    if not imap_password:
-        raise ValueError("IMAP password must be provided or set in IMAP_PASSWORD environment variable")
+    connection_manager = get_default_connection_manager()
     
     return await asyncio.get_running_loop().run_in_executor(
         None, 
         _fetch_bulk_threads_sync,
+        connection_manager,
         target_thread_count,
-        max_age_months,
-        imap_server,
-        imap_username,
-        imap_password,
-        imap_port
+        max_age_months
     ) 

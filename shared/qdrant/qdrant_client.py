@@ -2,6 +2,7 @@ import logging
 from functools import lru_cache
 from typing import List, Dict, Any, Optional
 import httpx
+import uuid
 
 from qdrant_client import QdrantClient, models
 from qdrant_client.http.models import PointStruct
@@ -9,6 +10,18 @@ from shared.config import settings
 from shared.services.embedding_service import get_embedding
 
 logger = logging.getLogger(__name__)
+
+def generate_qdrant_point_id(identifier: str) -> str:
+    """
+    Generate a consistent Qdrant point ID from an identifier using UUID5.
+    
+    Args:
+        identifier: The unique identifier (e.g., thread_id, message_id, etc.)
+        
+    Returns:
+        A consistent UUID string that can be used as a Qdrant point ID
+    """
+    return str(uuid.uuid5(uuid.UUID(settings.QDRANT_NAMESPACE_UUID), identifier))
 
 # Global instances for Qdrant client with enhanced connection settings
 qdrant_client = QdrantClient(

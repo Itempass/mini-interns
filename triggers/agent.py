@@ -78,7 +78,7 @@ class EmailAgent:
                 return tool_id
         return None
 
-    async def run(self, original_message, contextual_uid: str, thread_context: str = None):
+    async def run(self, original_message, message_id: str, thread_context: str = None):
         """Runs the complete agent cycle asynchronously to improve performance."""
         
         email_body = original_message.text or original_message.html
@@ -86,7 +86,7 @@ class EmailAgent:
             logger.warning("Email has no body content")
             return {"success": False, "message": "Email has no body content."}
 
-        logger.info(f"Processing email UID: {original_message.uid} (Contextual: {contextual_uid})")
+        logger.info(f"Processing email with Message-ID: {message_id}")
         logger.info(f"Email body length: {len(email_body)} characters")
         logger.debug(f"Email body content: {email_body[:200]}...")
         
@@ -158,7 +158,7 @@ class EmailAgent:
                     input_prompt = f"""
                         Here is the email thread to analyze:
                         
-                        TRIGGERING MESSAGE UID: {contextual_uid}
+                        TRIGGERING MESSAGE ID: {message_id}
                         
                         FULL THREAD CONTEXT:
                         {thread_context}
@@ -169,7 +169,7 @@ class EmailAgent:
                     # Fallback to single message format
                     input_prompt = f"""
                         Here is the email to analyze (single message - no thread context available):
-                        UID: {contextual_uid}
+                        Message-ID: {message_id}
                         From: {original_message.from_}
                         To: {original_message.to}
                         Date: {original_message.date_str}
@@ -302,9 +302,9 @@ class EmailAgent:
                 try:
                     await save_conversation(ConversationData(
                         metadata=Metadata(
-                            conversation_id=f"agent_{contextual_uid}",
-                            readable_workflow_name="Email Agent",
-                            readable_instance_context=f"{original_message.from_} - {original_message.subject}"
+                            conversation_id=f"agent_{message_id}",
+                            readable_workflow_name="Email Agent Processing",
+                            readable_instance_context=f"Subject: {original_message.subject}"
                         ),
                         messages=[Message(**m) for m in messages if m.get("content") is not None]
                     ))

@@ -21,7 +21,8 @@ except ImportError:
 from mcp_servers.imap_mcpserver.src.imap_client.models import EmailMessage, EmailThread
 from mcp_servers.imap_mcpserver.src.imap_client.internals.bulk_threading import fetch_recent_threads_bulk
 from mcp_servers.imap_mcpserver.src.imap_client.helpers.contextual_id import create_contextual_id
-from mcp_servers.imap_mcpserver.src.imap_client.connection_manager import imap_connection, IMAPConnectionError
+from mcp_servers.imap_mcpserver.src.imap_client.internals.connection_manager import imap_connection, IMAPConnectionError
+from mcp_servers.imap_mcpserver.src.imap_client.helpers.body_parser import extract_body_formats
 
 load_dotenv(override=True)
 
@@ -216,7 +217,7 @@ def _fetch_single_message(mail: imaplib.IMAP4_SSL, uid: str, folder: str) -> Opt
             labels = [label.replace('\\\\', '\\') for label in labels]
         
         # Extract body in multiple formats
-        body_formats = _extract_body_formats(msg)
+        body_formats = extract_body_formats(msg)
         
         return EmailMessage(
             uid=contextual_id,
@@ -304,7 +305,7 @@ def _get_complete_thread_sync(message_id: str) -> Optional[EmailThread]:
                         labels = [label.replace('\\\\', '\\') for label in labels]
                     
                     # Extract body in multiple formats
-                    body_formats = _extract_body_formats(msg)
+                    body_formats = extract_body_formats(msg)
                     
                     messages.append(EmailMessage(
                         uid=contextual_id,
@@ -417,7 +418,7 @@ def _get_recent_messages_from_folder_sync(folder: str, count: int = 20) -> List[
                         labels = [label.replace('\\\\', '\\') for label in labels]
                     
                     # Extract body in multiple formats
-                    body_formats = _extract_body_formats(msg)
+                    body_formats = extract_body_formats(msg)
                     
                     messages.append(EmailMessage(
                         uid=contextual_id,
@@ -693,21 +694,21 @@ async def get_recent_inbox_message_ids(count: int = 20) -> List[str]:
     """
     return await asyncio.get_event_loop().run_in_executor(None, _get_recent_message_ids_sync, count)
 
-async def get_message_by_id(message_id: str) -> Optional[EmailMessage]:
+async def get_message_by_id(message_id: str, mailbox: str = "INBOX") -> Optional[EmailMessage]:
     """
     Get a single EmailMessage by its Message-ID.
     Searches across all folders to find the message.
     """
     return await asyncio.get_event_loop().run_in_executor(None, _get_message_by_id_sync, message_id)
 
-async def get_complete_thread(message: EmailMessage) -> Optional[EmailThread]:
+async def get_complete_thread(source_message: EmailMessage) -> Optional[EmailThread]:
     """
     Get complete thread with folder information for a given EmailMessage.
     Returns an EmailThread with all messages and their Gmail labels.
     """
-    return await asyncio.get_event_loop().run_in_executor(None, _get_complete_thread_sync, message.message_id)
+    return await asyncio.get_event_loop().run_in_executor(None, _get_complete_thread_sync, source_message.message_id)
 
-async def get_recent_inbox_messages(count: int = 20) -> List[EmailMessage]:
+async def get_recent_inbox_messages(count: int = 10) -> List[EmailMessage]:
     """
     Get recent messages from INBOX.
     Returns a list of EmailMessage objects.
@@ -722,51 +723,18 @@ async def get_recent_sent_messages(count: int = 20) -> List[EmailMessage]:
     return await asyncio.get_event_loop().run_in_executor(None, _get_recent_messages_from_folder_sync, "[Gmail]/Sent Mail", count)
 
 async def draft_reply(original_message: EmailMessage, reply_body: str) -> Dict[str, Any]:
-    """
-    Create a draft reply to the given original EmailMessage.
-    
-    Args:
-        original_message: The EmailMessage we are replying to
-        reply_body: Reply body content in markdown format
-        
-    Returns:
-        Dict with 'success' boolean and 'message' string
-    """
-    return await asyncio.get_event_loop().run_in_executor(None, _draft_reply_sync, original_message, reply_body)
+    """Create a draft reply for a given message."""
+    return await asyncio.to_thread(_draft_reply_sync, original_message, reply_body)
 
 async def get_recent_threads_bulk(target_thread_count: int = 50, max_age_months: int = 6) -> Tuple[List[EmailThread], Dict[str, float]]:
     """
-    Fetch a target number of recent email threads efficiently using bulk operations.
+    High-performance bulk retrieval of recent email threads.
     
-    This is the high-performance version of thread fetching that:
-    - Dynamically scans until target_thread_count unique threads are found
-    - Uses batch X-GM-THRID fetches to minimize IMAP round trips
-    - Respects max_age_months limit (default 6 months)
-    - Provides smart deduplication to avoid processing duplicate threads
-    - Uses a single persistent IMAP connection for optimal performance
-    
-    Args:
-        target_thread_count: Number of unique threads to return (default 50)
-        max_age_months: Maximum age of threads to consider in months (default 6)
-        
-    Returns:
-        Tuple of (threads_list, timing_dict) where:
-        - threads_list: List of EmailThread objects
-        - timing_dict: Dictionary with timing breakdown and performance metrics
-        
-    Example:
-        # Get 25 recent threads
-        threads, timing = await get_recent_threads_bulk(target_thread_count=25)
-        print(f"Found {len(threads)} threads in {timing['total_time']:.2f}s")
-        
-        # Get 10 threads from last 3 months
-        threads, timing = await get_recent_threads_bulk(target_thread_count=10, max_age_months=3)
+    This is a pass-through to the optimized bulk fetching implementation,
+    which uses a single persistent connection and advanced IMAP features
+    to discover and fetch threads efficiently.
     """
     return await fetch_recent_threads_bulk(
         target_thread_count=target_thread_count,
-        max_age_months=max_age_months,
-        imap_server=os.getenv("IMAP_SERVER", "imap.gmail.com"),
-        imap_username=os.getenv("IMAP_USERNAME"),
-        imap_password=os.getenv("IMAP_PASSWORD"),
-        imap_port=993
+        max_age_months=max_age_months
     ) 
