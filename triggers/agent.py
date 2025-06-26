@@ -184,7 +184,7 @@ class EmailAgent:
                     {"role": "system", "content": self.agent_instructions},
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": input_prompt},
-                    {"role": "system", "content": f"First, think about the user's instructions, the tools available to you, and the steps you need to take. Then, execute. You MUST use the required tools, and you MUST use them in this order initially: {', '.join(self.required_tools_sequence)}. However, you can call any previously completed required tool again if needed. You can use the non-required tools at your discretion at any time."}
+                    {"role": "system", "content": f"First, think about the user's instructions, the tools available to you, and the steps you need to take. Then, execute. You MUST use the required tools, and you MUST use them in this order: {', '.join(self.required_tools_sequence)}. You can use the non-required tools at your discretion."}
                 ]
                 logger.info(f"Initial messages prepared with {len(messages)} messages")
 
@@ -220,8 +220,7 @@ class EmailAgent:
                     messages.append(response_message.model_dump())
 
                     if not response_message.tool_calls:
-                        if required_tool_index < len(self.required_tools_sequence):
-                            next_required_tool = self.required_tools_sequence[required_tool_index]
+                        if next_required_tool:
                             nudge_message = f"You cannot finish yet. You must call the '{next_required_tool}' tool next. The required tool order is: {', '.join(self.required_tools_sequence)}."
                             messages.append({"role": "system", "content": nudge_message})
                             logger.info(f"Nudging agent: {nudge_message}")
