@@ -2,9 +2,12 @@ import asyncio
 import logging
 from datetime import datetime
 import os
+import sys
 from dotenv import load_dotenv
 from contextlib import contextmanager
 from unittest.mock import patch
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
 from mcp_servers.imap_mcpserver.src.imap_client.client import get_recent_threads_bulk
 from mcp_servers.imap_mcpserver.src.imap_client.internals.connection_manager import IMAPConnectionManager
@@ -110,6 +113,15 @@ if __name__ == "__main__":
             logger.info(f"--- MARKDOWN FOR THREAD CONTAINING MESSAGE {target_message_id} ---")
             print(found_thread_markdown)
             logger.info("--- END MARKDOWN ---")
+
+            logger.info(f"thread metadata:")
+            logger.info(f"thread.thread_id: {thread.thread_id}")
+            logger.info(f"thread.subject: {thread.subject}")
+            logger.info(f"thread.participants: {thread.participants}")
+            logger.info(f"thread.last_message_date: {thread.last_message_date}")
+            logger.info(f"thread.folders: {thread.folders}")
+            logger.info(f"thread.message_count: {thread.message_count}")
+            logger.info(f"thread.messages: {thread.messages}")
         else:
             logger.warning(f"Message with ID {target_message_id} not found in any of the collected threads.")
     else:
