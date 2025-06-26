@@ -9,4 +9,7 @@ class ConversationResponse(BaseModel):
 class ConversationsResponse(BaseModel):
     """Multiple conversations response"""
     conversations: List[ConversationData]
-    count: int 
+    count: int
+
+class AddReviewRequest(BaseModel):
+    feedback: str 

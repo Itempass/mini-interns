@@ -122,3 +122,17 @@ def get_conversations() -> List[ConversationData]:
     except Exception as e:
         logger.error(f"Error retrieving conversations: {e}")
         return []
+
+def add_review(conversation_id: str, feedback: str) -> Dict[str, Any]:
+    """
+    Add a review to a conversation.
+    This interacts with the external database.
+    """
+    try:
+        external_db_service = get_database_service_external()
+        external_db_service.add_review(conversation_id, feedback)
+        logger.info(f"Successfully initiated review for conversation {conversation_id}.")
+        return {"success": True}
+    except Exception as e:
+        logger.error(f"Error adding review to conversation {conversation_id}: {e}")
+        return {"success": False, "error": str(e)}

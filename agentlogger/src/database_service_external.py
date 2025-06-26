@@ -12,6 +12,7 @@ from typing import Optional, Dict, Any
 from sqlalchemy import create_engine, text, Column, String, DateTime, JSON
 from sqlalchemy.orm import sessionmaker, declarative_base
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm.attributes import flag_modified
 
 from .models import ConversationData
 
@@ -63,6 +64,39 @@ class DatabaseServiceExternal:
         except SQLAlchemyError as e:
             logger.error(f"Failed to initialize external database: {e}")
             raise
+
+    def add_review(self, conversation_id: str, feedback: str):
+        """
+        Add a review and feedback to a conversation log.
+        If the log entry doesn't exist, this will raise an exception.
+        """
+        session = self.SessionLocal()
+        try:
+            log_entry = session.query(ConversationLog).filter(
+                ConversationLog.data['metadata']['conversation_id'] == conversation_id
+            ).first()
+
+            if log_entry:
+                log_entry.data['needs_review'] = True
+                
+                existing_feedback = log_entry.data.get('feedback', '')
+                if existing_feedback and feedback not in existing_feedback:
+                    log_entry.data['feedback'] = f"{existing_feedback}\n{feedback}"
+                else:
+                    log_entry.data['feedback'] = feedback
+
+                flag_modified(log_entry, "data")
+                session.commit()
+                logger.info(f"Successfully added review for conversation {conversation_id}.")
+            else:
+                raise ValueError(f"Conversation log with ID {conversation_id} not found.")
+
+        except SQLAlchemyError as e:
+            session.rollback()
+            logger.error(f"Failed to add review for conversation {conversation_id}: {e}")
+            raise
+        finally:
+            session.close()
 
     def create_conversation_log(self, conversation: ConversationData):
         """

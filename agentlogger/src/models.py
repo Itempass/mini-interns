@@ -27,6 +27,8 @@ class ConversationData(BaseModel):
     """Complete conversation data structure"""
     metadata: Metadata
     messages: List[Message] = Field(min_length=1, description="Must contain at least one message")
+    needs_review: Optional[bool] = None
+    feedback: Optional[str] = None
     
     # Allow additional top-level fields
     model_config = {"extra": "allow"}
