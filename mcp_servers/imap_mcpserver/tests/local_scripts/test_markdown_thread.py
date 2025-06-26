@@ -8,7 +8,7 @@ from contextlib import contextmanager
 from unittest.mock import patch
 
 # Add project root to sys.path to allow for absolute imports
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..', '..'))
 sys.path.insert(0, project_root)
 
 # Load environment variables from .env file

@@ -114,10 +114,10 @@ def extract_body_formats(msg) -> Dict[str, str]:
             markdown_body = h.handle(reply_html).strip()
         except Exception as e:
             logger.warning(f"Error converting HTML to markdown: {e}")
-            markdown_body = text_body if text_body else html_body
+            markdown_body = reply_text if reply_text else (text_body if text_body else html_body)
     else:
         # No HTML or no html2text library, use plain text
-        markdown_body = text_body if text_body else html_body
+        markdown_body = reply_text if reply_text else (text_body if text_body else html_body)
 
     # Create cleaned version from the reply text
     cleaned_body = ""
