@@ -1,6 +1,7 @@
 from pydantic import BaseModel, Field
 from typing import List, Optional
 from datetime import datetime
+from email.utils import parsedate_to_datetime
 
 class EmailMessage(BaseModel):
     """Individual email message in a thread"""
@@ -38,7 +39,7 @@ class EmailThread(BaseModel):
             raise ValueError("Cannot create thread from empty message list")
         
         # Sort messages by date
-        sorted_messages = sorted(messages, key=lambda m: m.date)
+        sorted_messages = sorted(messages, key=lambda m: parsedate_to_datetime(m.date))
         
         # Extract participants (unique email addresses)
         participants = set()
