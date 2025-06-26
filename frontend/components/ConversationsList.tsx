@@ -44,32 +44,6 @@ const ConversationsList: React.FC<ConversationsListProps> = ({ onSelectConversat
     fetchConversations();
   }, []);
 
-  const tableStyle: React.CSSProperties = {
-    width: '100%',
-    borderCollapse: 'collapse',
-    border: '1px solid #ccc',
-    backgroundColor: '#f9f9f9',
-  };
-
-  const thStyle: React.CSSProperties = {
-    border: '1px solid #ccc',
-    padding: '12px',
-    backgroundColor: '#007bff',
-    color: 'white',
-    textAlign: 'left',
-    fontWeight: 'bold',
-  };
-
-  const tdStyle: React.CSSProperties = {
-    border: '1px solid #ccc',
-    padding: '12px',
-    backgroundColor: 'white',
-  };
-
-  const rowStyle: React.CSSProperties = {
-    cursor: onSelectConversation ? 'pointer' : 'default',
-  };
-
   const handleRowClick = (conversationId: string) => {
     if (onSelectConversation) {
       onSelectConversation(conversationId);
@@ -96,72 +70,68 @@ const ConversationsList: React.FC<ConversationsListProps> = ({ onSelectConversat
     return <div>Loading conversations...</div>;
   }
 
+  const thClasses = "p-3 text-left font-bold text-white bg-blue-500 border border-gray-300";
+  const tdClasses = "p-3 bg-white border border-gray-300";
+  const conversationIdTdClasses = `${tdClasses} max-w-[20ch] overflow-hidden text-ellipsis whitespace-nowrap`;
+  const contextTdClasses = `${tdClasses} max-w-[30ch]`;
+
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-        <h2 style={{ margin: 0 }}>Agent Logger Conversations ({conversations.length})</h2>
+      <div className="flex items-center justify-between mb-5">
+        <h2 className="m-0">Agent Logger Conversations ({conversations.length})</h2>
         <button
           onClick={handleDownload}
           disabled={conversations.length === 0}
-          style={{
-            padding: '10px 20px',
-            backgroundColor: conversations.length > 0 ? '#007bff' : '#6c757d',
-            color: 'white',
-            border: 'none',
-            borderRadius: '5px',
-            cursor: conversations.length > 0 ? 'pointer' : 'not-allowed',
-            opacity: conversations.length > 0 ? 1 : 0.5,
-          }}
+          className="px-4 py-2 text-white bg-blue-500 border-none rounded-md cursor-pointer disabled:bg-gray-500 disabled:cursor-not-allowed disabled:opacity-50"
         >
           Download as JSON
         </button>
       </div>
-      <table style={tableStyle}>
+      <table className="w-full bg-gray-50 border border-gray-300 border-collapse">
         <thead>
           <tr>
-            <th style={thStyle}>Conversation ID</th>
-            <th style={thStyle}>Workflow Name</th>
-            <th style={thStyle}>Context</th>
-            <th style={thStyle}>Messages</th>
-            <th style={thStyle}>Timestamp</th>
-            <th style={thStyle}>Tool Chain</th>
+            <th className={thClasses}>Conversation ID</th>
+            <th className={thClasses}>Workflow Name</th>
+            <th className={thClasses}>Context</th>
+            <th className={thClasses}>Messages</th>
+            <th className={thClasses}>Timestamp</th>
+            <th className={thClasses}>Tool Chain</th>
           </tr>
         </thead>
         <tbody>
           {conversations.map((conversation) => (
             <tr
               key={conversation.metadata.conversation_id}
-              style={rowStyle}
+              className={onSelectConversation ? 'cursor-pointer hover:bg-gray-100' : 'cursor-default'}
               onClick={() => handleRowClick(conversation.metadata.conversation_id)}
             >
-              <td style={tdStyle}>{conversation.metadata.conversation_id}</td>
-              <td style={tdStyle}>{conversation.metadata.readable_workflow_name || 'N/A'}</td>
-              <td style={tdStyle}>{conversation.metadata.readable_instance_context || 'N/A'}</td>
-              <td style={tdStyle}>{conversation.messages.length}</td>
-              <td style={tdStyle}>
+              <td className={conversationIdTdClasses} title={conversation.metadata.conversation_id}>
+                {conversation.metadata.conversation_id}
+              </td>
+              <td className={tdClasses}>{conversation.metadata.readable_workflow_name || 'N/A'}</td>
+              <td className={contextTdClasses} title={conversation.metadata.readable_instance_context || ''}>
+                <span className="line-clamp-3">
+                  {conversation.metadata.readable_instance_context || 'N/A'}
+                </span>
+              </td>
+              <td className={tdClasses}>{conversation.messages.length}</td>
+              <td className={tdClasses}>
                 {conversation.metadata.timestamp 
                   ? new Date(conversation.metadata.timestamp).toLocaleString() 
                   : 'N/A'}
               </td>
-              <td style={tdStyle}>
-                <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center' }}>
+              <td className={tdClasses}>
+                <div className="flex flex-wrap items-center">
                   {getToolChain(conversation.messages as Message[]).map((tool, index, arr) => (
-                    <div key={tool.id} style={{ display: 'flex', alignItems: 'center', marginRight: '4px', marginBottom: '4px' }}>
+                    <div key={tool.id} className="flex items-center mb-1 mr-1">
                       <span
-                        style={{
-                          padding: '2px 8px',
-                          fontSize: '0.75rem',
-                          borderRadius: '9999px',
-                          backgroundColor: '#DBEAFE', // bg-blue-100 from example
-                          color: '#1E40AF', // text-blue-800 from example
-                          fontWeight: 500,
-                        }}
+                        className="px-2 py-0.5 text-sm font-medium text-blue-800 bg-blue-100 rounded-full"
                         title={`Tool: ${tool.name}`}
                       >
                         {tool.name}
                       </span>
                       {index < arr.length - 1 && (
-                        <span style={{ color: '#9CA3AF', margin: '0 6px' }}>→</span>
+                        <span className="mx-1.5 text-gray-400">→</span>
                       )}
                     </div>
                   ))}
@@ -172,7 +142,7 @@ const ConversationsList: React.FC<ConversationsListProps> = ({ onSelectConversat
         </tbody>
       </table>
       {conversations.length === 0 && (
-        <p style={{ textAlign: 'center', padding: '20px' }}>No conversations found.</p>
+        <p className="p-5 text-center">No conversations found.</p>
       )}
     </div>
   );
