@@ -22,10 +22,12 @@ google-auth-oauthlib
 tiktoken
 email-reply-parser
 requests
-fastembed
 email-reply-parser
 beautifulsoup4
 lxml
 aiosqlite
 sqlalchemy
 mysql-connector-python
+voyageai
+pytest
+html2text

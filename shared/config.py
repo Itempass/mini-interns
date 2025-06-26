@@ -1,6 +1,7 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import model_validator
 from dotenv import load_dotenv
-from typing import Optional
+from typing import Optional, Any, Dict
 
 # Load environment variables from .env file.
 # `override=True` ensures that the .env file takes precedence over system environment variables.
@@ -16,9 +17,11 @@ class Settings(BaseSettings):
     CONTAINERPORT_API: int
     CONTAINERPORT_QDRANT: int
     EMBEDDING_VECTOR_SIZE: int
-    EMBEDDING_MODEL_NAME: str
+    EMBEDDING_OPENAI_MODEL_NAME: str
     EMBEDDING_OPENAI_API_KEY: Optional[str] = None
-
+    EMBEDDING_VOYAGE_API_KEY: str
+    EMBEDDING_VOYAGE_MODEL: str
+    QDRANT_NAMESPACE_UUID: str = 'a1b2c3d4-e5f6-7890-1234-567890abcdef' # For deterministic UUID generation for Qdrant points
     
     model_config = SettingsConfigDict(env_file=(".env", ".env.local"), extra='ignore')
 

@@ -1,6 +1,8 @@
 import logging
 from functools import lru_cache
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
+import httpx
+import uuid
 
 from qdrant_client import QdrantClient, models
 from qdrant_client.http.models import PointStruct
@@ -9,20 +11,67 @@ from shared.services.embedding_service import get_embedding
 
 logger = logging.getLogger(__name__)
 
-# Global instances for Qdrant client
-qdrant_client = QdrantClient(host="qdrant", port=settings.CONTAINERPORT_QDRANT)
+def generate_qdrant_point_id(identifier: str) -> str:
+    """
+    Generate a consistent Qdrant point ID from an identifier using UUID5.
+    
+    Args:
+        identifier: The unique identifier (e.g., thread_id, message_id, etc.)
+        
+    Returns:
+        A consistent UUID string that can be used as a Qdrant point ID
+    """
+    return str(uuid.uuid5(uuid.UUID(settings.QDRANT_NAMESPACE_UUID), identifier))
+
+# Global instances for Qdrant client with enhanced connection settings
+qdrant_client = QdrantClient(
+    host="qdrant", 
+    port=settings.CONTAINERPORT_QDRANT,
+    grpc_port=6334,
+    prefer_grpc=True,  # Use gRPC for better performance and connection handling
+    timeout=30,  # 30 second timeout to prevent hanging connections
+    limits=httpx.Limits(
+        max_connections=20,  # Connection pool size
+        max_keepalive_connections=5  # Keep some connections alive for reuse
+    )
+)
 
 def _ensure_collection_exists(client: QdrantClient, collection_name: str, vector_size: int):
     """Ensures a collection exists, creating it if necessary."""
     try:
         client.get_collection(collection_name=collection_name)
-    except Exception:
-        logger.info(f"Collection '{collection_name}' not found. Creating...")
-        client.create_collection(
-            collection_name=collection_name,
-            vectors_config=models.VectorParams(size=vector_size, distance=models.Distance.COSINE),
-        )
-        logger.info(f"Collection '{collection_name}' created.")
+        logger.info(f"Collection '{collection_name}' already exists.")
+    except Exception as e:
+        # Check if it's a "not found" type error, in which case we should create the collection
+        if "not found" in str(e).lower() or "doesn't exist" in str(e).lower():
+            logger.info(f"Collection '{collection_name}' not found. Creating...")
+            try:
+                client.create_collection(
+                    collection_name=collection_name,
+                    vectors_config=models.VectorParams(size=vector_size, distance=models.Distance.COSINE),
+                )
+                logger.info(f"Collection '{collection_name}' created.")
+            except Exception as create_error:
+                # If creation fails because collection already exists (race condition), that's fine
+                if "already exists" in str(create_error).lower():
+                    logger.info(f"Collection '{collection_name}' was created by another process.")
+                else:
+                    logger.error(f"Failed to create collection '{collection_name}': {create_error}")
+                    raise
+        else:
+            logger.error(f"Unexpected error checking collection '{collection_name}': {e}")
+            raise
+
+def recreate_collection(client: QdrantClient, collection_name: str, vector_size: int):
+    """Deletes and recreates a collection to ensure it's empty."""
+    try:
+        logger.warning(f"Deleting collection '{collection_name}'...")
+        client.delete_collection(collection_name=collection_name)
+        logger.info(f"Collection '{collection_name}' deleted.")
+    except Exception as e:
+        logger.info(f"Could not delete collection '{collection_name}' (it might not exist): {e}")
+    
+    _ensure_collection_exists(client, collection_name, vector_size)
 
 @lru_cache(maxsize=None)
 def get_qdrant_client():
@@ -33,7 +82,8 @@ def get_qdrant_client():
         # The vector size is determined by the embedding model.
         vector_size = settings.EMBEDDING_VECTOR_SIZE 
         _ensure_collection_exists(qdrant_client, "emails", vector_size)
-        logger.info("Successfully connected to Qdrant and ensured 'emails' collection exists.")
+        _ensure_collection_exists(qdrant_client, "email_threads", vector_size)
+        logger.info("Successfully connected to Qdrant and ensured collections exist.")
         return qdrant_client
     except Exception as e:
         logger.error(f"Could not connect to Qdrant: {e}")
@@ -41,7 +91,7 @@ def get_qdrant_client():
 
 def upsert_points(collection_name: str, points: List[models.PointStruct]):
     """
-    Upserts a list of points into a Qdrant collection.
+    Upserts a list of points into a Qdrant collection using built-in batch upload with retry logic.
     """
     client = get_qdrant_client()
     
@@ -49,12 +99,16 @@ def upsert_points(collection_name: str, points: List[models.PointStruct]):
         return
 
     try:
-        operation_info = client.upsert(
+        # Use upload_points which has built-in retry logic and better batch handling
+        client.upload_points(
             collection_name=collection_name,
-            wait=True,
-            points=points
+            points=points,
+            batch_size=len(points),  # Upload all points in one batch since we're already batching
+            max_retries=3,  # Built-in retry logic
+            wait=True,  # Wait for completion
+            parallel=1  # Single thread to avoid overwhelming the server
         )
-        logger.info(f"Upserted {len(points)} points to collection '{collection_name}'. Status: {operation_info.status}")
+        logger.info(f"Upserted {len(points)} points to collection '{collection_name}'. Status: completed")
     except Exception as e:
         logger.error(f"Error upserting points to Qdrant collection '{collection_name}': {e}", exc_info=True)
         raise Exception("Failed to upsert points to Qdrant.") from e
@@ -101,21 +155,18 @@ def search_by_vector(
     collection_name: str,
     query_vector: List[float],
     top_k: int = 5,
-    exclude_contextual_id: str = None,
+    exclude_ids: Optional[List[str]] = None,
 ) -> List[Dict[str, Any]]:
     """
-    Performs a vector search in a Qdrant collection, with an option to exclude a specific contextual ID.
+    Performs a vector search in a Qdrant collection, with an option to exclude specific point IDs.
     """
     client = get_qdrant_client()
 
     qdrant_filter = None
-    if exclude_contextual_id:
+    if exclude_ids:
         qdrant_filter = models.Filter(
             must_not=[
-                models.FieldCondition(
-                    key="contextual_id",
-                    match=models.MatchValue(value=exclude_contextual_id),
-                )
+                models.HasIdCondition(has_id=exclude_ids)
             ]
         )
 

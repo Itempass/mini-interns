@@ -31,11 +31,22 @@ RUN npm install -g @modelcontextprotocol/inspector@0.14.3
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application code
-COPY . .
+# Copy application code in a specific order
+COPY shared/ ./shared/
+COPY agentlogger/ ./agentlogger/
+COPY api/ ./api/
+COPY mcp_servers/ ./mcp_servers/
+COPY triggers/ ./triggers/
+COPY scripts/ ./scripts/
+COPY promtail-config.yml .
+COPY supervisord.conf .
+COPY nginx-qdrant-readonly.conf .
+COPY qdrant-dashboard.Dockerfile .
 
 # Copy the built frontend from the builder stage
-COPY --from=frontend-builder /app/frontend ./frontend
+COPY --from=frontend-builder /app/frontend/.next ./frontend/.next
+COPY --from=frontend-builder /app/frontend/package.json ./frontend/package.json
+COPY --from=frontend-builder /app/frontend/node_modules ./frontend/node_modules
 
 # Make entrypoint script executable
 COPY entrypoint.sh .

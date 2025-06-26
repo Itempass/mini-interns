@@ -3,9 +3,10 @@ from fastapi import APIRouter, HTTPException, BackgroundTasks
 from functools import lru_cache
 from shared.redis.redis_client import get_redis_client
 from shared.redis.keys import RedisKeys
-from shared.qdrant.qdrant_client import count_points
+from shared.qdrant.qdrant_client import count_points, get_qdrant_client, recreate_collection
 from api.types.api_models.agent import AgentSettings, FilterRules
 from api.background_tasks.inbox_initializer import initialize_inbox
+from shared.config import settings
 import json
 from uuid import UUID
 from typing import List
@@ -127,6 +128,34 @@ async def trigger_inbox_initialization(background_tasks: BackgroundTasks):
     background_tasks.add_task(initialize_inbox)
     return {"message": "Inbox initialization started."}
 
+@router.post("/agent/reinitialize-inbox")
+async def trigger_inbox_reinitialization(background_tasks: BackgroundTasks):
+    """
+    Clears existing vector data and triggers the background task to re-initialize the user's inbox.
+    """
+    redis_client = get_redis_client()
+    status = redis_client.get(RedisKeys.INBOX_INITIALIZATION_STATUS)
+
+    if status == "running":
+        return {"message": "An inbox initialization process is already running."}
+
+    logger.info("Starting inbox re-initialization. Clearing existing collections.")
+    
+    # Clear existing vector data
+    qdrant_client = get_qdrant_client()
+    vector_size = settings.EMBEDDING_VECTOR_SIZE
+    recreate_collection(qdrant_client, "emails", vector_size)
+    recreate_collection(qdrant_client, "email_threads", vector_size)
+    
+    logger.info("Collections cleared. Triggering background task.")
+
+    # Set the status to "running" immediately to prevent race conditions
+    redis_client.set(RedisKeys.INBOX_INITIALIZATION_STATUS, "running")
+
+    # The background task will update the status upon completion or failure
+    background_tasks.add_task(initialize_inbox)
+    return {"message": "Inbox re-initialization started."}
+
 @router.get("/agent/initialize-inbox/status")
 async def get_inbox_initialization_status():
     """
@@ -142,7 +171,7 @@ async def get_inbox_initialization_status():
 
         # If no status is in Redis, check Qdrant as a fallback.
         # This handles the case where the server restarted after completion.
-        if count_points(collection_name="emails") > 0:
+        if count_points(collection_name="emails") > 0 or count_points(collection_name="email_threads") > 0:
             return {"status": "completed"}
 
         return {"status": "not_started"}

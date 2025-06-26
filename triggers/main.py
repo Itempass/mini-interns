@@ -2,21 +2,19 @@ import logging
 import time
 import requests
 import asyncio
-import uuid
-from imap_tools import MailBox, A, MailMessage
-from shared.app_settings import load_app_settings, AppSettings
+from imap_tools import MailBox, A
+from shared.app_settings import load_app_settings
 from shared.redis.keys import RedisKeys
 from shared.redis.redis_client import get_redis_client
 from triggers.rules import passes_filter
 from agent import client as agent_client
 from shared.config import settings
 import json
-from mcp_servers.imap_mcpserver.src.utils.contextual_id import create_contextual_id
+from mcp_servers.imap_mcpserver.src.imap_client import client as imap_client
 from openai import OpenAI
-from agentlogger.src.client import save_conversation_sync, save_conversation
 from agentlogger.src.models import ConversationData, Message, Metadata
 from datetime import datetime
-from triggers.migration import migrate_to_database_triggers
+import re
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -33,19 +31,22 @@ def set_last_uid(uid: str):
     redis_client = get_redis_client()
     redis_client.set(RedisKeys.LAST_EMAIL_UID, uid)
 
-async def llm_check_passes(msg: MailMessage, trigger_conditions: str, app_settings: AppSettings, agent_name: str) -> bool:
+async def passes_trigger_conditions_check(msg, trigger_conditions: str, app_settings, thread_context: str, message_id: str) -> bool:
     """
-    Uses an LLM to check if the email passes the trigger conditions and logs the check.
+    Uses an LLM to check if the email passes the trigger conditions.
+    Now uses full thread context for more informed trigger decisions.
     """
-    logger.info("Performing LLM-based trigger check...")
+    logger.info("Performing LLM-based trigger check with thread context...")
     
     current_date = datetime.now().strftime('%Y-%m-%d')
     trigger_conditions_with_date = trigger_conditions.replace("<<CURRENT_DATE>>", f"{current_date} (format YYYY-MM-DD)")
 
-    email_body = msg.text or msg.html
-    if not email_body:
-        logger.info("Email has no body, skipping LLM trigger check and returning False.")
-        return False
+    if not thread_context:
+        logger.warning("No thread context provided to trigger check, falling back to single message")
+        email_body = msg.text or msg.html
+        if not email_body:
+            logger.info("Email has no body, skipping LLM trigger check and returning False.")
+            return False
 
     client = OpenAI(
         base_url="https://openrouter.ai/api/v1",
@@ -54,17 +55,32 @@ async def llm_check_passes(msg: MailMessage, trigger_conditions: str, app_settin
     
     system_prompt = f"""
 You are a helpful assistant that determines if an email meets a user's criteria.
-Your task is to analyze the email in the user message based on the following criteria:
+Your task is to analyze the email thread in the user message based on the following criteria:
 ---
 {trigger_conditions_with_date}
 ---
-Based on the criteria, decide if the email given by the user in the user prompt should be processed.
+Based on the criteria, decide if the email thread given by the user should be processed.
+Consider the full conversation context when making your decision.
 Respond with a single JSON object in the format: {{"should_process": true}} or {{"should_process": false}}.
 """
 
-    user_prompt = f"""
-This is the email to be processed:
-UID: {msg.uid}
+    if thread_context:
+        user_prompt = f"""
+This is the email thread to be evaluated for processing:
+
+TRIGGERING MESSAGE ID: {message_id}
+
+{thread_context}
+
+Please evaluate whether this email thread should be processed based on the criteria provided.
+Focus on the triggering message while considering the full conversation context.
+"""
+    else:
+        # Fallback to single message
+        email_body = msg.text or msg.html
+        user_prompt = f"""
+This is the email to be processed (single message - no thread context available):
+Message-ID: {message_id}
 From: {msg.from_}
 To: {", ".join(msg.to)}
 Date: {msg.date_str}
@@ -72,7 +88,8 @@ Subject: {msg.subject}
 Body:
 {email_body[:4000]}
 """
-    messages_for_llm=[
+    
+    messages=[
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_prompt}
     ]
@@ -88,21 +105,25 @@ Body:
         
         response_content = completion.choices[0].message.content
         logger.info(f"LLM trigger check raw response: '{response_content}'")
-        messages_for_llm.append({"role": "assistant", "content": response_content})
+        
+        messages.append({"role": "assistant", "content": response_content})
+        
+        # Sanitize message_id for use in conversation_id
+        safe_message_id = re.sub(r'[^a-zA-Z0-9_.-]', '_', message_id)
+
 
         try:
-            # We are now handling logging directly within this function.
-            conversation_id = f"trigger_{uuid.uuid4()}"
-            contextual_uid = create_contextual_id('INBOX', msg.uid)
+            # Log the conversation using async save_conversation
+            from agentlogger.src.client import save_conversation
             await save_conversation(ConversationData(
                 metadata=Metadata(
-                    conversation_id=conversation_id,
-                    readable_workflow_name=f"Trigger: {agent_name}",
+                    conversation_id=f"trigger_{safe_message_id}",
+                    readable_workflow_name="Trigger Check (with Thread Context)",
                     readable_instance_context=f"{msg.from_} - {msg.subject}"
                 ),
                 messages=[Message(**m) for m in messages_for_llm if m.get("content") is not None]
             ))
-            logger.info(f"Trigger check conversation for email {contextual_uid} logged with conversation_id {conversation_id}.")
+            logger.info(f"Trigger check conversation for {message_id} logged successfully.")
         except Exception as e:
             logger.error(f"Failed to log trigger check conversation: {e}", exc_info=True)
 
@@ -174,7 +195,13 @@ def main():
 
                     if filtered_messages:
                         logger.info(f"Found {len(filtered_messages)} new email(s).")
-                        asyncio.run(process_new_messages(filtered_messages, app_settings))
+                        for msg in filtered_messages:
+                            message_id_tuple = msg.headers.get('message-id')
+                            if not message_id_tuple:
+                                logger.warning(f"Skipping an email because it has no Message-ID.")
+                                continue
+                            message_id = message_id_tuple[0]
+                            process_message(msg, message_id.strip('<>'))
 
                         latest_uid = filtered_messages[-1].uid
                         set_last_uid(latest_uid)
@@ -188,55 +215,99 @@ def main():
 
         time.sleep(30)
 
-async def process_new_messages(messages: list[MailMessage], app_settings: AppSettings):
-    """
-    Processes a batch of new messages against all database triggers.
-    """
-    all_triggers = await agent_client.list_triggers()
-    if not all_triggers:
-        logger.warning("No triggers found in the database. No actions will be taken.")
-        return
+def process_message(msg, message_id: str):
+    """Process a single message with full thread context."""
+    
+    async def _process_with_thread_context():
+        logger.info("--------------------")
+        logger.info(f"New Email Received:")
+        logger.info(f"  Message-ID: {message_id}")
+        logger.info(f"  From: {msg.from_}")
+        logger.info(f"  To: {msg.to}")
+        logger.info(f"  Date: {msg.date_str}")
+        logger.info(f"  Subject: {msg.subject}")
+        body = msg.text or msg.html
+        logger.info(f"  Body: {body[:100].strip()}...")
+        logger.info("--------------------")
 
-    logger.info(f"Found {len(all_triggers)} triggers. Evaluating {len(messages)} new messages against them.")
+        # Load agent settings to get filter rules
+        redis_client = get_redis_client()
+        filter_rules_json = redis_client.get(RedisKeys.FILTER_RULES)
+        filter_rules = FilterRules.model_validate_json(filter_rules_json) if filter_rules_json else FilterRules()
 
-    for msg in messages:
-        contextual_uid = create_contextual_id('INBOX', msg.uid)
-        logger.info(f"--- Processing Email UID: {contextual_uid} ---")
-        
-        for trigger in all_triggers:
-            logger.info(f"Evaluating against trigger {trigger.uuid} for agent {trigger.agent_uuid}")
-            
-            # 1. Get the agent model for this trigger first to get its name for logging
-            agent_model = await agent_client.get_agent(trigger.agent_uuid)
-            if not agent_model:
-                logger.error(f"Could not find agent with UUID {trigger.agent_uuid} for trigger {trigger.uuid}. Skipping.")
-                continue
+        # Check against filter rules
+        if not passes_filter(msg.from_, filter_rules):
+            return  # Stop processing if filters are not passed
 
-            # 2. Check simple filter rules
-            if not passes_filter(msg.from_, trigger.filter_rules):
-                logger.info(f"Email from '{msg.from_}' did not pass filter rules for trigger {trigger.uuid}. Skipping.")
-                continue
-            
-            # 3. Check LLM-based trigger conditions
-            if not await llm_check_passes(msg, trigger.trigger_conditions, app_settings, agent_model.name):
-                logger.info(f"Email did not pass LLM trigger conditions for trigger {trigger.uuid}. Skipping.")
-                continue
-            
-            logger.info(f"Email PASSED all checks for trigger {trigger.uuid}. Running agent {trigger.agent_uuid}.")
-            
-            # 4. Prepare and run the agent instance
-            email_body = msg.text or msg.html
-            input_prompt = f"Here is the email to analyze:\nUID: {contextual_uid}\nFrom: {msg.from_}\nTo: {', '.join(msg.to)}\nDate: {msg.date_str}\nSubject: {msg.subject}\nBody:\n{email_body}"
+        if not body:
+            logger.info("Email has no body content. Skipping processing.")
+            return
 
-            instance_model = await agent_client.create_agent_instance(
-                agent_uuid=trigger.agent_uuid,
-                user_input=input_prompt,
-                context_identifier=f"{msg.from_} - {msg.subject}"
-            )
-            
-            logger.info(f"Created agent instance {instance_model.uuid} for agent {trigger.agent_uuid}")
-            await agent_client.run_agent_instance(agent_model, instance_model)
-            logger.info(f"Agent run for instance {instance_model.uuid} has been initiated.")
+        app_settings = load_app_settings()
+        trigger_conditions = redis_client.get(RedisKeys.TRIGGER_CONDITIONS)
+
+        if not trigger_conditions:
+            logger.warning("Trigger conditions not set. Skipping LLM check and agent workflow.")
+            return
+
+        # Fetch full thread context using the new imap_client
+        thread_context = None
+        try:
+            logger.info(f"Fetching message and thread context for Message-ID: {message_id}")
+            email_message = await imap_client.get_message_by_id(message_id)
+            if email_message:
+                thread = await imap_client.get_complete_thread(email_message)
+                if thread:
+                    thread_context = thread.markdown
+                    logger.info(f"Successfully fetched thread context with {len(thread.messages)} messages.")
+                else:
+                    logger.warning("Could not fetch complete thread, using single message markdown.")
+                    thread_context = f"# Email Thread\n\n## Message 1:\n\n* **From:** {email_message.from_}\n* **To:** {email_message.to}\n* **CC:** {email_message.cc}\n* **Date:** {email_message.date}\n* **Message ID:** {email_message.message_id}\n* **Subject:** {email_message.subject}\n\n{email_message.body_markdown}\n\n---\n\n"
+            else:
+                logger.warning(f"Could not find message with Message-ID: {message_id}. Cannot get thread context.")
+
+        except Exception as e:
+            logger.error(f"Failed to fetch thread context for {message_id}: {e}. Using single message for trigger.", exc_info=True)
+            # Fallback to single message from initial fetch if client fails
+            thread_context = f"SINGLE MESSAGE (No thread context available):\n\nFrom: {msg.from_}\nTo: {msg.to}\nSubject: {msg.subject}\n\n{body}"
+
+        # Trigger check now uses thread context
+        if not await passes_trigger_conditions_check(msg, trigger_conditions, app_settings, thread_context, message_id):
+            logger.info("Email did not pass LLM trigger conditions check.")
+            return
+
+        # Check if draft creation is enabled
+        if not app_settings.DRAFT_CREATION_ENABLED:
+            logger.info("Draft creation is paused. Skipping workflow and draft creation.")
+            return
+
+        # Fetch prompts from Redis
+        agent_instructions = redis_client.get(RedisKeys.AGENT_INSTRUCTIONS)
+        logger.info(f"Agent instructions: {agent_instructions}")
+
+        if not all([agent_instructions]):
+            logger.warning("One or more agent settings (system prompt, user context, steps, instructions) not set in Redis. Skipping agent.")
+            return
+
+        # Run the Agent with thread context (already fetched)
+        logger.info("Running agent with thread context...")
+        agent = EmailAgent(
+            app_settings=app_settings,
+            trigger_conditions=trigger_conditions,
+            agent_instructions=agent_instructions
+        )
+        agent_result = await agent.run(msg, message_id, thread_context)
+        logger.info(f"Agent ran!")
+
+        # Check if we should create a draft
+        if agent_result and agent_result.get("success"):
+            logger.info("Agent created draft successfully!")
+            logger.info(agent_result["message"])
+        else:
+            logger.error(f"Agent failed to create draft: {agent_result.get('message', 'Unknown reason')}")
+
+    # Run the async function
+    asyncio.run(_process_with_thread_context())
 
 if __name__ == "__main__":
     main() 
