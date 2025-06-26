@@ -128,7 +128,7 @@ def _fetch_single_message(mail: imaplib.IMAP4_SSL, uid: str, folder: str) -> Opt
         return None
 
 def _get_complete_thread_sync(message_id: str) -> Optional[EmailThread]:
-    """Synchronous function to get complete thread"""
+    """Synchronous function to get complete thread. It filters out draft messages. """
     try:
         with imap_connection() as mail:
             # Step 1: Find the message and get its thread ID
@@ -171,8 +171,16 @@ def _get_complete_thread_sync(message_id: str) -> Optional[EmailThread]:
                     msg = email.message_from_bytes(data[i][1])
                     message_id_header = msg.get('Message-ID', '').strip('<>')
                     
-                    # Skip draft messages (no Message-ID)
-                    if not message_id_header:
+                    # Extract Gmail labels from header info
+                    labels = []
+                    labels_match = re.search(r'X-GM-LABELS \(([^)]+)\)', header_info)
+                    if labels_match:
+                        labels_str = labels_match.group(1)
+                        labels = re.findall(r'"([^"]*)"', labels_str)
+                        labels = [label.replace('\\\\', '\\') for label in labels]
+
+                    # Skip draft messages (no Message-ID or has \Draft label)
+                    if not message_id_header or '\\Draft' in labels:
                         i += 1
                         continue
                     
@@ -182,14 +190,6 @@ def _get_complete_thread_sync(message_id: str) -> Optional[EmailThread]:
                     
                     # Create contextual ID
                     contextual_id = create_contextual_id('[Gmail]/All Mail', uid)
-                    
-                    # Extract Gmail labels from header info
-                    labels = []
-                    labels_match = re.search(r'X-GM-LABELS \(([^)]+)\)', header_info)
-                    if labels_match:
-                        labels_str = labels_match.group(1)
-                        labels = re.findall(r'"([^"]*)"', labels_str)
-                        labels = [label.replace('\\\\', '\\') for label in labels]
                     
                     # Extract body in multiple formats
                     body_formats = extract_body_formats(msg)
@@ -284,8 +284,16 @@ def _get_recent_messages_from_folder_sync(folder: str, count: int = 20) -> List[
                     msg = email.message_from_bytes(data[i][1])
                     message_id_header = msg.get('Message-ID', '').strip('<>')
                     
-                    # Skip draft messages (no Message-ID)
-                    if not message_id_header:
+                    # Extract Gmail labels from header info
+                    labels = []
+                    labels_match = re.search(r'X-GM-LABELS \(([^)]+)\)', header_info)
+                    if labels_match:
+                        labels_str = labels_match.group(1)
+                        labels = re.findall(r'"([^"]*)"', labels_str)
+                        labels = [label.replace('\\\\', '\\') for label in labels]
+
+                    # Skip draft messages (no Message-ID or has \Draft label)
+                    if not message_id_header or '\\Draft' in labels:
                         i += 1
                         continue
                     
@@ -295,14 +303,6 @@ def _get_recent_messages_from_folder_sync(folder: str, count: int = 20) -> List[
                     
                     # Create contextual ID
                     contextual_id = create_contextual_id(folder, uid)
-                    
-                    # Extract Gmail labels from header info
-                    labels = []
-                    labels_match = re.search(r'X-GM-LABELS \(([^)]+)\)', header_info)
-                    if labels_match:
-                        labels_str = labels_match.group(1)
-                        labels = re.findall(r'"([^"]*)"', labels_str)
-                        labels = [label.replace('\\\\', '\\') for label in labels]
                     
                     # Extract body in multiple formats
                     body_formats = extract_body_formats(msg)
