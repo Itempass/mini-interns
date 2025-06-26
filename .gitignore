@@ -1,9 +1,6 @@
 # Git
 .git
 
-# Docker
-.dockerignore
-Dockerfile
 
 # Python
 .venv/

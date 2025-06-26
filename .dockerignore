@@ -2,10 +2,6 @@
 .git
 .gitignore
 
-# Docker
-.dockerignore
-Dockerfile
-
 # Python
 .venv
 __pycache__/
