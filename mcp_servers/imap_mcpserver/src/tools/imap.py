@@ -10,7 +10,7 @@ from typing import List, Optional, Dict, Any, Union
 from email_reply_parser import EmailReplyParser
 
 from ..mcp_builder import mcp_builder
-from ..imap_client.client import get_message_by_id, get_complete_thread, draft_reply as client_draft_reply
+from ..imap_client.client import get_message_by_id, get_complete_thread, draft_reply as client_draft_reply, set_label as client_set_label
 from shared.qdrant.qdrant_client import semantic_search, search_by_vector, generate_qdrant_point_id
 from shared.services.embedding_service import get_embedding, rerank_documents
 
@@ -36,6 +36,18 @@ async def draft_reply(messageId: str, body: str) -> Dict[str, Any]:
     # Use the client's draft_reply function
     result = await client_draft_reply(original_message, body)
     
+    return result
+
+@mcp_builder.tool()
+async def set_label(messageId: str, label: str) -> Dict[str, Any]:
+    """
+    Adds a label to a specific email message.
+    The label must already exist in Gmail. If the label does not exist, an error will be returned with a list of available labels.
+    """
+    if not messageId or not label:
+        return {"success": False, "message": "messageId and label are required."}
+
+    result = await client_set_label(messageId, label)
     return result
 
 # The following tools are not directly related to IMAP but are often used in the same context.
