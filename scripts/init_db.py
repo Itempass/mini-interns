@@ -85,7 +85,8 @@ def initialize_agent_db():
                 # The safe way to drop a column in SQLite
                 cursor.execute("ALTER TABLE triggers RENAME TO triggers_old;")
                 # Create the new table using the schema file
-                schema_path = os.path.join(os.path.dirname(__file__), '..', 'agent', 'schema.sql')
+                script_dir = os.path.dirname(__file__)
+                schema_path = os.path.abspath(os.path.join(script_dir, '..', 'agent', 'schema.sql'))
                 with open(schema_path, 'r') as f:
                     # We need to find the CREATE TABLE triggers statement specifically
                     schema_sql = f.read()
@@ -113,7 +114,8 @@ def initialize_agent_db():
             # Now, ensure all tables from the schema file exist
             print("Ensuring all agent tables exist...")
             try:
-                schema_path = os.path.join(os.path.dirname(__file__), '..', 'agent', 'schema.sql')
+                script_dir = os.path.dirname(__file__)
+                schema_path = os.path.abspath(os.path.join(script_dir, '..', 'agent', 'schema.sql'))
                 with open(schema_path, 'r') as f:
                     cursor.executescript(f.read())
                 print("Agent tables are present or were created successfully.")
