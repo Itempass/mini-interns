@@ -72,7 +72,19 @@ def initialize_agent_db():
             cursor = conn.cursor()
             print("Successfully connected to the Agent database.")
 
-            # Run migrations first to handle schema changes before creation
+            # First, ensure all tables from the schema file exist
+            print("Ensuring all agent tables exist...")
+            try:
+                script_dir = os.path.dirname(__file__)
+                schema_path = os.path.abspath(os.path.join(script_dir, '..', 'agent', 'schema.sql'))
+                with open(schema_path, 'r') as f:
+                    cursor.executescript(f.read())
+                print("Agent tables are present or were created successfully.")
+            except FileNotFoundError:
+                print(f"Agent schema file not found at {schema_path}. Skipping agent table creation.")
+                raise
+
+            # Now run migrations to handle schema changes
             print("Running agent table migrations...")
             add_column_if_not_exists(cursor, 'agents', 'tools', 'TEXT')
             add_column_if_not_exists(cursor, 'agent_instances', 'context_identifier', 'TEXT')
@@ -110,18 +122,6 @@ def initialize_agent_db():
                 # Drop the old table
                 cursor.execute("DROP TABLE triggers_old;")
                 print("Migration of 'triggers' table complete.")
-
-            # Now, ensure all tables from the schema file exist
-            print("Ensuring all agent tables exist...")
-            try:
-                script_dir = os.path.dirname(__file__)
-                schema_path = os.path.abspath(os.path.join(script_dir, '..', 'agent', 'schema.sql'))
-                with open(schema_path, 'r') as f:
-                    cursor.executescript(f.read())
-                print("Agent tables are present or were created successfully.")
-            except FileNotFoundError:
-                print(f"Agent schema file not found at {schema_path}. Skipping agent table creation.")
-                raise
             
             conn.commit()
         print("--- Agent database initialization complete ---")
