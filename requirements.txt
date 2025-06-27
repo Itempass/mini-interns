@@ -25,6 +25,7 @@ requests
 email-reply-parser
 beautifulsoup4
 lxml
+aiosqlite
 sqlalchemy
 mysql-connector-python
 voyageai

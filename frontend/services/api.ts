@@ -307,4 +307,109 @@ export const getMcpServers = async (): Promise<McpServer[]> => {
     console.error('An error occurred while fetching MCP servers:', error);
     return [];
   }
+};
+
+// --- New Agent Management API ---
+
+export interface Agent {
+  uuid: string;
+  name: string;
+  description: string;
+  system_prompt: string;
+  user_instructions: string;
+  tools: { [key: string]: { enabled: boolean; required: boolean; order?: number } };
+  created_at: string;
+  updated_at: string;
+  trigger_conditions?: string;
+  filter_rules?: FilterRules;
+}
+
+export interface CreateAgentRequest {
+  name: string;
+  description: string;
+}
+
+export interface Tool {
+  id: string;
+  name: string;
+  description: string;
+  server: string;
+  input_schema: Record<string, any>;
+}
+
+export const getAgents = async (): Promise<Agent[]> => {
+  try {
+    const response = await fetch(`${API_URL}/agents`);
+    if (!response.ok) throw new Error('Failed to fetch agents');
+    return await response.json();
+  } catch (error) {
+    console.error('Error fetching agents:', error);
+    return [];
+  }
+};
+
+export const getAgent = async (uuid: string): Promise<Agent | null> => {
+  try {
+    const response = await fetch(`${API_URL}/agents/${uuid}`);
+    if (!response.ok) throw new Error('Failed to fetch agent');
+    const data = await response.json();
+    console.log(`[getAgent] Fetched data for agent ${uuid}:`, data);
+    return data;
+  } catch (error) {
+    console.error(`Error fetching agent ${uuid}:`, error);
+    return null;
+  }
+};
+
+export const updateAgent = async (agent: Agent): Promise<Agent | null> => {
+  try {
+    const response = await fetch(`${API_URL}/agents/${agent.uuid}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(agent),
+    });
+    if (!response.ok) throw new Error('Failed to update agent');
+    return await response.json();
+  } catch (error) {
+    console.error(`Error updating agent ${agent.uuid}:`, error);
+    return null;
+  }
+};
+
+export const createAgent = async (agentData: CreateAgentRequest): Promise<Agent | null> => {
+  try {
+    const response = await fetch(`${API_URL}/agents`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(agentData),
+    });
+    if (!response.ok) throw new Error('Failed to create agent');
+    return await response.json();
+  } catch (error) {
+    console.error('Error creating agent:', error);
+    return null;
+  }
+};
+
+export const deleteAgent = async (uuid: string): Promise<void> => {
+  try {
+    const response = await fetch(`${API_URL}/agents/${uuid}`, {
+      method: 'DELETE',
+    });
+    if (!response.ok) throw new Error('Failed to delete agent');
+  } catch (error) {
+    console.error(`Error deleting agent ${uuid}:`, error);
+    throw error;
+  }
+};
+
+export const getTools = async (): Promise<Tool[]> => {
+  try {
+    const response = await fetch(`${API_URL}/tools`);
+    if (!response.ok) throw new Error('Failed to fetch tools');
+    return await response.json();
+  } catch (error) {
+    console.error('Error fetching tools:', error);
+    return [];
+  }
 }; 

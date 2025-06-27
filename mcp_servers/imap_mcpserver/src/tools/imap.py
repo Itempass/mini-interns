@@ -10,7 +10,7 @@ from typing import List, Optional, Dict, Any, Union
 from email_reply_parser import EmailReplyParser
 
 from ..mcp_builder import mcp_builder
-from ..imap_client.client import get_message_by_id, get_complete_thread, draft_reply as client_draft_reply
+from ..imap_client.client import get_message_by_id, get_complete_thread, draft_reply as client_draft_reply, set_label as client_set_label, get_recent_inbox_messages
 from shared.qdrant.qdrant_client import semantic_search, search_by_vector, generate_qdrant_point_id
 from shared.services.embedding_service import get_embedding, rerank_documents
 
@@ -37,6 +37,57 @@ async def draft_reply(messageId: str, body: str) -> Dict[str, Any]:
     result = await client_draft_reply(original_message, body)
     
     return result
+
+@mcp_builder.tool()
+async def set_label(messageId: str, label: str) -> Dict[str, Any]:
+    """
+    Adds a label to a specific email message.
+    The label must already exist in Gmail. If the label does not exist, an error will be returned with a list of available labels.
+    """
+    if not messageId or not label:
+        return {"success": False, "message": "messageId and label are required."}
+
+    result = await client_set_label(messageId, label)
+    return result
+
+@mcp_builder.tool()
+async def get_thread_for_message_id(messageId: str) -> Dict[str, Any]:
+    """
+    Retrieves the full email thread for a given message ID and formats it as markdown.
+    """
+    # 1. Get the original message using the client
+    original_message = await get_message_by_id(messageId)
+    if not original_message:
+        return {"error": f"Could not find email with messageId: {messageId}"}
+
+    # 2. Get the complete thread using the client
+    thread = await get_complete_thread(original_message)
+    if not thread:
+        return {"error": f"Could not retrieve the thread for email ID {messageId}."}
+
+    # 3. Return the thread's markdown representation
+    return {"thread_markdown": thread.markdown}
+
+@mcp_builder.tool()
+async def list_most_recent_inbox_emails(count: int = 10) -> List[Dict[str, Any]]:
+    """
+    Lists the most recent emails from the inbox, providing a summary of each.
+    """
+    messages = await get_recent_inbox_messages(count)
+    
+    summaries = []
+    for message in messages:
+        summaries.append({
+            "message_id": message.message_id,
+            "message_uid": message.uid,
+            "from": message.from_,
+            "to": message.to,
+            "subject": message.subject,
+            "date": message.date,
+            "snippet": message.body_cleaned[:250] + "..." if len(message.body_cleaned) > 250 else message.body_cleaned
+        })
+        
+    return summaries
 
 # The following tools are not directly related to IMAP but are often used in the same context.
 # They can be moved to a different service/tool file later if needed.

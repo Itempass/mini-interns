@@ -128,7 +128,7 @@ def _fetch_single_message(mail: imaplib.IMAP4_SSL, uid: str, folder: str) -> Opt
         return None
 
 def _get_complete_thread_sync(message_id: str) -> Optional[EmailThread]:
-    """Synchronous function to get complete thread"""
+    """Synchronous function to get complete thread. It filters out draft messages. """
     try:
         with imap_connection() as mail:
             # Step 1: Find the message and get its thread ID
@@ -171,8 +171,16 @@ def _get_complete_thread_sync(message_id: str) -> Optional[EmailThread]:
                     msg = email.message_from_bytes(data[i][1])
                     message_id_header = msg.get('Message-ID', '').strip('<>')
                     
-                    # Skip draft messages (no Message-ID)
-                    if not message_id_header:
+                    # Extract Gmail labels from header info
+                    labels = []
+                    labels_match = re.search(r'X-GM-LABELS \(([^)]+)\)', header_info)
+                    if labels_match:
+                        labels_str = labels_match.group(1)
+                        labels = re.findall(r'"([^"]*)"', labels_str)
+                        labels = [label.replace('\\\\', '\\') for label in labels]
+
+                    # Skip draft messages (no Message-ID or has \Draft label)
+                    if not message_id_header or '\\Draft' in labels:
                         i += 1
                         continue
                     
@@ -182,14 +190,6 @@ def _get_complete_thread_sync(message_id: str) -> Optional[EmailThread]:
                     
                     # Create contextual ID
                     contextual_id = create_contextual_id('[Gmail]/All Mail', uid)
-                    
-                    # Extract Gmail labels from header info
-                    labels = []
-                    labels_match = re.search(r'X-GM-LABELS \(([^)]+)\)', header_info)
-                    if labels_match:
-                        labels_str = labels_match.group(1)
-                        labels = re.findall(r'"([^"]*)"', labels_str)
-                        labels = [label.replace('\\\\', '\\') for label in labels]
                     
                     # Extract body in multiple formats
                     body_formats = extract_body_formats(msg)
@@ -284,8 +284,16 @@ def _get_recent_messages_from_folder_sync(folder: str, count: int = 20) -> List[
                     msg = email.message_from_bytes(data[i][1])
                     message_id_header = msg.get('Message-ID', '').strip('<>')
                     
-                    # Skip draft messages (no Message-ID)
-                    if not message_id_header:
+                    # Extract Gmail labels from header info
+                    labels = []
+                    labels_match = re.search(r'X-GM-LABELS \(([^)]+)\)', header_info)
+                    if labels_match:
+                        labels_str = labels_match.group(1)
+                        labels = re.findall(r'"([^"]*)"', labels_str)
+                        labels = [label.replace('\\\\', '\\') for label in labels]
+
+                    # Skip draft messages (no Message-ID or has \Draft label)
+                    if not message_id_header or '\\Draft' in labels:
                         i += 1
                         continue
                     
@@ -295,14 +303,6 @@ def _get_recent_messages_from_folder_sync(folder: str, count: int = 20) -> List[
                     
                     # Create contextual ID
                     contextual_id = create_contextual_id(folder, uid)
-                    
-                    # Extract Gmail labels from header info
-                    labels = []
-                    labels_match = re.search(r'X-GM-LABELS \(([^)]+)\)', header_info)
-                    if labels_match:
-                        labels_str = labels_match.group(1)
-                        labels = re.findall(r'"([^"]*)"', labels_str)
-                        labels = [label.replace('\\\\', '\\') for label in labels]
                     
                     # Extract body in multiple formats
                     body_formats = extract_body_formats(msg)
@@ -573,6 +573,53 @@ def _draft_reply_sync(original_message: EmailMessage, reply_body: str) -> Dict[s
         logger.error(error_msg, exc_info=True)
         return {"success": False, "message": error_msg}
 
+def _get_all_labels_sync(mail: imaplib.IMAP4_SSL) -> List[str]:
+    """Synchronous function to get all available labels/folders."""
+    labels = []
+    try:
+        status, folder_data = mail.list()
+        if status == "OK":
+            for folder_info in folder_data:
+                decoded_info = folder_info.decode()
+                # Logic from _find_drafts_folder to robustly parse folder names
+                label = decoded_info.split('"')[-2] if '"' in decoded_info else decoded_info.split()[-1]
+                labels.append(label)
+    except Exception as e:
+        logger.error(f"Error listing folders/labels: {e}")
+    return labels
+
+def _set_label_sync(message_id: str, label: str) -> Dict[str, Any]:
+    """Synchronous function to add a label to a message."""
+    try:
+        with imap_connection() as mail:
+            # Step 1: Get all available labels and validate
+            all_labels = _get_all_labels_sync(mail)
+            if label not in all_labels:
+                return {"success": False, "message": f"Label '{label}' does not exist. Available labels are: {all_labels}"}
+
+            # Step 2: Find UID and mailbox for the message
+            uid, mailbox = _find_uid_by_message_id(mail, message_id)
+            if not uid or not mailbox:
+                return {"success": False, "message": f"Could not find message with Message-ID: {message_id}"}
+
+            # Step 3: Select mailbox and apply label
+            mail.select(f'"{mailbox}"', readonly=False)
+            # Use +X-GM-LABELS to add a label without affecting others.
+            # Labels with spaces or special characters need to be quoted.
+            result, data = mail.uid('store', uid, '+X-GM-LABELS', f'("{label}")')
+
+            if result == "OK":
+                return {"success": True, "message": f"Label '{label}' successfully added to message."}
+            else:
+                error_msg = data[0].decode() if data and data[0] else "Unknown error"
+                logger.error(f"Failed to set label for message {message_id}: {error_msg}")
+                return {"success": False, "message": f"Failed to set label: {error_msg}"}
+
+    except Exception as e:
+        error_msg = f"Error setting label: {str(e)}"
+        logger.error(error_msg, exc_info=True)
+        return {"success": False, "message": error_msg}
+
 # --- Public API Functions ---
 
 async def get_recent_inbox_message_ids(count: int = 20) -> List[str]:
@@ -624,4 +671,8 @@ async def get_recent_threads_bulk(target_thread_count: int = 50, max_age_months:
     return await fetch_recent_threads_bulk(
         target_thread_count=target_thread_count,
         max_age_months=max_age_months
-    ) 
+    )
+
+async def set_label(message_id: str, label: str) -> Dict[str, Any]:
+    """Adds a label to a given message."""
+    return await asyncio.to_thread(_set_label_sync, message_id, label) 

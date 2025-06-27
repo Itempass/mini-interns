@@ -10,4 +10,5 @@ class RedisKeys:
     FILTER_RULES = "agent:filter_rules"
     INBOX_INITIALIZATION_STATUS = "inbox:initialization:status"
     AGENT_INSTRUCTIONS = "agent:agent_instructions"
+    DEFAULT_AGENT_ID = "agent:default_agent_id"
     AGENT_TOOLS = "agent:tools"
