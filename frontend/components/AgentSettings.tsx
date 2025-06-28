@@ -287,6 +287,7 @@ const AgentSettings: React.FC<AgentSettingsProps> = ({ agent, onAgentUpdate }) =
                   <div>
                     <label className="block text-sm font-medium text-gray-700">Trigger Instructions</label>
                     <textarea name="trigger_conditions" value={editableAgent.trigger_conditions} onChange={handleInputChange} rows={5} className="mt-1 block w-full rounded-md border-gray-400 shadow-sm sm:text-sm p-2 border" />
+                    <p className="text-xs text-gray-600 mt-1">Note: &lt;&lt;CURRENT_DATE&gt;&gt; will be replaced with the current date (YYYY-MM-DD).</p>
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
@@ -329,6 +330,7 @@ const AgentSettings: React.FC<AgentSettingsProps> = ({ agent, onAgentUpdate }) =
               <div>
                 <label className="block text-sm font-medium text-gray-700">User Instructions</label>
                 <textarea name="user_instructions" value={editableAgent.user_instructions} onChange={handleInputChange} rows={10} className="mt-1 block w-full rounded-md border-gray-400 shadow-sm sm:text-sm p-2 border" />
+                <p className="text-xs text-gray-600 mt-1">Note: &lt;&lt;CURRENT_DATE&gt;&gt; will be replaced with the current date (YYYY-MM-DD).</p>
               </div>
               <div>
                 <h3 className="text-lg font-medium text-gray-900 mb-2">Tools</h3>
