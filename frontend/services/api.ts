@@ -405,12 +405,50 @@ export const deleteAgent = async (uuid: string): Promise<void> => {
 };
 
 export const getTools = async (): Promise<Tool[]> => {
-  try {
-    const response = await fetch(`${API_URL}/tools`);
-    if (!response.ok) throw new Error('Failed to fetch tools');
-    return await response.json();
-  } catch (error) {
-    console.error('Error fetching tools:', error);
-    return [];
+  const response = await fetch('/api/tools');
+  if (!response.ok) {
+    throw new Error('Failed to fetch tools');
   }
+  return response.json();
+};
+
+export const exportAgent = async (agentId: string) => {
+  const response = await fetch(`/api/agents/${agentId}/export`);
+  if (!response.ok) {
+    throw new Error('Failed to export agent');
+  }
+  const blob = await response.blob();
+  const contentDisposition = response.headers.get('content-disposition');
+  let filename = 'agent.json';
+  if (contentDisposition) {
+    const filenameMatch = contentDisposition.match(/filename="(.+?)"/);
+    if (filenameMatch && filenameMatch.length > 1) {
+      filename = filenameMatch[1];
+    }
+  }
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.URL.revokeObjectURL(url);
+};
+
+export const importAgent = async (file: File): Promise<Agent> => {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const response = await fetch('/api/agents/import', {
+    method: 'POST',
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({ detail: 'Failed to import agent' }));
+    throw new Error(errorData.detail);
+  }
+
+  return response.json();
 }; 

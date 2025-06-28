@@ -1,5 +1,6 @@
 import logging
-from fastapi import APIRouter, HTTPException, BackgroundTasks
+from fastapi import APIRouter, HTTPException, BackgroundTasks, UploadFile, File
+from fastapi.responses import JSONResponse
 from functools import lru_cache
 from shared.redis.redis_client import get_redis_client
 from shared.redis.keys import RedisKeys
@@ -14,7 +15,7 @@ import asyncio
 
 from agent import client as agent_client
 from agent.models import AgentModel, TriggerModel
-from api.types.api_models.single_agent import AgentWithTriggerSettings, CreateAgentRequest
+from api.types.api_models.single_agent import AgentWithTriggerSettings, CreateAgentRequest, AgentImportModel
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -377,3 +378,97 @@ async def create_agent(request: CreateAgentRequest):
     except Exception as e:
         logger.error(f"POST /agents - Error creating agent: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Error creating agent.")
+
+@router.get("/agents/{agent_uuid}/export", response_model=AgentImportModel)
+async def export_agent(agent_uuid: UUID):
+    """
+    Exports a specific agent's settings as a JSON file.
+    """
+    logger.info(f"GET /agents/{agent_uuid}/export - Exporting agent")
+    try:
+        agent = await agent_client.get_agent(agent_uuid)
+        if not agent:
+            logger.warning(f"GET /agents/{agent_uuid}/export - Agent not found")
+            raise HTTPException(status_code=404, detail="Agent not found")
+
+        trigger = await agent_client.get_trigger_for_agent(agent_uuid)
+        if not trigger:
+            trigger_settings = {
+                "trigger_conditions": get_default_trigger_conditions(),
+                "filter_rules": FilterRules(),
+                "trigger_bypass": False,
+            }
+        else:
+            trigger_settings = {
+                "trigger_conditions": trigger.trigger_conditions,
+                "trigger_bypass": trigger.trigger_bypass,
+                "filter_rules": FilterRules.model_validate(trigger.filter_rules) if trigger.filter_rules else FilterRules()
+            }
+        
+        export_data = {
+            "name": agent.name,
+            "description": agent.description,
+            "system_prompt": agent.system_prompt,
+            "user_instructions": agent.user_instructions,
+            "tools": agent.tools,
+            "paused": agent.paused,
+            **trigger_settings,
+        }
+        
+        import_model = AgentImportModel.model_validate(export_data)
+
+        headers = {
+            'Content-Disposition': f'attachment; filename="{agent.name}.json"'
+        }
+        return JSONResponse(content=import_model.model_dump(), headers=headers)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"GET /agents/{agent_uuid}/export - Error exporting agent: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Error exporting agent.")
+
+@router.post("/agents/import", response_model=AgentWithTriggerSettings, status_code=201)
+async def import_agent(file: UploadFile = File(...)):
+    """
+    Imports an agent from a JSON file.
+    """
+    logger.info("POST /agents/import - Importing agent from file")
+    if file.content_type != "application/json":
+        raise HTTPException(status_code=400, detail="Invalid file type. Please upload a JSON file.")
+    
+    try:
+        contents = await file.read()
+        data = json.loads(contents)
+        
+        import_data = AgentImportModel.model_validate(data)
+        
+        new_agent = await agent_client.create_agent(
+            name=f"{import_data.name} (imported)",
+            description=import_data.description,
+            system_prompt=import_data.system_prompt,
+            user_instructions=import_data.user_instructions,
+            tools=import_data.tools,
+        )
+        
+        new_agent.paused = import_data.paused
+        await agent_client.save_agent(new_agent)
+
+        await agent_client.create_trigger(
+            agent_uuid=new_agent.uuid,
+            trigger_conditions=import_data.trigger_conditions,
+            filter_rules=import_data.filter_rules.model_dump(),
+            trigger_bypass=import_data.trigger_bypass,
+        )
+
+        imported_agent_with_trigger = await get_agent(new_agent.uuid)
+        
+        logger.info(f"POST /agents/import - Agent '{new_agent.name}' imported successfully with UUID {new_agent.uuid}")
+        return imported_agent_with_trigger
+
+    except json.JSONDecodeError:
+        logger.warning("POST /agents/import - Invalid JSON file provided")
+        raise HTTPException(status_code=400, detail="Invalid JSON file.")
+    except Exception as e:
+        logger.error(f"POST /agents/import - Error importing agent: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error importing agent: {e}")

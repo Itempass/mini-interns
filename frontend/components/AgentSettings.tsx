@@ -1,6 +1,6 @@
 'use client';
 import React, { useState, useEffect, useRef } from 'react';
-import { Agent, Tool, updateAgent, getTools, FilterRules } from '../services/api';
+import { Agent, Tool, updateAgent, getTools, FilterRules, exportAgent } from '../services/api';
 import ToolList, { UiTool } from './ToolList';
 
 interface AgentSettingsProps {
@@ -185,6 +185,17 @@ const AgentSettings: React.FC<AgentSettingsProps> = ({ agent, onAgentUpdate }) =
     }
   };
 
+  const handleExport = async () => {
+    if (agent) {
+      try {
+        await exportAgent(agent.uuid);
+      } catch (error) {
+        console.error('Error exporting agent:', error);
+        alert('Failed to export agent.');
+      }
+    }
+  };
+
   if (!editableAgent) {
     return <div className="p-8 text-gray-500">Select an agent to view or edit its settings.</div>;
   }
@@ -204,6 +215,12 @@ const AgentSettings: React.FC<AgentSettingsProps> = ({ agent, onAgentUpdate }) =
       <div className="max-w-7xl mx-auto">
         <div className="sticky top-0 z-10 bg-white pt-4 pb-4 mb-6 flex justify-between items-center border-b">
           <h1 className="text-2xl font-bold">{editableAgent.name}</h1>
+          <button
+            onClick={handleExport}
+            className="px-3 py-1 text-sm bg-gray-600 text-white rounded-md hover:bg-gray-700"
+          >
+            Export
+          </button>
         </div>
         
         <div className="space-y-8">

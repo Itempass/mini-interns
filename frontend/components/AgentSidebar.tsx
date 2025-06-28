@@ -1,7 +1,8 @@
 'use client';
 import React, { useState } from 'react';
-import { Agent, createAgent, deleteAgent } from '../services/api';
+import { Agent, deleteAgent } from '../services/api';
 import { MoreVertical, Trash2 } from 'lucide-react';
+import CreateAgentModal from './CreateAgentModal';
 
 interface AgentSidebarProps {
   agents: Agent[];
@@ -13,19 +14,12 @@ interface AgentSidebarProps {
 const AgentSidebar: React.FC<AgentSidebarProps> = ({ agents, onSelectAgent, selectedAgent, onAgentsUpdate }) => {
   const [error, setError] = useState<string | null>(null);
   const [menuOpenFor, setMenuOpenFor] = useState<string | null>(null);
+  const [isCreateModalOpen, setCreateModalOpen] = useState(false);
 
-  const handleCreateAgent = async () => {
-    const newAgentName = `New Agent ${agents.length + 1}`;
-    const newAgent = await createAgent({
-      name: newAgentName,
-      description: "A newly created agent."
-    });
-    if (newAgent) {
-      onAgentsUpdate();
-      onSelectAgent(newAgent);
-    } else {
-      setError('Failed to create agent.');
-    }
+  const handleAgentCreated = (newAgent: Agent) => {
+    onAgentsUpdate();
+    onSelectAgent(newAgent);
+    setCreateModalOpen(false);
   };
 
   const handleDeleteAgent = async (uuid: string) => {
@@ -91,11 +85,16 @@ const AgentSidebar: React.FC<AgentSidebarProps> = ({ agents, onSelectAgent, sele
         ))}
       </ul>
       <button 
-        onClick={handleCreateAgent}
-        className="w-full mt-4 bg-green-500 text-white py-2 rounded-md hover:bg-green-600"
+        onClick={() => setCreateModalOpen(true)}
+        className="w-full mt-4 bg-blue-600 text-white py-2 rounded-md hover:bg-blue-700"
       >
         + New Agent
       </button>
+      <CreateAgentModal
+        isOpen={isCreateModalOpen}
+        onClose={() => setCreateModalOpen(false)}
+        onAgentCreated={handleAgentCreated}
+      />
     </div>
   );
 };

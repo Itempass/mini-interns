@@ -23,4 +23,15 @@ class CreateAgentRequest(BaseModel):
     description: str
     user_instructions: str = ""
     trigger_conditions: str = ""
-    filter_rules: FilterRules = Field(default_factory=FilterRules) 
+    filter_rules: FilterRules = Field(default_factory=FilterRules)
+
+class AgentImportModel(BaseModel):
+    name: str
+    description: str
+    system_prompt: str
+    user_instructions: str
+    tools: Dict[str, Any] = Field(default_factory=dict)
+    paused: bool = False
+    trigger_conditions: str
+    filter_rules: FilterRules
+    trigger_bypass: bool = False 
