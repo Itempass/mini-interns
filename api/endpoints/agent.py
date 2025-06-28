@@ -12,13 +12,23 @@ import json
 from uuid import UUID
 from typing import List
 import asyncio
+import os
+from pathlib import Path
 
 from agent import client as agent_client
 from agent.models import AgentModel, TriggerModel
-from api.types.api_models.single_agent import AgentWithTriggerSettings, CreateAgentRequest, AgentImportModel
+from api.types.api_models.single_agent import (
+    AgentWithTriggerSettings, 
+    CreateAgentRequest, 
+    AgentImportModel,
+    TemplateInfo,
+    CreateFromTemplateRequest
+)
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+AGENT_TEMPLATES_DIR = Path("api/agent_templates")
 
 @lru_cache(maxsize=1)
 def get_default_system_prompt():
@@ -214,6 +224,122 @@ async def list_agents():
     except Exception as e:
         logger.error(f"GET /agents - Error listing agents: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Error listing agents.")
+
+@router.post("/agents/import", response_model=AgentWithTriggerSettings, status_code=201)
+async def import_agent(file: UploadFile = File(...)):
+    """
+    Imports an agent from a JSON file.
+    """
+    logger.info("POST /agents/import - Importing agent from file")
+    if file.content_type != "application/json":
+        raise HTTPException(status_code=400, detail="Invalid file type. Please upload a JSON file.")
+    
+    try:
+        contents = await file.read()
+        data = json.loads(contents)
+        
+        import_data = AgentImportModel.model_validate(data)
+        
+        new_agent = await agent_client.create_agent(
+            name=f"{import_data.name} (imported)",
+            description=import_data.description,
+            system_prompt=import_data.system_prompt,
+            user_instructions=import_data.user_instructions,
+            tools=import_data.tools,
+        )
+        
+        new_agent.paused = import_data.paused
+        await agent_client.save_agent(new_agent)
+
+        await agent_client.create_trigger(
+            agent_uuid=new_agent.uuid,
+            trigger_conditions=import_data.trigger_conditions,
+            filter_rules=import_data.filter_rules.model_dump(),
+            trigger_bypass=import_data.trigger_bypass,
+        )
+
+        imported_agent_with_trigger = await get_agent(new_agent.uuid)
+        
+        logger.info(f"POST /agents/import - Agent '{new_agent.name}' imported successfully with UUID {new_agent.uuid}")
+        return imported_agent_with_trigger
+
+    except json.JSONDecodeError:
+        logger.warning("POST /agents/import - Invalid JSON file provided")
+        raise HTTPException(status_code=400, detail="Invalid JSON file.")
+    except Exception as e:
+        logger.error(f"POST /agents/import - Error importing agent: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error importing agent: {e}")
+
+@router.get("/agents/templates", response_model=List[TemplateInfo])
+async def list_agent_templates():
+    """
+    Lists all available agent templates from the template directory.
+    """
+    logger.info("GET /agents/templates - Listing all agent templates")
+    if not AGENT_TEMPLATES_DIR.is_dir():
+        logger.warning(f"Agent templates directory not found at {AGENT_TEMPLATES_DIR}")
+        return []
+    
+    templates = []
+    for f in AGENT_TEMPLATES_DIR.glob("*.json"):
+        try:
+            with open(f, "r") as template_file:
+                data = json.load(template_file)
+                templates.append(TemplateInfo(
+                    id=f.stem,
+                    name=data.get("name", "Unnamed Template"),
+                    description=data.get("description", "No description available.")
+                ))
+        except Exception as e:
+            logger.error(f"Error reading or parsing template file {f}: {e}")
+
+    logger.info(f"GET /agents/templates - Found {len(templates)} templates.")
+    return templates
+
+@router.post("/agents/from-template", response_model=AgentWithTriggerSettings, status_code=201)
+async def create_agent_from_template(request: CreateFromTemplateRequest):
+    """
+    Creates a new agent from a specified template.
+    """
+    logger.info(f"POST /agents/from-template - Creating agent from template '{request.template_id}'")
+    template_file_path = AGENT_TEMPLATES_DIR / f"{request.template_id}.json"
+
+    if not template_file_path.is_file():
+        logger.error(f"Template file not found: {template_file_path}")
+        raise HTTPException(status_code=404, detail=f"Template '{request.template_id}' not found.")
+
+    try:
+        with open(template_file_path, "r") as f:
+            data = json.load(f)
+
+        import_data = AgentImportModel.model_validate(data)
+        
+        new_agent = await agent_client.create_agent(
+            name=f"{import_data.name} (from template)",
+            description=import_data.description,
+            system_prompt=import_data.system_prompt,
+            user_instructions=import_data.user_instructions,
+            tools=import_data.tools,
+        )
+        
+        new_agent.paused = import_data.paused
+        await agent_client.save_agent(new_agent)
+
+        await agent_client.create_trigger(
+            agent_uuid=new_agent.uuid,
+            trigger_conditions=import_data.trigger_conditions,
+            filter_rules=import_data.filter_rules.model_dump(),
+            trigger_bypass=import_data.trigger_bypass,
+        )
+
+        created_agent_with_trigger = await get_agent(new_agent.uuid)
+        
+        logger.info(f"POST /agents/from-template - Agent '{new_agent.name}' created successfully with UUID {new_agent.uuid}")
+        return created_agent_with_trigger
+
+    except Exception as e:
+        logger.error(f"POST /agents/from-template - Error creating agent from template: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error creating agent from template: {e}")
 
 @router.get("/agents/{agent_uuid}", response_model=AgentWithTriggerSettings)
 async def get_agent(agent_uuid: UUID):
@@ -427,48 +553,3 @@ async def export_agent(agent_uuid: UUID):
     except Exception as e:
         logger.error(f"GET /agents/{agent_uuid}/export - Error exporting agent: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Error exporting agent.")
-
-@router.post("/agents/import", response_model=AgentWithTriggerSettings, status_code=201)
-async def import_agent(file: UploadFile = File(...)):
-    """
-    Imports an agent from a JSON file.
-    """
-    logger.info("POST /agents/import - Importing agent from file")
-    if file.content_type != "application/json":
-        raise HTTPException(status_code=400, detail="Invalid file type. Please upload a JSON file.")
-    
-    try:
-        contents = await file.read()
-        data = json.loads(contents)
-        
-        import_data = AgentImportModel.model_validate(data)
-        
-        new_agent = await agent_client.create_agent(
-            name=f"{import_data.name} (imported)",
-            description=import_data.description,
-            system_prompt=import_data.system_prompt,
-            user_instructions=import_data.user_instructions,
-            tools=import_data.tools,
-        )
-        
-        new_agent.paused = import_data.paused
-        await agent_client.save_agent(new_agent)
-
-        await agent_client.create_trigger(
-            agent_uuid=new_agent.uuid,
-            trigger_conditions=import_data.trigger_conditions,
-            filter_rules=import_data.filter_rules.model_dump(),
-            trigger_bypass=import_data.trigger_bypass,
-        )
-
-        imported_agent_with_trigger = await get_agent(new_agent.uuid)
-        
-        logger.info(f"POST /agents/import - Agent '{new_agent.name}' imported successfully with UUID {new_agent.uuid}")
-        return imported_agent_with_trigger
-
-    except json.JSONDecodeError:
-        logger.warning("POST /agents/import - Invalid JSON file provided")
-        raise HTTPException(status_code=400, detail="Invalid JSON file.")
-    except Exception as e:
-        logger.error(f"POST /agents/import - Error importing agent: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Error importing agent: {e}")

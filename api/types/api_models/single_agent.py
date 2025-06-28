@@ -34,4 +34,12 @@ class AgentImportModel(BaseModel):
     paused: bool = False
     trigger_conditions: str
     filter_rules: FilterRules
-    trigger_bypass: bool = False 
+    trigger_bypass: bool = False
+
+class TemplateInfo(BaseModel):
+    id: str
+    name: str
+    description: str
+
+class CreateFromTemplateRequest(BaseModel):
+    template_id: str 

@@ -338,6 +338,12 @@ export interface Tool {
   input_schema: Record<string, any>;
 }
 
+export interface Template {
+  id: string;
+  name: string;
+  description: string;
+}
+
 export const getAgents = async (): Promise<Agent[]> => {
   try {
     const response = await fetch(`${API_URL}/agents`);
@@ -447,6 +453,31 @@ export const importAgent = async (file: File): Promise<Agent> => {
 
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({ detail: 'Failed to import agent' }));
+    throw new Error(errorData.detail);
+  }
+
+  return response.json();
+};
+
+export const getAgentTemplates = async (): Promise<Template[]> => {
+  const response = await fetch('/api/agents/templates');
+  if (!response.ok) {
+    throw new Error('Failed to fetch agent templates');
+  }
+  return response.json();
+};
+
+export const createAgentFromTemplate = async (templateId: string): Promise<Agent> => {
+  const response = await fetch('/api/agents/from-template', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ template_id: templateId }),
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({ detail: 'Failed to create agent from template' }));
     throw new Error(errorData.detail);
   }
 

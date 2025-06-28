@@ -1,0 +1,16 @@
+{
+  "name": "Default Template",
+  "description": "A basic template for a general-purpose agent.",
+  "system_prompt": "You are a helpful assistant.",
+  "user_instructions": "Please follow the user's instructions carefully.",
+  "tools": {},
+  "paused": false,
+  "trigger_conditions": "Default trigger conditions if any.",
+  "filter_rules": {
+    "email_blacklist": [],
+    "email_whitelist": [],
+    "domain_blacklist": [],
+    "domain_whitelist": []
+  },
+  "trigger_bypass": false
+} 
