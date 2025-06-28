@@ -87,7 +87,9 @@ def initialize_agent_db():
             # Now run migrations to handle schema changes
             print("Running agent table migrations...")
             add_column_if_not_exists(cursor, 'agents', 'tools', 'TEXT')
+            add_column_if_not_exists(cursor, 'agents', 'paused', 'BOOLEAN DEFAULT FALSE')
             add_column_if_not_exists(cursor, 'agent_instances', 'context_identifier', 'TEXT')
+            add_column_if_not_exists(cursor, 'triggers', 'trigger_bypass', 'BOOLEAN DEFAULT FALSE')
             
             # Migration to remove the 'function_name' column from 'triggers'
             cursor.execute("PRAGMA table_info(triggers)")

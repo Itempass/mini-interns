@@ -134,6 +134,7 @@ async def create_trigger(
     agent_uuid: UUID,
     trigger_conditions: str,
     filter_rules: Dict[str, Any],
+    trigger_bypass: bool = False,
 ) -> TriggerModel:
     """
     Creates a new Trigger, persists it to the database, and returns the Pydantic model.
@@ -142,6 +143,7 @@ async def create_trigger(
         agent_uuid=agent_uuid,
         trigger_conditions=trigger_conditions,
         filter_rules=filter_rules,
+        trigger_bypass=trigger_bypass,
     )
     await _create_trigger_in_db(trigger_model)
     return trigger_model

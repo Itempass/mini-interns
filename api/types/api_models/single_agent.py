@@ -11,10 +11,12 @@ class AgentWithTriggerSettings(BaseModel):
     system_prompt: str
     user_instructions: str
     tools: Dict[str, Any] = Field(default_factory=dict)
+    paused: bool = False
     created_at: datetime
     updated_at: datetime
     trigger_conditions: str
     filter_rules: FilterRules
+    trigger_bypass: bool = False
 
 class CreateAgentRequest(BaseModel):
     name: str

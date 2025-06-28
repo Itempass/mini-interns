@@ -23,7 +23,6 @@ def get_all_settings():
             IMAP_SERVER=loaded_settings.IMAP_SERVER,
             IMAP_USERNAME=loaded_settings.IMAP_USERNAME,
             OPENROUTER_MODEL=loaded_settings.OPENROUTER_MODEL,
-            DRAFT_CREATION_ENABLED=loaded_settings.DRAFT_CREATION_ENABLED,
             IMAP_PASSWORD="*****" if loaded_settings.IMAP_PASSWORD else None,
             OPENROUTER_API_KEY="*****" if loaded_settings.OPENROUTER_API_KEY else None
         )

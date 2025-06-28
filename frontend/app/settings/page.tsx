@@ -202,23 +202,6 @@ const SettingsPage = () => {
           </div>
         </div>
         
-        <div className={settingRowClasses}>
-          <label className={labelClasses}>Draft Creation:</label>
-          <div className="flex-1 flex items-center">
-            <button
-              onClick={() => handleInputChange({ target: { name: 'DRAFT_CREATION_ENABLED', value: !(settings.DRAFT_CREATION_ENABLED !== false) } } as any)}
-              className={`text-white border-none py-1.5 px-3 rounded cursor-pointer text-xs font-bold min-w-[70px] mr-2
-                ${settings.DRAFT_CREATION_ENABLED !== false ? 'bg-blue-600' : 'bg-red-600'}`
-              }
-            >
-              {settings.DRAFT_CREATION_ENABLED !== false ? 'ENABLED' : 'PAUSED'}
-            </button>
-            <span className="text-sm text-gray-600">
-              {settings.DRAFT_CREATION_ENABLED !== false ? 'Enabled - Drafts will be created for new emails' : 'Paused - Monitoring inbox but not creating drafts'}
-            </span>
-          </div>
-        </div>
-        
         {testMessage && (
             <div className={`text-center p-2 mb-4 rounded-md text-sm ${testStatus === 'success' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
                 {testMessage}

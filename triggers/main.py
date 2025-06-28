@@ -33,7 +33,7 @@ def set_last_uid(uid: str):
     redis_client = get_redis_client()
     redis_client.set(RedisKeys.LAST_EMAIL_UID, uid)
 
-async def passes_trigger_conditions_check(msg, trigger_conditions: str, app_settings, thread_context: str, message_id: str) -> bool:
+async def passes_trigger_conditions_check(msg, trigger_conditions: str, app_settings, thread_context: str, message_id: str, agent_name: str) -> bool:
     """
     Uses an LLM to check if the email passes the trigger conditions.
     Now uses full thread context for more informed trigger decisions.
@@ -120,7 +120,7 @@ Body:
             await save_conversation(ConversationData(
                 metadata=Metadata(
                     conversation_id=f"trigger_check_{uuid4()}",
-                    readable_workflow_name="Trigger Check (with Thread Context)",
+                    readable_workflow_name=f"Trigger Check {agent_name}",
                     readable_instance_context=f"For message: {msg.from_} - {msg.subject}"
                 ),
                 messages=[Message(**m) for m in messages if m.get("content") is not None]
@@ -198,17 +198,13 @@ def main():
                     if filtered_messages:
                         logger.info(f"Found {len(filtered_messages)} new email(s).")
                         
-                        # Check draft creation status once per batch for efficiency.
-                        if not app_settings.DRAFT_CREATION_ENABLED:
-                            logger.info("Draft creation is paused globally. Skipping agent execution for all new messages.")
-                        else:
-                            for msg in filtered_messages:
-                                message_id_tuple = msg.headers.get('message-id')
-                                if not message_id_tuple:
-                                    logger.warning(f"Skipping an email because it has no Message-ID.")
-                                    continue
-                                message_id = message_id_tuple[0].strip('<>')
-                                process_message(msg, message_id)
+                        for msg in filtered_messages:
+                            message_id_tuple = msg.headers.get('message-id')
+                            if not message_id_tuple:
+                                logger.warning(f"Skipping an email because it has no Message-ID.")
+                                continue
+                            message_id = message_id_tuple[0].strip('<>')
+                            process_message(msg, message_id)
 
                         latest_uid = filtered_messages[-1].uid
                         set_last_uid(latest_uid)
@@ -267,26 +263,37 @@ def process_message(msg, message_id: str):
         for trigger in triggers:
             logger.info(f"Evaluating trigger '{trigger.uuid}' for agent '{trigger.agent_uuid}'")
 
-            # 3a. Check simple filter rules
-            if not passes_filter(msg.from_, trigger.filter_rules):
-                logger.info(f"Email from '{msg.from_}' did not pass filter rules for trigger '{trigger.uuid}'.")
+            # 3a. Get the agent associated with the trigger
+            agent_model = await agent_client.get_agent(trigger.agent_uuid)
+            if not agent_model:
+                logger.error(f"Agent with UUID '{trigger.agent_uuid}' not found, but trigger '{trigger.uuid}' exists. Skipping.")
+                continue
+            
+            # 3b. Check if the agent is paused
+            if agent_model.paused:
+                logger.info(f"Agent '{agent_model.name}' ({agent_model.uuid}) is paused. Skipping trigger '{trigger.uuid}'.")
                 continue
 
-            # 3b. Check LLM-based trigger conditions
-            if not await passes_trigger_conditions_check(msg, trigger.trigger_conditions, app_settings, thread_context, message_id):
-                logger.info(f"Email did not pass LLM trigger conditions for trigger '{trigger.uuid}'.")
-                continue
+            if not trigger.trigger_bypass:
+                # 3c. Check simple filter rules
+                if not passes_filter(msg.from_, trigger.filter_rules):
+                    logger.info(f"Email from '{msg.from_}' did not pass filter rules for trigger '{trigger.uuid}'.")
+                    continue
+
+                # 3d. Check LLM-based trigger conditions
+                if not await passes_trigger_conditions_check(msg, trigger.trigger_conditions, app_settings, thread_context, message_id, agent_model.name):
+                    logger.info(f"Email did not pass LLM trigger conditions for trigger '{trigger.uuid}'.")
+                    continue
+            else:
+                logger.info(f"Trigger '{trigger.uuid}' has bypass enabled. Skipping filter and LLM checks.")
+
 
             # If both checks pass, we have a match.
             logger.info(f"SUCCESS: Email matched trigger '{trigger.uuid}'. Kicking off agent '{trigger.agent_uuid}'.")
 
             # The global draft creation check is now handled earlier in the main polling loop.
             
-            # 5. Get the agent associated with the trigger
-            agent_model = await agent_client.get_agent(trigger.agent_uuid)
-            if not agent_model:
-                logger.error(f"Agent with UUID '{trigger.agent_uuid}' not found, but trigger '{trigger.uuid}' exists. Skipping.")
-                continue
+            
 
             # 6. Prepare user input and run the agent
             if thread_context:

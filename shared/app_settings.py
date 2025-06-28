@@ -19,7 +19,6 @@ class AppSettings(BaseModel):
     IMAP_PASSWORD: Optional[str] = None
     OPENROUTER_API_KEY: Optional[str] = None
     OPENROUTER_MODEL: Optional[str] = None
-    DRAFT_CREATION_ENABLED: Optional[bool] = True
 
 def load_app_settings() -> AppSettings:
     """
@@ -35,25 +34,16 @@ def load_app_settings() -> AppSettings:
         RedisKeys.IMAP_USERNAME,
         RedisKeys.IMAP_PASSWORD,
         RedisKeys.OPENROUTER_API_KEY,
-        RedisKeys.OPENROUTER_MODEL,
-        RedisKeys.DRAFT_CREATION_ENABLED
+        RedisKeys.OPENROUTER_MODEL
     )
     results = pipeline.execute()[0]
-
-    # Convert draft_creation_enabled string to boolean, default to True if not set
-    draft_creation_enabled = results[5]
-    if draft_creation_enabled is not None:
-        draft_creation_enabled = draft_creation_enabled.lower() == 'true'
-    else:
-        draft_creation_enabled = True
 
     settings_data = {
         "IMAP_SERVER": results[0],
         "IMAP_USERNAME": results[1],
         "IMAP_PASSWORD": results[2],
         "OPENROUTER_API_KEY": results[3],
-        "OPENROUTER_MODEL": results[4],
-        "DRAFT_CREATION_ENABLED": draft_creation_enabled
+        "OPENROUTER_MODEL": results[4]
     }
     
     return AppSettings(**settings_data)
@@ -73,7 +63,6 @@ def save_app_settings(settings: AppSettings):
         "IMAP_PASSWORD": RedisKeys.IMAP_PASSWORD,
         "OPENROUTER_API_KEY": RedisKeys.OPENROUTER_API_KEY,
         "OPENROUTER_MODEL": RedisKeys.OPENROUTER_MODEL,
-        "DRAFT_CREATION_ENABLED": RedisKeys.DRAFT_CREATION_ENABLED,
     }
 
     pipeline = redis_client.pipeline()

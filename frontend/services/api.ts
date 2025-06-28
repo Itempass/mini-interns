@@ -6,7 +6,6 @@ export interface AppSettings {
   IMAP_PASSWORD?: string;
   OPENROUTER_API_KEY?: string;
   OPENROUTER_MODEL?: string;
-  DRAFT_CREATION_ENABLED?: boolean;
 }
 
 export interface FilterRules {
@@ -318,10 +317,12 @@ export interface Agent {
   system_prompt: string;
   user_instructions: string;
   tools: { [key: string]: { enabled: boolean; required: boolean; order?: number } };
+  paused?: boolean;
   created_at: string;
   updated_at: string;
   trigger_conditions?: string;
   filter_rules?: FilterRules;
+  trigger_bypass?: boolean;
 }
 
 export interface CreateAgentRequest {

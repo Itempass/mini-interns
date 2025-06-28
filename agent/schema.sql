@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS agents (
     system_prompt TEXT,
     user_instructions TEXT,
     tools TEXT,
+    paused BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -30,6 +31,7 @@ CREATE TABLE IF NOT EXISTS triggers (
     uuid TEXT PRIMARY KEY,
     agent_uuid TEXT NOT NULL,
     rules_json JSON,
+    trigger_bypass BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (agent_uuid) REFERENCES agents (uuid)

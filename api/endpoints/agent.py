@@ -198,6 +198,7 @@ async def list_agents():
             else:
                 trigger_settings = {
                     "trigger_conditions": trigger.trigger_conditions,
+                    "trigger_bypass": trigger.trigger_bypass,
                     "filter_rules": FilterRules.model_validate(trigger.filter_rules) if trigger.filter_rules else FilterRules()
                 }
             
@@ -235,6 +236,7 @@ async def get_agent(agent_uuid: UUID):
         else:
             trigger_settings = {
                 "trigger_conditions": trigger.trigger_conditions,
+                "trigger_bypass": trigger.trigger_bypass,
                 "filter_rules": FilterRules.model_validate(trigger.filter_rules) if trigger.filter_rules else FilterRules()
             }
 
@@ -275,12 +277,14 @@ async def update_agent(agent_uuid: UUID, agent_update: AgentWithTriggerSettings)
         if trigger:
             trigger.trigger_conditions = agent_update.trigger_conditions
             trigger.filter_rules = agent_update.filter_rules.model_dump()
+            trigger.trigger_bypass = agent_update.trigger_bypass
             await agent_client.update_trigger(trigger)
         else:
             await agent_client.create_trigger(
                 agent_uuid=agent_uuid,
                 trigger_conditions=agent_update.trigger_conditions,
-                filter_rules=agent_update.filter_rules.model_dump()
+                filter_rules=agent_update.filter_rules.model_dump(),
+                trigger_bypass=agent_update.trigger_bypass
             )
 
         logger.info(f"PUT /agents/{agent_uuid} - Agent and trigger updated successfully")

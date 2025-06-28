@@ -1,36 +1,18 @@
 'use client';
-import React, { useState, useEffect } from 'react';
-import { Agent, getAgents, createAgent, deleteAgent } from '../services/api';
+import React, { useState } from 'react';
+import { Agent, createAgent, deleteAgent } from '../services/api';
 import { MoreVertical, Trash2 } from 'lucide-react';
 
 interface AgentSidebarProps {
+  agents: Agent[];
   onSelectAgent: (agent: Agent | null) => void;
   selectedAgent: Agent | null;
+  onAgentsUpdate: () => void;
 }
 
-const AgentSidebar: React.FC<AgentSidebarProps> = ({ onSelectAgent, selectedAgent }) => {
-  const [agents, setAgents] = useState<Agent[]>([]);
+const AgentSidebar: React.FC<AgentSidebarProps> = ({ agents, onSelectAgent, selectedAgent, onAgentsUpdate }) => {
   const [error, setError] = useState<string | null>(null);
   const [menuOpenFor, setMenuOpenFor] = useState<string | null>(null);
-
-  const fetchAgents = async () => {
-    try {
-      const fetchedAgents = await getAgents();
-      setAgents(fetchedAgents);
-      if (fetchedAgents.length > 0 && !selectedAgent) {
-        onSelectAgent(fetchedAgents[0]);
-      } else if (fetchedAgents.length === 0) {
-        onSelectAgent(null);
-      }
-    } catch (e) {
-      setError('Failed to fetch agents.');
-      console.error(e);
-    }
-  };
-
-  useEffect(() => {
-    fetchAgents();
-  }, []);
 
   const handleCreateAgent = async () => {
     const newAgentName = `New Agent ${agents.length + 1}`;
@@ -39,7 +21,7 @@ const AgentSidebar: React.FC<AgentSidebarProps> = ({ onSelectAgent, selectedAgen
       description: "A newly created agent."
     });
     if (newAgent) {
-      await fetchAgents();
+      onAgentsUpdate();
       onSelectAgent(newAgent);
     } else {
       setError('Failed to create agent.');
@@ -51,11 +33,7 @@ const AgentSidebar: React.FC<AgentSidebarProps> = ({ onSelectAgent, selectedAgen
       try {
         await deleteAgent(uuid);
         setMenuOpenFor(null);
-        if (selectedAgent?.uuid === uuid) {
-          const remainingAgents = agents.filter(a => a.uuid !== uuid);
-          onSelectAgent(remainingAgents.length > 0 ? remainingAgents[0] : null);
-        }
-        await fetchAgents();
+        onAgentsUpdate();
       } catch (e) {
         setError('Failed to delete agent.');
         console.error(e);
@@ -73,13 +51,22 @@ const AgentSidebar: React.FC<AgentSidebarProps> = ({ onSelectAgent, selectedAgen
             <div className="flex items-center justify-between">
               <button
                 onClick={() => onSelectAgent(agent)}
-                className={`flex-grow text-left px-3 py-2 rounded-md text-sm transition-colors ${
+                className={`flex w-full items-center justify-between text-left px-3 py-2 rounded-md text-sm transition-colors ${
                   selectedAgent?.uuid === agent.uuid
                     ? 'bg-blue-500 text-white'
                     : 'bg-white hover:bg-gray-100'
                 }`}
               >
-                {agent.name}
+                <span>{agent.name}</span>
+                {!agent.paused ? (
+                    <span className="ml-2 rounded-full bg-green-100 px-2 py-1 text-xs font-bold text-green-800">
+                        ON
+                    </span>
+                ) : (
+                    <span className="ml-2 rounded-full bg-red-100 px-2 py-1 text-xs font-bold text-red-800">
+                        OFF
+                    </span>
+                )}
               </button>
               <button
                 onClick={() => setMenuOpenFor(menuOpenFor === agent.uuid ? null : agent.uuid)}

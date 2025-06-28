@@ -10,6 +10,7 @@ class AgentModel(BaseModel):
     system_prompt: str
     user_instructions: str
     tools: Dict[str, Any] = Field(default_factory=dict) # tool_id -> { enabled: bool, required: bool, order: int }
+    paused: bool = False
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime = Field(default_factory=datetime.now)
 
@@ -34,6 +35,7 @@ class TriggerModel(BaseModel):
     uuid: UUID = Field(default_factory=uuid4)
     agent_uuid: UUID
     trigger_conditions: str
+    trigger_bypass: bool = False # If True, the trigger will immediately be bypassed and the agent will run
     filter_rules: Dict[str, Any] = Field(default_factory=dict)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
