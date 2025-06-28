@@ -95,6 +95,25 @@ async def _execute_run(agent_model: AgentModel, instance: AgentInstanceModel) ->
             
         tools = _format_mcp_tools_for_openai(mcp_tools, server_name=server_name)
         
+        stop_workflow_tool = {
+            "type": "function",
+            "function": {
+                "name": "stop_workflow",
+                "description": "Call this tool to indicate that you have finished your work. This should be used when you have a final answer for the user or are COMPLETELY unable to continue.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "final_answer": {
+                            "type": "string",
+                            "description": "The final answer or summary of the work done to be presented to the user."
+                        }
+                    },
+                    "required": ["final_answer"]
+                }
+            }
+        }
+        tools.append(stop_workflow_tool)
+        
         required_tools_with_order = sorted(
             [(tool_id, details['order']) for tool_id, details in agent_model.tools.items() if details.get('required') and tool_id in available_tool_names],
             key=lambda x: x[1]
@@ -140,6 +159,35 @@ async def _execute_run(agent_model: AgentModel, instance: AgentInstanceModel) ->
                     logger.info("Agent decided to finish, and all required tools were used.")
                     break
             
+            should_stop = False
+            final_answer = ""
+            mcp_tool_calls = []
+
+            for tool_call in response_message.tool_calls:
+                if tool_call.function.name == "stop_workflow":
+                    should_stop = True
+                    logger.info("Agent requested to stop workflow.")
+                    try:
+                        args = json.loads(tool_call.function.arguments)
+                        final_answer = args.get("final_answer", "Workflow finished by agent.")
+                        instance.messages.append(MessageModel(
+                            tool_call_id=tool_call.id,
+                            role="tool",
+                            name=tool_call.function.name,
+                            content="Workflow stop acknowledged.",
+                        ))
+                    except (json.JSONDecodeError, AttributeError) as e:
+                        logger.warning(f"Could not parse arguments for stop_workflow: {e}", exc_info=True)
+                        final_answer = "Workflow finished with error parsing final answer."
+                        instance.messages.append(MessageModel(
+                            tool_call_id=tool_call.id,
+                            role="tool",
+                            name=tool_call.function.name,
+                            content=f"Error processing arguments: {e}",
+                        ))
+                else:
+                    mcp_tool_calls.append(tool_call)
+
             called_tool_ids = {tc.function.name for tc in response_message.tool_calls}
             
             if next_required_tool and next_required_tool not in called_tool_ids:
@@ -166,28 +214,35 @@ async def _execute_run(agent_model: AgentModel, instance: AgentInstanceModel) ->
             else:
                 logger.info(f"Agent called required tool '{next_required_tool}' as expected, or no required tools pending.")
 
-            tasks = []
-            for tool_call in response_message.tool_calls:
-                full_tool_name = tool_call.function.name
-                short_tool_name = full_tool_name.replace(f"{server_name}-", "", 1)
-                function_args = json.loads(tool_call.function.arguments)
-                tasks.append(client.call_tool(short_tool_name, function_args))
-            
-            tool_results = await asyncio.gather(*tasks)
+            if mcp_tool_calls:
+                tasks = []
+                for tool_call in mcp_tool_calls:
+                    full_tool_name = tool_call.function.name
+                    short_tool_name = full_tool_name.replace(f"{server_name}-", "", 1)
+                    function_args = json.loads(tool_call.function.arguments)
+                    tasks.append(client.call_tool(short_tool_name, function_args))
+                
+                tool_results = await asyncio.gather(*tasks)
 
-            for tool_call, result in zip(response_message.tool_calls, tool_results):
-                result_text = "\n".join(item.text for item in result)
-                instance.messages.append(MessageModel(
-                    tool_call_id=tool_call.id,
-                    role="tool",
-                    name=tool_call.function.name,
-                    content=result_text,
-                ))
+                for tool_call, result in zip(mcp_tool_calls, tool_results):
+                    result_text = "\n".join(item.text for item in result)
+                    instance.messages.append(MessageModel(
+                        tool_call_id=tool_call.id,
+                        role="tool",
+                        name=tool_call.function.name,
+                        content=result_text,
+                    ))
 
             for tool_id in called_tool_ids:
                 if tool_id in required_tools_sequence:
                     completed_required_tools.add(tool_id)
                     logger.info(f"Required tool '{tool_id}' marked as completed.")
+            
+            if should_stop:
+                logger.info("Stopping workflow as requested by agent.")
+                if final_answer:
+                    instance.messages.append(MessageModel(role="assistant", content=final_answer))
+                break
 
     logger.info(f"Finished execution for instance {instance.uuid}. Logging conversation.")
     try:
