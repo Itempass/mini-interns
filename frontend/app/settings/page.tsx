@@ -1,6 +1,6 @@
 'use client';
 import React, { useState, useEffect } from 'react';
-import { getSettings, setSettings, AppSettings, initializeInbox, getInboxInitializationStatus, testImapConnection, reinitializeInbox } from '../../services/api';
+import { getSettings, setSettings, AppSettings, initializeInbox, getInboxInitializationStatus, testImapConnection, reinitializeInbox, getVersion } from '../../services/api';
 import { Copy } from 'lucide-react';
 import TopBar from '../../components/TopBar';
 
@@ -10,6 +10,7 @@ const SettingsPage = () => {
   const [inboxStatus, setInboxStatus] = useState<string | null>(null);
   const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
   const [testMessage, setTestMessage] = useState<string>('');
+  const [version, setVersion] = useState<string>('');
 
   const hasUnsavedChanges = JSON.stringify(settings) !== JSON.stringify(initialSettings);
 
@@ -28,7 +29,12 @@ const SettingsPage = () => {
       setSettingsState(fetchedSettings);
       setInitialSettings(fetchedSettings);
     };
+    const fetchVersion = async () => {
+      const fetchedVersion = await getVersion();
+      setVersion(fetchedVersion);
+    };
     fetchSettings();
+    fetchVersion();
   }, []);
 
   useEffect(() => {
@@ -215,6 +221,7 @@ const SettingsPage = () => {
         </div>
         <p className="text-center text-xs text-gray-500 mt-2">First save any new settings before testing.</p>
         </div>
+        {version && <p className="text-center text-xs text-gray-400 mt-4">Version: {version}</p>}
       </div>
     </div>
   );

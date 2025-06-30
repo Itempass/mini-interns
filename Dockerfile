@@ -32,6 +32,7 @@ COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code in a specific order
+COPY VERSION ./
 COPY shared/ ./shared/
 COPY agent/ ./agent/
 COPY agentlogger/ ./agentlogger/
