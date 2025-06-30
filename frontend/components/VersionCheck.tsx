@@ -31,26 +31,21 @@ const VersionCheck = () => {
 
     return (
         <div style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
             backgroundColor: '#FFFBEB', // A light yellow, less intrusive than bright red/green
             color: '#92400E', // A dark amber color for text
             padding: '8px 16px',
             textAlign: 'center',
             fontSize: '14px',
-            zIndex: 1000,
             borderBottom: '1px solid #FDE68A' // A slightly darker yellow for the border
         }}>
-            A new version ({latestVersion}) is available! See what's new in the{' '}
+            A new version ({latestVersion}) is available! See what's new on the{' '}
             <a 
-                href="https://github.com/Itempass/mini-interns/blob/main/CHANGELOG.md" 
+                href="https://github.com/Itempass/mini-interns/releases" 
                 target="_blank" 
                 rel="noopener noreferrer"
                 style={{ color: '#92400E', textDecoration: 'underline' }}
             >
-                changelog
+                releases page
             </a>.
         </div>
     );
