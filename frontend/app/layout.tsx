@@ -1,20 +1,26 @@
 import type { Metadata } from "next";
-import React from "react";
+import { Inter } from "next/font/google";
 import "./globals.css";
+import VersionCheck from "../components/VersionCheck";
+
+const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "My App",
-  description: "My multi-service app",
+  title: "Mini Interns",
+  description: "Manage your AI agents",
 };
 
 export default function RootLayout({
   children,
-}: Readonly<{
+}: {
   children: React.ReactNode;
-}>) {
+}) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body className={inter.className}>
+        <VersionCheck />
+        {children}
+      </body>
     </html>
   );
 } 

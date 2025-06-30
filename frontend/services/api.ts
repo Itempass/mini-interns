@@ -82,6 +82,23 @@ export const getVersion = async (): Promise<string> => {
   }
 };
 
+export const getLatestVersion = async (): Promise<string | null> => {
+  console.log('Fetching latest version from URL:', `${API_URL}/version/latest`);
+  try {
+    const response = await fetch(`${API_URL}/version/latest`);
+    if (!response.ok) {
+      console.error('Failed to fetch latest version. Status:', response.status);
+      throw new Error('Failed to fetch latest version');
+    }
+    const data = await response.json();
+    console.log('Successfully fetched latest version:', data.latest_version);
+    return data.latest_version;
+  } catch (error) {
+    console.error('An error occurred while fetching latest version:', error);
+    return null;
+  }
+};
+
 export const testImapConnection = async () => {
   console.log('Testing IMAP connection...');
   try {
