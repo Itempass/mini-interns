@@ -22,8 +22,6 @@ services:
       - ./data/db:/data/db
       - ./data/redis:/data/redis
       - ./data:/data
-    dns:
-      - 8.8.8.8
     restart: unless-stopped
     depends_on:
       - qdrant
