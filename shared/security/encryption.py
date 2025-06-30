@@ -6,8 +6,10 @@ from filelock import FileLock, Timeout
 
 logger = logging.getLogger(__name__)
 
-# Define the persistent path for the key file within the data volume
-KEY_FILE_PATH = "data/secret.key"
+# Define the persistent path for the key file within a dedicated, mapped volume.
+# The path must be absolute to ensure it's written into the volume mount,
+# not into the application's relative working directory.
+KEY_FILE_PATH = "/data/keys/secret.key"
 
 _ENCRYPTION_KEY = None
 

@@ -11,6 +11,7 @@ __pycache__/
 /data/db/
 /data/redis/
 /data/qdrant/
+/data/keys/
 .env
 
 # Node
