@@ -25,34 +25,34 @@ def get_encryption_key() -> bytes:
     when multiple processes start simultaneously.
     """
     pid = os.getpid()
-    logger.info(f"[PID: {pid}] Requesting encryption key.")
+    logger.debug(f"[PID: {pid}] Requesting encryption key.")
     
     global _ENCRYPTION_KEY
     if _ENCRYPTION_KEY:
-        logger.info(f"[PID: {pid}] Returning cached key: {_ENCRYPTION_KEY[:8]}...")
+        logger.debug(f"[PID: {pid}] Returning cached key: {_ENCRYPTION_KEY[:8]}...")
         return _ENCRYPTION_KEY
 
     # The key is read outside the lock to allow for concurrent reads.
     # The lock is only for the critical section where the key might be created.
     if os.path.exists(KEY_FILE_PATH):
-        logger.info(f"[PID: {pid}] Key file exists. Reading key from disk.")
+        logger.debug(f"[PID: {pid}] Key file exists. Reading key from disk.")
         with open(KEY_FILE_PATH, "rb") as key_file:
             key = key_file.read()
         _ENCRYPTION_KEY = key
-        logger.info(f"[PID: {pid}] Loaded key from disk: {key[:8]}...")
+        logger.debug(f"[PID: {pid}] Loaded key from disk: {key[:8]}...")
         return key
 
     lock_file_path = KEY_FILE_PATH + ".lock"
     
     try:
         # Create a lock object with a timeout to prevent indefinite hanging.
-        logger.info(f"[PID: {pid}] Attempting to acquire lock: {lock_file_path}")
+        logger.debug(f"[PID: {pid}] Attempting to acquire lock: {lock_file_path}")
         lock = FileLock(lock_file_path, timeout=10)
         with lock:
-            logger.info(f"[PID: {pid}] Lock acquired.")
+            logger.debug(f"[PID: {pid}] Lock acquired.")
             # Re-check if the key was created by another process while we were waiting for the lock.
             if os.path.exists(KEY_FILE_PATH):
-                logger.info(f"[PID: {pid}] Key file now exists after acquiring lock. Reading.")
+                logger.debug(f"[PID: {pid}] Key file now exists after acquiring lock. Reading.")
                 with open(KEY_FILE_PATH, "rb") as key_file:
                     key = key_file.read()
             else:
@@ -62,7 +62,7 @@ def get_encryption_key() -> bytes:
                 key = _generate_key()
                 with open(KEY_FILE_PATH, "wb") as key_file:
                     key_file.write(key)
-                logger.info(f"[PID: {pid}] New encryption key generated and saved: {key[:8]}...")
+                logger.debug(f"[PID: {pid}] New encryption key generated and saved: {key[:8]}...")
     except Timeout:
         logger.error(f"[PID: {pid}] Could not acquire lock on {lock_file_path} after 10 seconds. The application may be in an inconsistent state.")
         # If we time out, we should try one last time to read the key, as it might have been created
@@ -75,7 +75,7 @@ def get_encryption_key() -> bytes:
             raise RuntimeError("Failed to obtain encryption key due to a persistent lock.")
 
     _ENCRYPTION_KEY = key
-    logger.info(f"[PID: {pid}] Caching and returning key: {key[:8]}...")
+    logger.debug(f"[PID: {pid}] Caching and returning key: {key[:8]}...")
     return key
 
 def encrypt_value(value: str) -> str:
@@ -118,7 +118,7 @@ def decrypt_value(encrypted_value: str) -> str:
         # Ensure value is bytes
         encrypted_bytes = encrypted_value.encode('utf-8')
         decrypted_value = f.decrypt(encrypted_bytes)
-        logger.info(f"[PID: {pid}] Successfully decrypted value.")
+        logger.debug(f"[PID: {pid}] Successfully decrypted value.")
         return decrypted_value.decode('utf-8')
     except Exception as e:
         # This can happen if the value is not encrypted (e.g., from a previous
