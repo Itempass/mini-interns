@@ -3,7 +3,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from api.endpoints import app_settings, agent, agentlogger, mcp, connection
 from shared.config import settings
-from shared.version import __version__
+from shared.version import __version__, get_latest_version
 import uvicorn
 
 # Configure logging
@@ -29,6 +29,11 @@ app.include_router(connection.router, tags=["connection"])
 @app.get("/version")
 def get_app_version():
     return {"version": __version__}
+
+@app.get("/version/latest")
+async def get_latest_app_version():
+    latest_version = await get_latest_version()
+    return {"latest_version": latest_version}
 
 @app.get("/")
 def read_root():

@@ -4,6 +4,7 @@ import ConversationsList from '../../components/ConversationsList';
 import ConversationDetail from '../../components/ConversationDetail';
 import TopBar from '../../components/TopBar';
 import { addReview } from '../../services/api';
+import VersionCheck from '../../components/VersionCheck';
 
 type SubmissionStatus = 'idle' | 'sending' | 'success' | 'error';
 
@@ -55,6 +56,7 @@ const LogsPage = () => {
 
   return (
     <div>
+      <VersionCheck />
       <TopBar />
       <div className="p-10 max-w-7xl mx-auto font-sans">
         <h1 className="text-center mb-5 text-2xl font-bold text-gray-800">Agent Logger - Conversation Logs</h1>

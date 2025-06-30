@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { getSettings, setSettings, AppSettings, initializeInbox, getInboxInitializationStatus, testImapConnection, reinitializeInbox, getVersion } from '../../services/api';
 import { Copy } from 'lucide-react';
 import TopBar from '../../components/TopBar';
+import VersionCheck from '../../components/VersionCheck';
 
 const SettingsPage = () => {
   const [settings, setSettingsState] = useState<AppSettings>({});
@@ -30,9 +31,9 @@ const SettingsPage = () => {
       setInitialSettings(fetchedSettings);
     };
     const fetchVersion = async () => {
-      const fetchedVersion = await getVersion();
-      setVersion(fetchedVersion);
-    };
+        const fetchedVersion = await getVersion();
+        setVersion(fetchedVersion);
+    }
     fetchSettings();
     fetchVersion();
   }, []);
@@ -123,6 +124,7 @@ const SettingsPage = () => {
 
   return (
     <div>
+      <VersionCheck />
       <TopBar />
       <div className="p-10 max-w-4xl mx-auto font-sans">
         <div className={settingsSectionClasses}>

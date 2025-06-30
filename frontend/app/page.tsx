@@ -4,6 +4,7 @@ import TopBar from '../components/TopBar';
 import AgentSidebar from '../components/AgentSidebar';
 import AgentSettings from '../components/AgentSettings';
 import { Agent, getAgents } from '../services/api';
+import VersionCheck from '../components/VersionCheck';
 
 const HomePage = () => {
   const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null);
@@ -32,18 +33,21 @@ const HomePage = () => {
   };
 
   return (
-    <div className="flex flex-col h-screen">
-      <TopBar />
-      <div className="flex flex-1 overflow-hidden">
-        <AgentSidebar 
-          agents={agents}
-          onSelectAgent={handleSelectAgent} 
-          selectedAgent={selectedAgent} 
-          onAgentsUpdate={fetchAgents}
-        />
-        <main className="flex-1 overflow-y-auto bg-gray-100">
-          <AgentSettings agent={selectedAgent} onAgentUpdate={fetchAgents} />
-        </main>
+    <div className="flex flex-col h-screen bg-white">
+      <VersionCheck />
+      <div className="flex flex-col flex-grow overflow-hidden">
+        <TopBar />
+        <div className="flex flex-1 overflow-hidden">
+          <AgentSidebar 
+            agents={agents}
+            onSelectAgent={handleSelectAgent} 
+            selectedAgent={selectedAgent} 
+            onAgentsUpdate={fetchAgents}
+          />
+          <main className="flex-1 overflow-y-auto bg-gray-100">
+            <AgentSettings agent={selectedAgent} onAgentUpdate={fetchAgents} />
+          </main>
+        </div>
       </div>
     </div>
   );
