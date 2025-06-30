@@ -157,21 +157,6 @@ const SettingsPage = () => {
         <div className="flex-1 overflow-y-auto">
           <div className="p-10 max-w-4xl mx-auto font-sans">
             <div className={settingsSectionClasses}>
-              <h2 className="text-center mb-5 text-2xl font-bold">Inbox Vectorization</h2>
-              <p className="text-center text-sm text-gray-600 mb-5">
-                To enable semantic search over your emails, they need to be vectorized and stored. This process can take a few minutes.
-              </p>
-              <div className="text-center mb-5">
-                <span>Inbox Vectorization Status: </span>
-                <span className={getStatusClasses(inboxStatus)}>
-                  {inboxStatus ? inboxStatus.charAt(0).toUpperCase() + inboxStatus.slice(1).replace('_', ' ') : 'Loading...'}
-                </span>
-              </div>
-              <div className="flex justify-center items-center space-x-4">
-                <button className={`${buttonClasses.replace('block mx-auto', '')} bg-amber-600`} onClick={handleRevectorize}>Re-vectorize Inbox</button>
-              </div>
-            </div>
-            <div className={settingsSectionClasses}>
               <h2 className="text-center mb-5 text-2xl font-bold">Connection Settings</h2>
               <p className="text-center text-sm text-gray-600 mb-5">
                 All settings are saved locally to your Docker Container. Your IMAP password is encrypted.
@@ -272,6 +257,25 @@ const SettingsPage = () => {
                   {testStatus === 'testing' ? 'Testing...' : 'Test Connection'}
               </button>
             </div>
+            </div>
+            <div className={settingsSectionClasses}>
+              <h2 className="text-center mb-5 text-2xl font-bold">Inbox Vectorization</h2>
+              <p className="text-center text-sm text-gray-600 mb-5">
+                To enable semantic search over your emails, they need to be vectorized and stored. This process can take a few minutes.
+              </p>
+              <div className="flex justify-center items-center mb-5 space-x-3">
+                <span>Inbox Vectorization Status: </span>
+                <span className={getStatusClasses(inboxStatus)}>
+                  {inboxStatus ? inboxStatus.charAt(0).toUpperCase() + inboxStatus.slice(1).replace('_', ' ') : 'Loading...'}
+                </span>
+                <button
+                  className="py-1 px-3 text-xs rounded bg-amber-600 text-white cursor-pointer border-none"
+                  onClick={handleRevectorize}
+                  title="This will delete all existing email vector data and start from scratch. This action cannot be undone."
+                >
+                  Re-vectorize
+                </button>
+              </div>
             </div>
             {version && <p className="text-center text-xs text-gray-400 mt-4">Version: {version}</p>}
           </div>
