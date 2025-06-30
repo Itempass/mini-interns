@@ -274,21 +274,21 @@ def process_message(msg, message_id: str):
                 logger.info(f"Agent '{agent_model.name}' ({agent_model.uuid}) is paused. Skipping trigger '{trigger.uuid}'.")
                 continue
 
-            if not trigger.trigger_bypass:
-                # 3c. Check simple filter rules
-                if not passes_filter(msg.from_, trigger.filter_rules):
-                    logger.info(f"Email from '{msg.from_}' did not pass filter rules for trigger '{trigger.uuid}'.")
-                    continue
+            # 3c. Check simple filter rules
+            if not passes_filter(msg.from_, trigger.filter_rules):
+                logger.info(f"Email from '{msg.from_}' did not pass filter rules for trigger '{trigger.uuid}'.")
+                continue
 
-                # 3d. Check LLM-based trigger conditions
+            # 3d. Check LLM-based trigger conditions unless bypassed
+            if not trigger.trigger_bypass:
                 if not await passes_trigger_conditions_check(msg, trigger.trigger_conditions, app_settings, thread_context, message_id, agent_model.name):
                     logger.info(f"Email did not pass LLM trigger conditions for trigger '{trigger.uuid}'.")
                     continue
             else:
-                logger.info(f"Trigger '{trigger.uuid}' has bypass enabled. Skipping filter and LLM checks.")
+                logger.info(f"Trigger '{trigger.uuid}' has LLM bypass enabled. Skipping LLM check.")
 
 
-            # If both checks pass, we have a match.
+            # If all checks pass, we have a match.
             logger.info(f"SUCCESS: Email matched trigger '{trigger.uuid}'. Kicking off agent '{trigger.agent_uuid}'.")
 
             # The global draft creation check is now handled earlier in the main polling loop.

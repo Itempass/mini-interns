@@ -268,55 +268,58 @@ const AgentSettings: React.FC<AgentSettingsProps> = ({ agent, onAgentUpdate }) =
               <SaveButton />
             </div>
             <div className="space-y-4 mt-4">
-              <div className="flex items-center">
-                <input
-                  type="checkbox"
-                  name="trigger_bypass"
-                  id="trigger_bypass"
-                  checked={editableAgent.trigger_bypass || false}
-                  onChange={handleInputChange}
-                  className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              <div>
+                <div className="flex items-center mb-1">
+                  <span className="text-sm font-medium text-gray-700">Trigger Instructions</span>
+                  <label htmlFor="trigger_bypass" className="flex items-center text-sm font-medium text-gray-900 cursor-pointer ml-2">
+                    (
+                    <input
+                      type="checkbox"
+                      name="trigger_bypass"
+                      id="trigger_bypass"
+                      checked={editableAgent.trigger_bypass || false}
+                      onChange={handleInputChange}
+                      className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 mx-2"
+                    />
+                    bypass prompt)
+                  </label>
+                </div>
+                <textarea 
+                  name="trigger_conditions" 
+                  value={editableAgent.trigger_conditions} 
+                  onChange={handleInputChange} 
+                  rows={5} 
+                  className="mt-1 block w-full rounded-md border-gray-400 shadow-sm sm:text-sm p-2 border disabled:bg-gray-100 disabled:text-gray-500"
+                  disabled={editableAgent.trigger_bypass}
                 />
-                <label htmlFor="trigger_bypass" className="ml-2 block text-sm font-medium text-gray-900">
-                  Bypass trigger
-                </label>
+                <p className="text-xs text-gray-600 mt-1">Note: &lt;&lt;CURRENT_DATE&gt;&gt; will be replaced with the current date (YYYY-MM-DD).</p>
               </div>
-
-              {!editableAgent.trigger_bypass && (
-                <>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700">Trigger Instructions</label>
-                    <textarea name="trigger_conditions" value={editableAgent.trigger_conditions} onChange={handleInputChange} rows={5} className="mt-1 block w-full rounded-md border-gray-400 shadow-sm sm:text-sm p-2 border" />
-                    <p className="text-xs text-gray-600 mt-1">Note: &lt;&lt;CURRENT_DATE&gt;&gt; will be replaced with the current date (YYYY-MM-DD).</p>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700">Email Blacklist (comma-separated)</label>
-                      <textarea name="email_blacklist" value={filterRuleStrings.email_blacklist} onChange={handleFilterRuleChange} rows={2} className="mt-1 block w-full rounded-md border-gray-400 shadow-sm sm:text-sm p-2 border" />
-                      <p className="text-xs text-gray-600 mt-1">Stop processing emails from these specific addresses. Ex: spam@example.com, junk@mail.net</p>
-                      {filterErrors.email_blacklist && <p className="text-xs text-red-600 mt-1">{filterErrors.email_blacklist}</p>}
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700">Email Whitelist (comma-separated)</label>
-                      <textarea name="email_whitelist" value={filterRuleStrings.email_whitelist} onChange={handleFilterRuleChange} rows={2} className="mt-1 block w-full rounded-md border-gray-400 shadow-sm sm:text-sm p-2 border" />
-                      <p className="text-xs text-gray-600 mt-1">If used, only emails from these addresses will proceed. Ex: boss@mycompany.com</p>
-                      {filterErrors.email_whitelist && <p className="text-xs text-red-600 mt-1">{filterErrors.email_whitelist}</p>}
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700">Domain Blacklist (comma-separated)</label>
-                      <textarea name="domain_blacklist" value={filterRuleStrings.domain_blacklist} onChange={handleFilterRuleChange} rows={2} className="mt-1 block w-full rounded-md border-gray-400 shadow-sm sm:text-sm p-2 border" />
-                      <p className="text-xs text-gray-600 mt-1">Stop processing emails from these domains. Ex: evil-corp.com, bad-actors.org</p>
-                      {filterErrors.domain_blacklist && <p className="text-xs text-red-600 mt-1">{filterErrors.domain_blacklist}</p>}
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700">Domain Whitelist (comma-separated)</label>
-                      <textarea name="domain_whitelist" value={filterRuleStrings.domain_whitelist} onChange={handleFilterRuleChange} rows={2} className="mt-1 block w-full rounded-md border-gray-400 shadow-sm sm:text-sm p-2 border" />
-                      <p className="text-xs text-gray-600 mt-1">If used, only emails from these domains will proceed. Ex: mycompany.com</p>
-                      {filterErrors.domain_whitelist && <p className="text-xs text-red-600 mt-1">{filterErrors.domain_whitelist}</p>}
-                    </div>
-                  </div>
-                </>
-              )}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Email Blacklist (comma-separated)</label>
+                  <textarea name="email_blacklist" value={filterRuleStrings.email_blacklist} onChange={handleFilterRuleChange} rows={2} className="mt-1 block w-full rounded-md border-gray-400 shadow-sm sm:text-sm p-2 border" />
+                  <p className="text-xs text-gray-600 mt-1">Stop processing emails from these specific addresses. Ex: spam@example.com, junk@mail.net</p>
+                  {filterErrors.email_blacklist && <p className="text-xs text-red-600 mt-1">{filterErrors.email_blacklist}</p>}
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Email Whitelist (comma-separated)</label>
+                  <textarea name="email_whitelist" value={filterRuleStrings.email_whitelist} onChange={handleFilterRuleChange} rows={2} className="mt-1 block w-full rounded-md border-gray-400 shadow-sm sm:text-sm p-2 border" />
+                  <p className="text-xs text-gray-600 mt-1">If used, only emails from these addresses will proceed. Ex: boss@mycompany.com</p>
+                  {filterErrors.email_whitelist && <p className="text-xs text-red-600 mt-1">{filterErrors.email_whitelist}</p>}
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Domain Blacklist (comma-separated)</label>
+                  <textarea name="domain_blacklist" value={filterRuleStrings.domain_blacklist} onChange={handleFilterRuleChange} rows={2} className="mt-1 block w-full rounded-md border-gray-400 shadow-sm sm:text-sm p-2 border" />
+                  <p className="text-xs text-gray-600 mt-1">Stop processing emails from these domains. Ex: evil-corp.com, bad-actors.org</p>
+                  {filterErrors.domain_blacklist && <p className="text-xs text-red-600 mt-1">{filterErrors.domain_blacklist}</p>}
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Domain Whitelist (comma-separated)</label>
+                  <textarea name="domain_whitelist" value={filterRuleStrings.domain_whitelist} onChange={handleFilterRuleChange} rows={2} className="mt-1 block w-full rounded-md border-gray-400 shadow-sm sm:text-sm p-2 border" />
+                  <p className="text-xs text-gray-600 mt-1">If used, only emails from these domains will proceed. Ex: mycompany.com</p>
+                  {filterErrors.domain_whitelist && <p className="text-xs text-red-600 mt-1">{filterErrors.domain_whitelist}</p>}
+                </div>
+              </div>
             </div>
           </div>
 
