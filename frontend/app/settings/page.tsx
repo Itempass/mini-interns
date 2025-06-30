@@ -12,6 +12,7 @@ const SettingsPage = () => {
   const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
   const [testMessage, setTestMessage] = useState<string>('');
   const [version, setVersion] = useState<string>('');
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
 
   const hasUnsavedChanges = JSON.stringify(settings) !== JSON.stringify(initialSettings);
 
@@ -39,6 +40,16 @@ const SettingsPage = () => {
   }, []);
 
   useEffect(() => {
+    let timer: NodeJS.Timeout;
+    if (saveStatus === 'saved') {
+      timer = setTimeout(() => {
+        setSaveStatus('idle');
+      }, 2000);
+    }
+    return () => clearTimeout(timer);
+  }, [saveStatus]);
+
+  useEffect(() => {
     const fetchStatus = async () => {
       const status = await getInboxInitializationStatus();
       setInboxStatus(status);
@@ -59,9 +70,10 @@ const SettingsPage = () => {
 
   const handleSave = async () => {
     console.log('Save button clicked. Saving settings:', settings);
+    setSaveStatus('saving');
     await setSettings(settings);
     setInitialSettings(settings);
-    alert('Settings saved!');
+    setSaveStatus('saved');
   };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -70,11 +82,6 @@ const SettingsPage = () => {
   };
 
   const handleTestConnection = async () => {
-    if (hasUnsavedChanges) {
-        if (!window.confirm('You have unsaved changes that will not be included in the test. Please save your settings first. Do you want to proceed anyway?')) {
-            return;
-        }
-    }
     setTestStatus('testing');
     setTestMessage('');
     try {
@@ -145,6 +152,9 @@ const SettingsPage = () => {
         </div>
         <div className={settingsSectionClasses}>
           <h2 className="text-center mb-5 text-2xl font-bold">Connection Settings</h2>
+          <p className="text-center text-sm text-gray-600 mb-5">
+            All settings are saved locally to your Docker Container. Your IMAP password is encrypted.
+          </p>
           
           <div className={settingRowClasses}>
           <label className={labelClasses}>IMAP Server:</label>
@@ -216,12 +226,23 @@ const SettingsPage = () => {
             </div>
         )}
         <div className="flex justify-center items-center space-x-4">
-          <button className={buttonClasses.replace('block mx-auto', '')} onClick={handleSave}>Save Settings</button>
-          <button className={`${buttonClasses.replace('block mx-auto', '')} bg-gray-500`} onClick={handleTestConnection} disabled={testStatus === 'testing'}>
+          <button
+            className={`${buttonClasses.replace('block mx-auto', '')} disabled:bg-gray-400 disabled:cursor-not-allowed`}
+            onClick={handleSave}
+            disabled={!hasUnsavedChanges || saveStatus !== 'idle'}
+          >
+            {saveStatus === 'idle' && 'Save Settings'}
+            {saveStatus === 'saving' && 'Saving...'}
+            {saveStatus === 'saved' && (
+              <>
+                Saved <span role="img" aria-label="check mark">✅</span>
+              </>
+            )}
+          </button>
+          <button className={`${buttonClasses.replace('block mx-auto', '')} disabled:bg-gray-400 disabled:cursor-not-allowed`} onClick={handleTestConnection} disabled={testStatus === 'testing' || hasUnsavedChanges}>
               {testStatus === 'testing' ? 'Testing...' : 'Test Connection'}
           </button>
         </div>
-        <p className="text-center text-xs text-gray-500 mt-2">First save any new settings before testing.</p>
         </div>
         {version && <p className="text-center text-xs text-gray-400 mt-4">Version: {version}</p>}
       </div>
