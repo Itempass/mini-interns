@@ -21,6 +21,7 @@ services:
     volumes:
       - ./data/db:/data/db
       - ./data/redis:/data/redis
+      - ./data/keys:/data/keys
       - ./data:/data
     restart: unless-stopped
     depends_on:

@@ -5,6 +5,7 @@ import AgentSidebar from '../components/AgentSidebar';
 import AgentSettings from '../components/AgentSettings';
 import { Agent, getAgents } from '../services/api';
 import VersionCheck from '../components/VersionCheck';
+import ConnectionStatusIndicator from '../components/ConnectionStatusIndicator';
 
 const HomePage = () => {
   const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null);
@@ -38,12 +39,17 @@ const HomePage = () => {
       <div className="flex flex-col flex-grow overflow-hidden">
         <TopBar />
         <div className="flex flex-1 overflow-hidden">
-          <AgentSidebar 
-            agents={agents}
-            onSelectAgent={handleSelectAgent} 
-            selectedAgent={selectedAgent} 
-            onAgentsUpdate={fetchAgents}
-          />
+          <div className="w-64 flex-shrink-0 flex flex-col bg-gray-50 border-r border-gray-200">
+            <div className="flex flex-col flex-grow overflow-y-auto">
+              <AgentSidebar 
+                agents={agents}
+                onSelectAgent={handleSelectAgent} 
+                selectedAgent={selectedAgent} 
+                onAgentsUpdate={fetchAgents}
+              />
+            </div>
+            <ConnectionStatusIndicator />
+          </div>
           <main className="flex-1 overflow-y-auto bg-gray-100">
             <AgentSettings agent={selectedAgent} onAgentUpdate={fetchAgents} />
           </main>

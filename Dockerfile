@@ -55,7 +55,7 @@ COPY entrypoint.sh .
 RUN chmod +x entrypoint.sh
 
 # Create directories for persistent data
-RUN mkdir -p /data/redis /data/db
+RUN mkdir -p /data/redis /data/db /data/keys
 
 # Copy supervisor configuration
 COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
@@ -64,7 +64,7 @@ COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 EXPOSE 3000
 
 # Define volumes for persistent data
-VOLUME ["/data/redis", "/data/db"]
+VOLUME ["/data/redis", "/data/db", "/data/keys"]
 
 # Set the entrypoint script
 ENTRYPOINT ["/app/entrypoint.sh"]

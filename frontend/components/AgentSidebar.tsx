@@ -36,7 +36,7 @@ const AgentSidebar: React.FC<AgentSidebarProps> = ({ agents, onSelectAgent, sele
   };
 
   return (
-    <div className="w-64 bg-gray-50 h-full p-4 border-r border-gray-200 flex flex-col">
+    <div className="flex flex-col h-full p-4">
       <h2 className="text-lg font-bold mb-4">Agents</h2>
       {error && <p className="text-red-500 text-sm mb-2">{error}</p>}
       <ul className="flex-grow">
