@@ -64,7 +64,7 @@ COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 EXPOSE 3000
 
 # Define volumes for persistent data
-VOLUME ["/data/redis", "/data/db"]
+VOLUME ["/data"]
 
 # Set the entrypoint script
 ENTRYPOINT ["/app/entrypoint.sh"]

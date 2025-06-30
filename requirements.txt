@@ -6,6 +6,8 @@ python-dotenv
 redis
 fastapi
 uvicorn
+watchfiles
+cryptography
 openai
 httpx
 fastmcp
@@ -31,3 +33,4 @@ mysql-connector-python
 voyageai
 pytest
 html2text
+filelock

@@ -5,6 +5,7 @@ from typing import Optional
 
 from shared.redis.redis_client import get_redis_client
 from shared.redis.keys import RedisKeys
+from shared.security.encryption import encrypt_value, decrypt_value
 
 logger = logging.getLogger(__name__)
 
@@ -22,8 +23,8 @@ class AppSettings(BaseModel):
 
 def load_app_settings() -> AppSettings:
     """
-    Loads all application settings from Redis. This function does not validate,
-    it simply returns the current state from Redis.
+    Loads all application settings from Redis and decrypts sensitive values.
+    This function does not validate, it simply returns the current state from Redis.
     """
     logger.info("Loading application settings from Redis...")
     redis_client = get_redis_client()
@@ -46,11 +47,22 @@ def load_app_settings() -> AppSettings:
         "OPENROUTER_MODEL": results[4]
     }
     
+    # Decrypt sensitive fields if they exist
+    try:
+        if settings_data.get("IMAP_PASSWORD"):
+            logger.info(f"Value from Redis to be decrypted (IMAP_PASSWORD): {settings_data['IMAP_PASSWORD']}")
+            settings_data["IMAP_PASSWORD"] = decrypt_value(settings_data["IMAP_PASSWORD"])
+        if settings_data.get("OPENROUTER_API_KEY"):
+            logger.info(f"Value from Redis to be decrypted (OPENROUTER_API_KEY): {settings_data['OPENROUTER_API_KEY']}")
+            settings_data["OPENROUTER_API_KEY"] = decrypt_value(settings_data["OPENROUTER_API_KEY"])
+    except Exception as e:
+        logger.error(f"An unexpected error occurred during settings decryption: {e}", exc_info=True)
+
     return AppSettings(**settings_data)
 
 def save_app_settings(settings: AppSettings):
     """
-    Saves application settings to Redis.
+    Saves application settings to Redis, encrypting sensitive values.
     This function uses a mapping to dynamically update settings, making it
     concise and easy to extend.
     """
@@ -78,6 +90,13 @@ def save_app_settings(settings: AppSettings):
             continue
 
         if value is not None:
+            # Encrypt sensitive fields before saving
+            if field in ["IMAP_PASSWORD", "OPENROUTER_API_KEY"]:
+                logger.info(f"Value to be encrypted ({field}): '{value}'")
+                encrypted_value = encrypt_value(value)
+                logger.info(f"Encrypted value ({field}): '{encrypted_value}'")
+                value = encrypted_value
+
             # Convert boolean to string for Redis storage
             if isinstance(value, bool):
                 value = str(value).lower()
