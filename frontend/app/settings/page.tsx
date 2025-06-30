@@ -27,12 +27,34 @@ const SettingsPage = () => {
 
   const copyButtonStyle = "bg-gray-100 border border-gray-300 rounded-full w-6 h-6 flex items-center justify-center cursor-pointer ml-2";
 
+  const attemptAutoVectorization = async (currentSettings: AppSettings) => {
+    if (currentSettings.IMAP_SERVER && currentSettings.IMAP_USERNAME && currentSettings.IMAP_PASSWORD) {
+      try {
+        // Test the connection with the provided settings.
+        // The backend uses the saved settings, which have just been updated or fetched.
+        await testImapConnection();
+        
+        const status = await getInboxInitializationStatus();
+        if (status === 'not_started' || status === 'failed') {
+          console.log(`Inbox status is '${status}', starting automatic vectorization.`);
+          await initializeInbox();
+          // The polling interval will update the status on the page.
+        }
+      } catch (error) {
+        console.error("Automatic vectorization check failed: IMAP connection test was unsuccessful.", error);
+        // Do not proceed with vectorization if credentials are bad.
+        // User can use the manual "Test Connection" button for explicit feedback.
+      }
+    }
+  };
+
   useEffect(() => {
     console.log('Component mounted. Fetching initial data.');
     const fetchSettings = async () => {
       const fetchedSettings = await getSettings();
       setSettingsState(fetchedSettings);
       setInitialSettings(fetchedSettings);
+      await attemptAutoVectorization(fetchedSettings);
     };
     const fetchVersion = async () => {
         const fetchedVersion = await getVersion();
@@ -66,7 +88,7 @@ const SettingsPage = () => {
       if (status === 'completed' || status === 'failed') {
         clearInterval(interval);
       }
-    }, 5000); // Poll every 5 seconds
+    }, 3000); // Poll every 3 seconds
 
     return () => clearInterval(interval); // Cleanup on unmount
   }, []);
@@ -77,6 +99,7 @@ const SettingsPage = () => {
     await setSettings(settings);
     setInitialSettings(settings);
     setSaveStatus('saved');
+    await attemptAutoVectorization(settings);
   };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -95,12 +118,6 @@ const SettingsPage = () => {
       setTestStatus('error');
       setTestMessage(error.message || 'An unknown error occurred.');
     }
-  };
-
-  const handleVectorize = async () => {
-    await initializeInbox();
-    const status = await getInboxInitializationStatus();
-    setInboxStatus(status);
   };
 
   const handleRevectorize = async () => {
@@ -139,22 +156,6 @@ const SettingsPage = () => {
       <div className="flex flex-1 overflow-hidden">
         <div className="flex-1 overflow-y-auto">
           <div className="p-10 max-w-4xl mx-auto font-sans">
-            <div className={settingsSectionClasses}>
-              <h2 className="text-center mb-5 text-2xl font-bold">Inbox Vectorization</h2>
-              <p className="text-center text-sm text-gray-600 mb-5">
-                To enable semantic search over your emails, they need to be vectorized and stored. This process can take a few minutes.
-              </p>
-              <div className="text-center mb-5">
-                <span>Inbox Vectorization Status: </span>
-                <span className={getStatusClasses(inboxStatus)}>
-                  {inboxStatus ? inboxStatus.charAt(0).toUpperCase() + inboxStatus.slice(1).replace('_', ' ') : 'Loading...'}
-                </span>
-              </div>
-              <div className="flex justify-center items-center space-x-4">
-                <button className={buttonClasses.replace('block mx-auto', '')} onClick={handleVectorize}>Start Inbox Vectorization</button>
-                <button className={`${buttonClasses.replace('block mx-auto', '')} bg-amber-600`} onClick={handleRevectorize}>Re-vectorize Inbox</button>
-              </div>
-            </div>
             <div className={settingsSectionClasses}>
               <h2 className="text-center mb-5 text-2xl font-bold">Connection Settings</h2>
               <p className="text-center text-sm text-gray-600 mb-5">
@@ -256,6 +257,25 @@ const SettingsPage = () => {
                   {testStatus === 'testing' ? 'Testing...' : 'Test Connection'}
               </button>
             </div>
+            </div>
+            <div className={settingsSectionClasses}>
+              <h2 className="text-center mb-5 text-2xl font-bold">Inbox Vectorization</h2>
+              <p className="text-center text-sm text-gray-600 mb-5">
+                To enable semantic search over your emails, they need to be vectorized and stored. This process can take a few minutes.
+              </p>
+              <div className="flex justify-center items-center mb-5 space-x-3">
+                <span>Inbox Vectorization Status: </span>
+                <span className={getStatusClasses(inboxStatus)}>
+                  {inboxStatus ? inboxStatus.charAt(0).toUpperCase() + inboxStatus.slice(1).replace('_', ' ') : 'Loading...'}
+                </span>
+                <button
+                  className="py-1 px-3 text-xs rounded bg-amber-600 text-white cursor-pointer border-none"
+                  onClick={handleRevectorize}
+                  title="This will delete all existing email vector data and start from scratch. This action cannot be undone."
+                >
+                  Re-vectorize
+                </button>
+              </div>
             </div>
             {version && <p className="text-center text-xs text-gray-400 mt-4">Version: {version}</p>}
           </div>
