@@ -106,7 +106,7 @@ const ToolList: React.FC<ToolListProps> = ({ tools, onToolsChange }) => {
             const subsequentToolNames = subsequentTools.map(t => t.name).join(', ');
             badgeText += ` This tool needs to be called before ${subsequentToolNames}.`;
         } else {
-            badgeText += ' This will be the last toolcall.';
+            badgeText += ' This will be the last toolcall. Use the drag handle to reorder the tools.';
         }
 
         badge = (
