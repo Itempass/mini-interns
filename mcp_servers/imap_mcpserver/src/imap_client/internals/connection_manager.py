@@ -89,15 +89,16 @@ class IMAPConnectionManager:
                 except Exception as e:
                     logger.warning(f"Error during IMAP logout (connection may already be closed): {e}")
 
-# Global connection manager instance
-_default_manager = None
-
+# No longer using a singleton for the default manager to ensure settings are always fresh.
 def get_default_connection_manager() -> IMAPConnectionManager:
-    """Get the default global connection manager."""
-    global _default_manager
-    if _default_manager is None:
-        _default_manager = IMAPConnectionManager()
-    return _default_manager
+    """
+    Get a new connection manager instance.
+    
+    This ensures that the latest application settings are loaded each time
+    a connection is requested, allowing for dynamic updates without restarting
+    the service.
+    """
+    return IMAPConnectionManager()
 
 @contextlib.contextmanager
 def imap_connection() -> Generator[imaplib.IMAP4_SSL, None, None]:
