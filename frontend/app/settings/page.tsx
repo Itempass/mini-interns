@@ -4,6 +4,8 @@ import { getSettings, setSettings, AppSettings, initializeInbox, getInboxInitial
 import { Copy } from 'lucide-react';
 import TopBar from '../../components/TopBar';
 import VersionCheck from '../../components/VersionCheck';
+import Link from 'next/link';
+import GoogleAppPasswordHelp from '../../components/help/GoogleAppPasswordHelp';
 
 const SettingsPage = () => {
   const [settings, setSettingsState] = useState<AppSettings>({});
@@ -13,6 +15,7 @@ const SettingsPage = () => {
   const [testMessage, setTestMessage] = useState<string>('');
   const [version, setVersion] = useState<string>('');
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
+  const [isHelpPanelOpen, setHelpPanelOpen] = useState(false);
 
   const hasUnsavedChanges = JSON.stringify(settings) !== JSON.stringify(initialSettings);
 
@@ -130,121 +133,136 @@ const SettingsPage = () => {
   const buttonClasses = "py-2 px-5 border-none rounded bg-blue-500 text-white cursor-pointer text-base block mx-auto";
 
   return (
-    <div>
+    <div className="flex flex-col h-screen">
       <VersionCheck />
       <TopBar />
-      <div className="p-10 max-w-4xl mx-auto font-sans">
-        <div className={settingsSectionClasses}>
-          <h2 className="text-center mb-5 text-2xl font-bold">Inbox Vectorization</h2>
-          <p className="text-center text-sm text-gray-600 mb-5">
-            To enable semantic search over your emails, they need to be vectorized and stored. This process can take a few minutes.
-          </p>
-          <div className="text-center mb-5">
-            <span>Inbox Vectorization Status: </span>
-            <span className={getStatusClasses(inboxStatus)}>
-              {inboxStatus ? inboxStatus.charAt(0).toUpperCase() + inboxStatus.slice(1).replace('_', ' ') : 'Loading...'}
-            </span>
-          </div>
-          <div className="flex justify-center items-center space-x-4">
-            <button className={buttonClasses.replace('block mx-auto', '')} onClick={handleVectorize}>Start Inbox Vectorization</button>
-            <button className={`${buttonClasses.replace('block mx-auto', '')} bg-amber-600`} onClick={handleRevectorize}>Re-vectorize Inbox</button>
-          </div>
-        </div>
-        <div className={settingsSectionClasses}>
-          <h2 className="text-center mb-5 text-2xl font-bold">Connection Settings</h2>
-          <p className="text-center text-sm text-gray-600 mb-5">
-            All settings are saved locally to your Docker Container. Your IMAP password is encrypted.
-          </p>
-          
-          <div className={settingRowClasses}>
-          <label className={labelClasses}>IMAP Server:</label>
-          <div className="flex-1">
-            <input className={inputClasses} type="text" id="imap-server" name="IMAP_SERVER" value={settings.IMAP_SERVER || ''} onChange={handleInputChange} />
-            <div className="flex items-center mt-1">
-              <p className="m-0 text-xs text-gray-600">example: imap.gmail.com</p>
-              <button onClick={() => handleCopy('imap.gmail.com')} className={copyButtonStyle} title="Copy">
-                <Copy size={14} />
-              </button>
+      <div className="flex flex-1 overflow-hidden">
+        <div className="flex-1 overflow-y-auto">
+          <div className="p-10 max-w-4xl mx-auto font-sans">
+            <div className={settingsSectionClasses}>
+              <h2 className="text-center mb-5 text-2xl font-bold">Inbox Vectorization</h2>
+              <p className="text-center text-sm text-gray-600 mb-5">
+                To enable semantic search over your emails, they need to be vectorized and stored. This process can take a few minutes.
+              </p>
+              <div className="text-center mb-5">
+                <span>Inbox Vectorization Status: </span>
+                <span className={getStatusClasses(inboxStatus)}>
+                  {inboxStatus ? inboxStatus.charAt(0).toUpperCase() + inboxStatus.slice(1).replace('_', ' ') : 'Loading...'}
+                </span>
+              </div>
+              <div className="flex justify-center items-center space-x-4">
+                <button className={buttonClasses.replace('block mx-auto', '')} onClick={handleVectorize}>Start Inbox Vectorization</button>
+                <button className={`${buttonClasses.replace('block mx-auto', '')} bg-amber-600`} onClick={handleRevectorize}>Re-vectorize Inbox</button>
+              </div>
             </div>
-          </div>
-        </div>
-        <div className={settingRowClasses}>
-          <label className={labelClasses} htmlFor="imap-username">IMAP Username:</label>
-          <div className="flex-1">
-            <input className={inputClasses} type="text" id="imap-username" name="IMAP_USERNAME" value={settings.IMAP_USERNAME || ''} onChange={handleInputChange} />
-            <div className="flex items-center mt-1">
-              <p className="m-0 text-xs text-gray-600">example: your.email@gmail.com</p>
-              <button onClick={() => handleCopy('your.email@gmail.com')} className={copyButtonStyle} title="Copy">
-                <Copy size={14} />
-              </button>
+            <div className={settingsSectionClasses}>
+              <h2 className="text-center mb-5 text-2xl font-bold">Connection Settings</h2>
+              <p className="text-center text-sm text-gray-600 mb-5">
+                All settings are saved locally to your Docker Container. Your IMAP password is encrypted.
+              </p>
+              
+              <div className={settingRowClasses}>
+              <label className={labelClasses}>IMAP Server:</label>
+              <div className="flex-1">
+                <input className={inputClasses} type="text" id="imap-server" name="IMAP_SERVER" value={settings.IMAP_SERVER || ''} onChange={handleInputChange} />
+                <div className="flex items-center mt-1">
+                  <p className="m-0 text-xs text-gray-600">example: imap.gmail.com</p>
+                  <button onClick={() => handleCopy('imap.gmail.com')} className={copyButtonStyle} title="Copy">
+                    <Copy size={14} />
+                  </button>
+                </div>
+              </div>
             </div>
-          </div>
-        </div>
-        <div className={settingRowClasses}>
-          <label className={labelClasses} htmlFor="imap-password">IMAP Password:</label>
-          <div className="flex-1">
-            <input className={inputClasses} type="password" id="imap-password" name="IMAP_PASSWORD" value={settings.IMAP_PASSWORD || ''} onChange={handleInputChange} />
-          </div>
-        </div>
-        <div className={settingRowClasses}>
-          <label className={labelClasses} htmlFor="openrouter-api-key">OpenRouter API Key:</label>
-          <div className="flex-1">
-            <input className={inputClasses} type="password" id="openrouter-api-key" name="OPENROUTER_API_KEY" value={settings.OPENROUTER_API_KEY || ''} onChange={handleInputChange} />
-          </div>
-        </div>
-        <div className={settingRowClasses}>
-          <label className={labelClasses} htmlFor="openrouter-model">OpenRouter Model:</label>
-          <div className="flex-1">
-            <div className="flex items-center">
-              <input
-                className={inputClasses}
-                type="text"
-                id="openrouter-model"
-                name="OPENROUTER_MODEL"
-                value={settings.OPENROUTER_MODEL || ''}
-                onChange={handleInputChange}
-              />
-              <span
-                title="copy the exact model slug from openrouter's website"
-                className="ml-2 cursor-help text-xl text-gray-600"
-              >
-                &#9432;
-              </span>
+            <div className={settingRowClasses}>
+              <label className={labelClasses} htmlFor="imap-username">IMAP Username:</label>
+              <div className="flex-1">
+                <input className={inputClasses} type="text" id="imap-username" name="IMAP_USERNAME" value={settings.IMAP_USERNAME || ''} onChange={handleInputChange} />
+                <div className="flex items-center mt-1">
+                  <p className="m-0 text-xs text-gray-600">example: your.email@gmail.com</p>
+                  <button onClick={() => handleCopy('your.email@gmail.com')} className={copyButtonStyle} title="Copy">
+                    <Copy size={14} />
+                  </button>
+                </div>
+              </div>
             </div>
-            <div className="flex items-center mt-1">
-              <p className="m-0 text-xs text-gray-600">example: google/gemini-2.5-flash-preview-05-20:thinking</p>
-              <button onClick={() => handleCopy('google/gemini-2.5-flash-preview-05-20:thinking')} className={copyButtonStyle} title="Copy">
-                <Copy size={14} />
-              </button>
+            <div className={settingRowClasses}>
+              <label className={labelClasses} htmlFor="imap-password">IMAP Password:</label>
+              <div className="flex-1">
+                <input className={inputClasses} type="password" id="imap-password" name="IMAP_PASSWORD" value={settings.IMAP_PASSWORD || ''} onChange={handleInputChange} />
+                <div className="flex items-center mt-1">
+                    <p className="m-0 text-xs text-gray-600">
+                        Using Gmail? You may need an {""}
+                        <button onClick={() => setHelpPanelOpen(true)} className="text-blue-500 hover:underline cursor-pointer bg-transparent border-none p-0">
+                            App Password
+                        </button>.
+                    </p>
+                </div>
+              </div>
             </div>
-          </div>
-        </div>
-        
-        {testMessage && (
-            <div className={`text-center p-2 mb-4 rounded-md text-sm ${testStatus === 'success' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
-                {testMessage}
+            <div className={settingRowClasses}>
+              <label className={labelClasses} htmlFor="openrouter-api-key">OpenRouter API Key:</label>
+              <div className="flex-1">
+                <input className={inputClasses} type="password" id="openrouter-api-key" name="OPENROUTER_API_KEY" value={settings.OPENROUTER_API_KEY || ''} onChange={handleInputChange} />
+              </div>
             </div>
-        )}
-        <div className="flex justify-center items-center space-x-4">
-          <button
-            className={`${buttonClasses.replace('block mx-auto', '')} disabled:bg-gray-400 disabled:cursor-not-allowed`}
-            onClick={handleSave}
-            disabled={!hasUnsavedChanges || saveStatus !== 'idle'}
-          >
-            {saveStatus === 'idle' && 'Save Settings'}
-            {saveStatus === 'saving' && 'Saving...'}
-            {saveStatus === 'saved' && (
-              <>
-                Saved <span role="img" aria-label="check mark">✅</span>
-              </>
+            <div className={settingRowClasses}>
+              <label className={labelClasses} htmlFor="openrouter-model">OpenRouter Model:</label>
+              <div className="flex-1">
+                <div className="flex items-center">
+                  <input
+                    className={inputClasses}
+                    type="text"
+                    id="openrouter-model"
+                    name="OPENROUTER_MODEL"
+                    value={settings.OPENROUTER_MODEL || ''}
+                    onChange={handleInputChange}
+                  />
+                  <span
+                    title="copy the exact model slug from openrouter's website"
+                    className="ml-2 cursor-help text-xl text-gray-600"
+                  >
+                    &#9432;
+                  </span>
+                </div>
+                <div className="flex items-center mt-1">
+                  <p className="m-0 text-xs text-gray-600">example: google/gemini-2.5-flash-preview-05-20:thinking</p>
+                  <button onClick={() => handleCopy('google/gemini-2.5-flash-preview-05-20:thinking')} className={copyButtonStyle} title="Copy">
+                    <Copy size={14} />
+                  </button>
+                </div>
+              </div>
+            </div>
+            
+            {testMessage && (
+                <div className={`text-center p-2 mb-4 rounded-md text-sm ${testStatus === 'success' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                    {testMessage}
+                </div>
             )}
-          </button>
-          <button className={`${buttonClasses.replace('block mx-auto', '')} disabled:bg-gray-400 disabled:cursor-not-allowed`} onClick={handleTestConnection} disabled={testStatus === 'testing' || hasUnsavedChanges}>
-              {testStatus === 'testing' ? 'Testing...' : 'Test Connection'}
-          </button>
+            <div className="flex justify-center items-center space-x-4">
+              <button
+                className={`${buttonClasses.replace('block mx-auto', '')} disabled:bg-gray-400 disabled:cursor-not-allowed`}
+                onClick={handleSave}
+                disabled={!hasUnsavedChanges || saveStatus !== 'idle'}
+              >
+                {saveStatus === 'idle' && 'Save Settings'}
+                {saveStatus === 'saving' && 'Saving...'}
+                {saveStatus === 'saved' && (
+                  <>
+                    Saved <span role="img" aria-label="check mark">✅</span>
+                  </>
+                )}
+              </button>
+              <button className={`${buttonClasses.replace('block mx-auto', '')} disabled:bg-gray-400 disabled:cursor-not-allowed`} onClick={handleTestConnection} disabled={testStatus === 'testing' || hasUnsavedChanges}>
+                  {testStatus === 'testing' ? 'Testing...' : 'Test Connection'}
+              </button>
+            </div>
+            </div>
+            {version && <p className="text-center text-xs text-gray-400 mt-4">Version: {version}</p>}
+          </div>
         </div>
+        <div className={`transition-all duration-300 ease-in-out bg-white shadow-lg border-l overflow-y-auto ${isHelpPanelOpen ? 'w-full max-w-2xl' : 'w-0'}`}>
+          {isHelpPanelOpen && <GoogleAppPasswordHelp onClose={() => setHelpPanelOpen(false)} />}
         </div>
-        {version && <p className="text-center text-xs text-gray-400 mt-4">Version: {version}</p>}
       </div>
     </div>
   );
