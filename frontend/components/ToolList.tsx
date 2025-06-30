@@ -1,7 +1,9 @@
 import React from 'react';
 import { DragDropContext, Droppable, Draggable, DropResult } from 'react-beautiful-dnd';
 import { McpTool } from '../services/api';
-import { GripVertical } from 'lucide-react';
+import { GripVertical, HelpCircle } from 'lucide-react';
+import { Tooltip } from 'react-tooltip';
+import 'react-tooltip/dist/react-tooltip.css';
 
 export interface UiTool extends McpTool {
   id: string;
@@ -124,7 +126,7 @@ const ToolList: React.FC<ToolListProps> = ({ tools, onToolsChange }) => {
         <div
             ref={innerRef}
             {...draggableProps}
-            className="grid grid-cols-[auto_1fr_auto_auto] items-start gap-x-4 p-4 mb-3 bg-white border border-gray-200 rounded-lg shadow-sm"
+            className="grid grid-cols-[auto_1fr_100px_100px] items-start gap-x-4 p-4 mb-3 bg-white border border-gray-200 rounded-lg shadow-sm"
         >
             <div {...dragHandleProps} className="flex justify-center pt-1">
               {tool.required ? <GripVertical className="text-gray-400 cursor-grab" /> : <div className="w-6 h-6"></div>}
@@ -134,10 +136,10 @@ const ToolList: React.FC<ToolListProps> = ({ tools, onToolsChange }) => {
                 <p className="text-sm text-gray-500">{tool.description}</p>
                 {badge}
             </div>
-            <div className="flex justify-center">
+            <div className="flex justify-center items-center h-full">
                 <ToggleSwitch enabled={tool.enabled} onChange={() => toggleEnabled(tool.id)} disabled={tool.required}/>
             </div>
-            <div className="flex justify-center">
+            <div className="flex justify-center items-center h-full">
                 <input
                     type="checkbox"
                     checked={tool.required}
@@ -152,16 +154,24 @@ const ToolList: React.FC<ToolListProps> = ({ tools, onToolsChange }) => {
   return (
     <div className="w-full">
         {/* Header */}
-        <div className="grid grid-cols-[auto_1fr_auto_auto] items-center gap-x-4 px-4 pb-2 border-b border-gray-200 mb-3">
-            <div className="w-6 h-6 mr-4"></div> {/* Placeholder for drag handle */}
+        <div className="grid grid-cols-[auto_1fr_100px_100px] items-center gap-x-4 px-4 pb-2 border-b border-gray-200 mb-3">
+            <div className="w-6"></div> {/* Placeholder for drag handle */}
             <div>
                 <p className="font-bold text-gray-700">Tool</p>
             </div>
-            <div className="text-center w-24">
-                <p className="font-bold text-gray-700"></p>
+            <div className="text-center flex items-center justify-center">
+                <p className="font-bold text-gray-700 mr-1">Enabled</p>
+                <a data-tooltip-id="enabled-tooltip" data-tooltip-content="Add this tool to the agent. It can decide when to use it.">
+                    <HelpCircle className="w-4 h-4 text-gray-500 cursor-help" />
+                </a>
+                <Tooltip id="enabled-tooltip" />
             </div>
-            <div className="text-center w-16">
-                <p className="font-bold text-gray-700">Required?</p>
+            <div className="text-center flex items-center justify-center">
+                <p className="font-bold text-gray-700 mr-1">Required</p>
+                <a data-tooltip-id="required-tooltip" data-tooltip-content="The agent must use this tool before finishing. You can drag required rows to define the order in which the tools must be used">
+                    <HelpCircle className="w-4 h-4 text-gray-500 cursor-help" />
+                </a>
+                <Tooltip id="required-tooltip" />
             </div>
         </div>
 
