@@ -65,6 +65,23 @@ export const setSettings = async (settings: AppSettings) => {
   }
 };
 
+export const getVersion = async (): Promise<string> => {
+  console.log('Fetching version from URL:', `${API_URL}/version`);
+  try {
+    const response = await fetch(`${API_URL}/version`);
+    if (!response.ok) {
+      console.error('Failed to fetch version. Status:', response.status);
+      throw new Error('Failed to fetch version');
+    }
+    const data = await response.json();
+    console.log('Successfully fetched version:', data.version);
+    return data.version;
+  } catch (error) {
+    console.error('An error occurred while fetching version:', error);
+    return 'unknown';
+  }
+};
+
 export const testImapConnection = async () => {
   console.log('Testing IMAP connection...');
   try {
