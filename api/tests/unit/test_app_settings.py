@@ -1,0 +1,52 @@
+import sys
+import os
+from unittest.mock import MagicMock, patch
+
+# Add project root to the Python path to allow for correct module imports
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
+
+# Create a mock for the entire qdrant_client module to prevent it from running its connection logic on import.
+# This is necessary because the connection is initiated at the module level.
+mock_qdrant_module = MagicMock()
+sys.modules['shared.qdrant.qdrant_client'] = mock_qdrant_module
+
+import pytest
+from fastapi.testclient import TestClient
+
+# Now that the problematic module is mocked, we can safely import the app
+from api.main import app
+from shared.app_settings import AppSettings
+from shared.redis.keys import RedisKeys
+
+@pytest.fixture
+def client():
+    return TestClient(app)
+
+@pytest.mark.parametrize("old_username, new_username, should_reset_uid", [
+    # Case 1: Username changes, should reset UID
+    ("old@example.com", "new@example.com", True),
+    # Case 2: Username is the same, should NOT reset UID
+    ("user@example.com", "user@example.com", False),
+    # Case 3: Initial setup (no old username), should NOT reset UID
+    (None, "new@example.com", False),
+])
+def test_set_settings_resets_uid_only_on_username_change(client, old_username, new_username, should_reset_uid):
+    """
+    Verifies that changing the IMAP username resets the last processed email UID,
+    and other changes do not. This is a unit test focusing on the endpoint's logic.
+    """
+    mock_redis_client = MagicMock()
+    old_settings = AppSettings(IMAP_USERNAME=old_username)
+    new_settings_payload = {"IMAP_USERNAME": new_username, "IMAP_PASSWORD": "new_password"}
+
+    with patch('api.endpoints.app_settings.load_app_settings', return_value=old_settings), \
+         patch('api.endpoints.app_settings.get_redis_client', return_value=mock_redis_client), \
+         patch('api.endpoints.app_settings.save_app_settings'):
+        
+        response = client.post("/settings", json=new_settings_payload)
+
+    assert response.status_code == 200
+    if should_reset_uid:
+        mock_redis_client.delete.assert_called_once_with(RedisKeys.LAST_EMAIL_UID)
+    else:
+        mock_redis_client.delete.assert_not_called()

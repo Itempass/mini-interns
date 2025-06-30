@@ -35,9 +35,25 @@ def get_all_settings():
 @router.post("/settings")
 def set_all_settings(settings: AppSettings):
     """
-    Set application settings in Redis by calling the centralized save function.
+    Set application settings. If the IMAP username is changed, reset the last email UID.
     """
     try:
+        # Load the current settings to check if the username is changing
+        current_settings = load_app_settings()
+        
+        # Check if the username exists and has changed
+        if current_settings.IMAP_USERNAME and \
+           current_settings.IMAP_USERNAME != settings.IMAP_USERNAME:
+            logger.info(f"IMAP username changed from '{current_settings.IMAP_USERNAME}' to '{settings.IMAP_USERNAME}'. Resetting last email UID.")
+            try:
+                redis_client = get_redis_client()
+                redis_client.delete(RedisKeys.LAST_EMAIL_UID)
+                logger.info("Successfully deleted last email UID from Redis.")
+            except redis.exceptions.RedisError as e:
+                logger.error(f"Failed to delete last email UID from Redis: {e}", exc_info=True)
+                # Optionally, decide if this should be a critical failure
+                # For now, we'll log the error and continue
+        
         save_app_settings(settings)
         return {"message": "Settings updated successfully"}
     except Exception as e:

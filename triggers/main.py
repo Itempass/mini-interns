@@ -204,6 +204,7 @@ def main():
                                 logger.warning(f"Skipping an email because it has no Message-ID.")
                                 continue
                             message_id = message_id_tuple[0].strip('<>')
+                            logger.info(f"Processing message: {message_id}")
                             process_message(msg, message_id)
 
                         latest_uid = filtered_messages[-1].uid
