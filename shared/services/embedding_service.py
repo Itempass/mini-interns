@@ -23,7 +23,8 @@ class EmbeddingService:
         self.provider = None
         self.model_name = None
         self.api_key = None
-        logger.info("EmbeddingService initialized. Client will be loaded on first use.")
+        self.initialized_model_key = None
+        logger.info("EmbeddingService initialized. Client will be loaded/re-loaded on use if settings change.")
 
     def get_current_model_info(self) -> Dict[str, Any]:
         """
@@ -43,14 +44,20 @@ class EmbeddingService:
 
     def _lazy_load_client(self):
         """
-        Loads the embedding client and configuration on the first call to an embedding method.
-        This avoids crashing on startup if settings are not yet configured.
+        Loads or reloads the embedding client if the configured model has changed.
+        This ensures the service always uses the up-to-date settings.
         """
-        if self.client:
-            return
+        current_model_key = load_app_settings().EMBEDDING_MODEL
+        if not current_model_key:
+            raise ValueError("Embedding model is not configured. Please set it on the settings page.")
 
-        logger.info("First use of EmbeddingService, performing lazy load of client...")
-        model_info = self.get_current_model_info()
+        # If the client is already loaded, check if the model key has changed
+        if self.client and self.initialized_model_key == current_model_key:
+            return  # No change, so we can return
+
+        logger.info(f"Configuration change detected or first use. Loading client for model '{current_model_key}'...")
+        
+        model_info = self._get_model_info(current_model_key)
         self.provider = model_info.get("provider")
 
         if self.provider not in SUPPORTED_PROVIDERS:
@@ -62,12 +69,16 @@ class EmbeddingService:
             self.api_key = settings.EMBEDDING_VOYAGE_API_KEY
             if not self.api_key:
                 raise ValueError("Voyage API key is not configured.")
+            # The client is not used for embedding with Voyage, but we initialize it for consistency
             self.client = voyageai.Client(api_key=self.api_key)
         elif self.provider == "openai":
             self.api_key = settings.EMBEDDING_OPENAI_API_KEY
             if not self.api_key:
                 raise ValueError("OpenAI API key is not configured.")
             self.client = openai.OpenAI(api_key=self.api_key)
+        
+        # Store the model key that this client was initialized with
+        self.initialized_model_key = current_model_key
             
         logger.info(f"Embedding client loaded for provider '{self.provider}' with model '{self.model_name}'")
 
