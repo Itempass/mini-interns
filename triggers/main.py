@@ -52,7 +52,7 @@ async def passes_trigger_conditions_check(msg, trigger_conditions: str, app_sett
 
     client = OpenAI(
         base_url="https://openrouter.ai/api/v1",
-        api_key=app_settings.OPENROUTER_API_KEY,
+        api_key=settings.OPENROUTER_API_KEY,
     )
     
     system_prompt = f"""

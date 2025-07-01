@@ -7,7 +7,7 @@ import uuid
 from qdrant_client import QdrantClient, models
 from qdrant_client.http.models import PointStruct
 from shared.config import settings
-from shared.services.embedding_service import get_embedding
+from shared.services.embedding_service import get_embedding, embedding_service
 
 logger = logging.getLogger(__name__)
 
@@ -62,8 +62,9 @@ def _ensure_collection_exists(client: QdrantClient, collection_name: str, vector
             logger.error(f"Unexpected error checking collection '{collection_name}': {e}")
             raise
 
-def recreate_collection(client: QdrantClient, collection_name: str, vector_size: int):
+def recreate_collection(client: QdrantClient, collection_name: str):
     """Deletes and recreates a collection to ensure it's empty."""
+    vector_size = embedding_service.get_current_model_vector_size()
     try:
         logger.warning(f"Deleting collection '{collection_name}'...")
         client.delete_collection(collection_name=collection_name)
@@ -79,8 +80,8 @@ def get_qdrant_client():
     Returns a cached Qdrant client instance and ensures the default 'emails' collection exists.
     """
     try:
-        # The vector size is determined by the embedding model.
-        vector_size = settings.EMBEDDING_VECTOR_SIZE 
+        # The vector size is determined dynamically by the embedding model.
+        vector_size = embedding_service.get_current_model_vector_size()
         _ensure_collection_exists(qdrant_client, "emails", vector_size)
         _ensure_collection_exists(qdrant_client, "email_threads", vector_size)
         logger.info("Successfully connected to Qdrant and ensured collections exist.")

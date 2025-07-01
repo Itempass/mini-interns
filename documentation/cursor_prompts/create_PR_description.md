@@ -2,6 +2,7 @@
 
 You are an expert software engineer assistant. Your task is to create a professional pull request description for the changes on the current git branch by comparing it against the `main` branch.
 
+
 **Instructions:**
 
 1.  **Analyze Branch History:**
@@ -21,3 +22,8 @@ You are an expert software engineer assistant. Your task is to create a professi
 3.  **Save the Output:**
     *   Create a new file named `YYYY-MM-DD-[Title of PR].md` inside the `documentation/PR_description_drafts/` directory. Note: use a command to get the current date in CET time.
     *   Place the complete, formatted Markdown description into this new file.
+
+
+**Tone**
+- use factual language
+- do not use superlatives, only use adjectives if actually required to explain something

@@ -17,9 +17,13 @@ async def initialize_inbox():
     """
     Initializes the user's inbox by fetching recent email threads using the client,
     vectorizing their markdown content, and storing them in Qdrant.
+    This process can be interrupted.
     """
     logger.info("Starting inbox initialization...")
     redis_client = get_redis_client()
+    
+    # Ensure the interruption flag is clear before we start
+    redis_client.delete(RedisKeys.INBOX_VECTORIZATION_INTERRUPTED)
     redis_client.set(RedisKeys.INBOX_INITIALIZATION_STATUS, "running")
     
     try:
@@ -27,9 +31,22 @@ async def initialize_inbox():
         recent_threads, timing_info = await get_recent_threads_bulk(target_thread_count=300, max_age_months=6)
         logger.info(f"Fetched {len(recent_threads)} unique threads in {timing_info.get('total_time', 0):.2f}s")
 
+        # Check for interruption immediately after the long fetch operation
+        if redis_client.exists(RedisKeys.INBOX_VECTORIZATION_INTERRUPTED):
+            logger.warning("Interruption signal received after fetch. Stopping vectorization process.")
+            redis_client.delete(RedisKeys.INBOX_VECTORIZATION_INTERRUPTED)
+            return
+
         points_batch = []
 
-        for thread in recent_threads:
+        for i, thread in enumerate(recent_threads):
+            # Check for interruption every BATCH_SIZE items or before upserting
+            if i % BATCH_SIZE == 0:
+                if redis_client.exists(RedisKeys.INBOX_VECTORIZATION_INTERRUPTED):
+                    logger.warning("Interruption signal received during processing. Stopping vectorization process.")
+                    redis_client.delete(RedisKeys.INBOX_VECTORIZATION_INTERRUPTED)
+                    return
+
             try:
                 # Use the thread's markdown property directly for embedding
                 thread_markdown = thread.markdown
@@ -58,6 +75,12 @@ async def initialize_inbox():
                     points_batch.append(point)
 
                     if len(points_batch) >= BATCH_SIZE:
+                        # Check for interruption before starting the expensive upload
+                        if redis_client.exists(RedisKeys.INBOX_VECTORIZATION_INTERRUPTED):
+                            logger.warning("Interruption signal received before vector upload. Stopping vectorization process.")
+                            redis_client.delete(RedisKeys.INBOX_VECTORIZATION_INTERRUPTED)
+                            return
+                            
                         logger.info(f"Upserting batch of {len(points_batch)} thread points.")
                         upsert_points(collection_name="email_threads", points=points_batch)
                         points_batch = []
@@ -66,8 +89,20 @@ async def initialize_inbox():
                 logger.error(f"Error processing thread {thread.thread_id}: {e}", exc_info=True)
 
         if points_batch:
+            # Check for interruption before final upload
+            if redis_client.exists(RedisKeys.INBOX_VECTORIZATION_INTERRUPTED):
+                logger.warning("Interruption signal received before final vector upload. Stopping vectorization process.")
+                redis_client.delete(RedisKeys.INBOX_VECTORIZATION_INTERRUPTED)
+                return
+                
             logger.info(f"Upserting remaining {len(points_batch)} thread points.")
             upsert_points(collection_name="email_threads", points=points_batch)
+
+        # Check one last time before declaring success
+        if redis_client.exists(RedisKeys.INBOX_VECTORIZATION_INTERRUPTED):
+            logger.warning("Interruption signal received just before completion. Aborting.")
+            redis_client.delete(RedisKeys.INBOX_VECTORIZATION_INTERRUPTED)
+            return
 
         logger.info("Inbox initialization completed successfully.")
         redis_client.set(RedisKeys.INBOX_INITIALIZATION_STATUS, "completed")

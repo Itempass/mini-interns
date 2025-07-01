@@ -10,7 +10,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../.
 # The .env files should be located there.
 load_dotenv(override=True)
 
-from mcp_servers.imap_mcpserver.src.services.embedding_service import EmbeddingService
+from shared.services.embedding_service import EmbeddingService
 
 @pytest.fixture(scope="module")
 def embedding_service():
@@ -28,8 +28,8 @@ def test_create_embedding_live_api_call(embedding_service: EmbeddingService):
     """
     # Arrange
     test_text = "This is an integration test for Voyage AI."
-    # The expected dimension is read from the service instance itself, which gets it from the env var
-    expected_dimension = embedding_service.embedding_vector_size
+    # The expected dimension is read from the service instance itself, which gets it from the model config
+    expected_dimension = embedding_service.get_current_model_vector_size()
 
     # Act
     embedding = embedding_service.create_embedding(test_text)
