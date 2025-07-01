@@ -48,14 +48,14 @@ async def _execute_run(agent_model: AgentModel, instance: AgentInstanceModel) ->
     logger.info(f"Starting execution for instance {instance.uuid} of agent {agent_model.uuid}")
 
     app_settings = load_app_settings()
-    if not app_settings.OPENROUTER_API_KEY:
+    if not settings.OPENROUTER_API_KEY:
         logger.error("OPENROUTER_API_KEY not found in settings. Cannot proceed.")
         instance.messages.append(MessageModel(role="system", content="Error: OPENROUTER_API_KEY not configured."))
         return instance
 
     llm_client = OpenAI(
         base_url="https://openrouter.ai/api/v1",
-        api_key=app_settings.OPENROUTER_API_KEY,
+        api_key=settings.OPENROUTER_API_KEY,
     )
 
     mcp_server_url, server_name = None, None

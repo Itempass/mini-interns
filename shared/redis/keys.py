@@ -9,13 +9,14 @@ class RedisKeys:
 
     # Key for inbox initialization status
     INBOX_INITIALIZATION_STATUS = "inbox:initialization:status"
+    INBOX_VECTORIZATION_INTERRUPTED = "inbox:vectorization:interrupted"
 
     # Keys for application-wide settings
     IMAP_SERVER = "settings:imap_server"
     IMAP_USERNAME = "settings:imap_username"
     IMAP_PASSWORD = "settings:imap_password"
-    OPENROUTER_API_KEY = "settings:openrouter_api_key"
     OPENROUTER_MODEL = "settings:openrouter_model"
+    EMBEDDING_MODEL = "settings:embedding_model"
 
     # Deprecated keys, kept for migration or cleanup
     AGENT_INSTRUCTIONS = "agent:agent_instructions"

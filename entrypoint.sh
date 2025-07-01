@@ -3,8 +3,8 @@
 # Exit immediately if a command exits with a non-zero status.
 set -e
 
-# Run the database initialization script
-echo "--- Starting entrypoint script ---"
+# Run initialization scripts
+echo "--- Running initialization scripts ---"
 python3 scripts/init_db.py
 
 # The 'exec "$@"' command runs the command passed to the script.

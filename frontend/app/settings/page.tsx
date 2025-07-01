@@ -1,6 +1,6 @@
 'use client';
 import React, { useState, useEffect } from 'react';
-import { getSettings, setSettings, AppSettings, initializeInbox, getInboxInitializationStatus, testImapConnection, reinitializeInbox, getVersion } from '../../services/api';
+import { getSettings, setSettings, AppSettings, EmbeddingModel, initializeInbox, getInboxInitializationStatus, testImapConnection, reinitializeInbox, getVersion } from '../../services/api';
 import { Copy } from 'lucide-react';
 import TopBar from '../../components/TopBar';
 import VersionCheck from '../../components/VersionCheck';
@@ -10,12 +10,15 @@ import GoogleAppPasswordHelp from '../../components/help/GoogleAppPasswordHelp';
 const SettingsPage = () => {
   const [settings, setSettingsState] = useState<AppSettings>({});
   const [initialSettings, setInitialSettings] = useState<AppSettings>({});
+  const [embeddingModels, setEmbeddingModels] = useState<EmbeddingModel[]>([]);
   const [inboxStatus, setInboxStatus] = useState<string | null>(null);
   const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
   const [testMessage, setTestMessage] = useState<string>('');
   const [version, setVersion] = useState<string>('');
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
   const [isHelpPanelOpen, setHelpPanelOpen] = useState(false);
+  const [showEmbeddingModelSaved, setShowEmbeddingModelSaved] = useState(false);
+  const [embeddingConfigError, setEmbeddingConfigError] = useState<string>('');
 
   const hasUnsavedChanges = JSON.stringify(settings) !== JSON.stringify(initialSettings);
 
@@ -51,9 +54,17 @@ const SettingsPage = () => {
   useEffect(() => {
     console.log('Component mounted. Fetching initial data.');
     const fetchSettings = async () => {
-      const fetchedSettings = await getSettings();
+      const { settings: fetchedSettings, embeddingModels: fetchedModels } = await getSettings();
       setSettingsState(fetchedSettings);
       setInitialSettings(fetchedSettings);
+      setEmbeddingModels(fetchedModels);
+
+      if (!fetchedSettings.EMBEDDING_MODEL) {
+        setEmbeddingConfigError("No embedding model configured. Please select a model to enable vectorization.");
+      } else {
+        setEmbeddingConfigError('');
+      }
+
       await attemptAutoVectorization(fetchedSettings);
     };
     const fetchVersion = async () => {
@@ -73,6 +84,15 @@ const SettingsPage = () => {
     }
     return () => clearTimeout(timer);
   }, [saveStatus]);
+
+  useEffect(() => {
+    if (showEmbeddingModelSaved) {
+      const timer = setTimeout(() => {
+        setShowEmbeddingModelSaved(false);
+      }, 2000);
+      return () => clearTimeout(timer);
+    }
+  }, [showEmbeddingModelSaved]);
 
   useEffect(() => {
     const fetchStatus = async () => {
@@ -102,9 +122,57 @@ const SettingsPage = () => {
     await attemptAutoVectorization(settings);
   };
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
     setSettingsState(prev => ({ ...prev, [name]: value }));
+  };
+
+  const handleEmbeddingModelChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const newModelKey = e.target.value;
+    const currentUIModelKey = settings.EMBEDDING_MODEL;
+    const lastSavedModelKey = initialSettings.EMBEDDING_MODEL;
+
+    // Do nothing if the model isn't actually changing from what's currently displayed
+    if (newModelKey === currentUIModelKey) {
+        return;
+    }
+
+    // Update the UI immediately to provide visual feedback.
+    setSettingsState(prev => ({ ...prev, EMBEDDING_MODEL: newModelKey }));
+
+    const selectedModel = embeddingModels.find(m => m.model_name_from_key === newModelKey);
+
+    // If the new selection is invalid, show a warning and stop. The UI will show the invalid selection.
+    if (!selectedModel || !selectedModel.api_key_provided) {
+        return;
+    }
+
+    // If the user is selecting a valid model that is the same as the last saved one
+    // (e.g., reverting an invalid choice), we don't need to save or re-vectorize.
+    if (newModelKey === lastSavedModelKey) {
+        setEmbeddingConfigError(''); // Clear any previous errors
+        return;
+    }
+
+    // If we get here, the user is trying to switch to a NEW, VALID model.
+    const confirmed = window.confirm(
+        'Changing the embedding model requires re-vectorizing your entire inbox. This will delete all existing email vectors and can take several minutes. Are you sure you want to proceed?'
+    );
+
+    if (confirmed) {
+        try {
+            await setSettings({ EMBEDDING_MODEL: newModelKey });
+            await reinitializeInbox();
+            setInitialSettings(prev => ({ ...prev, EMBEDDING_MODEL: newModelKey }));
+            setEmbeddingConfigError('');
+        } catch (error) {
+            console.error("Failed to update embedding model and re-vectorize:", error);
+            setSettingsState(initialSettings); // Revert UI on failure
+        }
+    } else {
+        // If the user cancels, revert the dropdown to its last saved state.
+        setSettingsState(initialSettings);
+    }
   };
 
   const handleTestConnection = async () => {
@@ -149,6 +217,8 @@ const SettingsPage = () => {
   const inputClasses = "w-full p-2 rounded border border-gray-300 box-border";
   const buttonClasses = "py-2 px-5 border-none rounded bg-blue-500 text-white cursor-pointer text-base block mx-auto";
 
+  const selectedEmbeddingModel = embeddingModels.find(m => m.model_name_from_key === settings.EMBEDDING_MODEL);
+  
   return (
     <div className="flex flex-col h-screen">
       <VersionCheck />
@@ -191,19 +261,9 @@ const SettingsPage = () => {
               <div className="flex-1">
                 <input className={inputClasses} type="password" id="imap-password" name="IMAP_PASSWORD" value={settings.IMAP_PASSWORD || ''} onChange={handleInputChange} />
                 <div className="flex items-center mt-1">
-                    <p className="m-0 text-xs text-gray-600">
-                        Using Gmail? You may need an {""}
-                        <button onClick={() => setHelpPanelOpen(true)} className="text-blue-500 hover:underline cursor-pointer bg-transparent border-none p-0">
-                            App Password
-                        </button>.
-                    </p>
+                  <p className="m-0 text-xs text-gray-600">Enter your email password or an App Password. See help for more details.</p>
+                  <button onClick={() => setHelpPanelOpen(true)} className="ml-2 text-xs text-blue-500 hover:underline">Help</button>
                 </div>
-              </div>
-            </div>
-            <div className={settingRowClasses}>
-              <label className={labelClasses} htmlFor="openrouter-api-key">OpenRouter API Key:</label>
-              <div className="flex-1">
-                <input className={inputClasses} type="password" id="openrouter-api-key" name="OPENROUTER_API_KEY" value={settings.OPENROUTER_API_KEY || ''} onChange={handleInputChange} />
               </div>
             </div>
             <div className={settingRowClasses}>
@@ -275,6 +335,34 @@ const SettingsPage = () => {
                 >
                   Re-vectorize
                 </button>
+              </div>
+              {embeddingConfigError && (
+                <div className="text-center p-2 mb-4 rounded-md text-sm bg-red-100 text-red-800">
+                    {embeddingConfigError}
+                </div>
+              )}
+              <div className={settingRowClasses}>
+                <label className={labelClasses} htmlFor="embedding-model">Embedding Model:</label>
+                <div className="flex-1">
+                  <select
+                    id="embedding-model"
+                    name="EMBEDDING_MODEL"
+                    value={settings.EMBEDDING_MODEL || ''}
+                    onChange={handleEmbeddingModelChange}
+                    className={inputClasses}
+                  >
+                    {embeddingModels.map(model => (
+                      <option key={model.model_name_from_key} value={model.model_name_from_key}>
+                        {model.provider} - {model.model_name}
+                      </option>
+                    ))}
+                  </select>
+                  {selectedEmbeddingModel && !selectedEmbeddingModel.api_key_provided && (
+                    <p className="text-red-500 text-xs mt-1">
+                      Warning: API key for this model's provider ({selectedEmbeddingModel.provider}) is not configured.
+                    </p>
+                  )}
+                </div>
               </div>
             </div>
             {version && <p className="text-center text-xs text-gray-400 mt-4">Version: {version}</p>}

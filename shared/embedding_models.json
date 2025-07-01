@@ -1,0 +1,20 @@
+{
+  "voyage-3.5": {
+    "provider": "voyage",
+    "model_name": "voyage-3.5",
+    "vector_size": 2048,
+    "max_input_tokens": 32000,
+    "max_batch_size": 1000,
+    "max_batch_tokens": 320000,
+    "default":false
+  },
+  "text-embedding-3-large": {
+    "provider": "openai",
+    "model_name": "text-embedding-3-large",
+    "vector_size": 3072,
+    "max_input_tokens": 8191,
+    "max_batch_size": 2048,
+    "max_batch_tokens": null,
+    "default": true
+  }
+}

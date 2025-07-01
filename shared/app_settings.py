@@ -18,8 +18,8 @@ class AppSettings(BaseModel):
     IMAP_SERVER: Optional[str] = None
     IMAP_USERNAME: Optional[str] = None
     IMAP_PASSWORD: Optional[str] = None
-    OPENROUTER_API_KEY: Optional[str] = None
     OPENROUTER_MODEL: Optional[str] = None
+    EMBEDDING_MODEL: Optional[str] = None
 
 def load_app_settings() -> AppSettings:
     """
@@ -34,8 +34,8 @@ def load_app_settings() -> AppSettings:
         RedisKeys.IMAP_SERVER,
         RedisKeys.IMAP_USERNAME,
         RedisKeys.IMAP_PASSWORD,
-        RedisKeys.OPENROUTER_API_KEY,
-        RedisKeys.OPENROUTER_MODEL
+        RedisKeys.OPENROUTER_MODEL,
+        RedisKeys.EMBEDDING_MODEL
     )
     results = pipeline.execute()[0]
 
@@ -43,8 +43,8 @@ def load_app_settings() -> AppSettings:
         "IMAP_SERVER": results[0],
         "IMAP_USERNAME": results[1],
         "IMAP_PASSWORD": results[2],
-        "OPENROUTER_API_KEY": results[3],
-        "OPENROUTER_MODEL": results[4]
+        "OPENROUTER_MODEL": results[3],
+        "EMBEDDING_MODEL": results[4]
     }
     
     # Decrypt sensitive fields if they exist
@@ -52,9 +52,6 @@ def load_app_settings() -> AppSettings:
         if settings_data.get("IMAP_PASSWORD"):
             logger.info(f"Value from Redis to be decrypted (IMAP_PASSWORD): {settings_data['IMAP_PASSWORD']}")
             settings_data["IMAP_PASSWORD"] = decrypt_value(settings_data["IMAP_PASSWORD"])
-        if settings_data.get("OPENROUTER_API_KEY"):
-            logger.info(f"Value from Redis to be decrypted (OPENROUTER_API_KEY): {settings_data['OPENROUTER_API_KEY']}")
-            settings_data["OPENROUTER_API_KEY"] = decrypt_value(settings_data["OPENROUTER_API_KEY"])
     except Exception as e:
         logger.error(f"An unexpected error occurred during settings decryption: {e}", exc_info=True)
 
@@ -73,8 +70,8 @@ def save_app_settings(settings: AppSettings):
         "IMAP_SERVER": RedisKeys.IMAP_SERVER,
         "IMAP_USERNAME": RedisKeys.IMAP_USERNAME,
         "IMAP_PASSWORD": RedisKeys.IMAP_PASSWORD,
-        "OPENROUTER_API_KEY": RedisKeys.OPENROUTER_API_KEY,
         "OPENROUTER_MODEL": RedisKeys.OPENROUTER_MODEL,
+        "EMBEDDING_MODEL": RedisKeys.EMBEDDING_MODEL,
     }
 
     pipeline = redis_client.pipeline()
@@ -86,12 +83,12 @@ def save_app_settings(settings: AppSettings):
             continue
 
         # For sensitive fields, don't save the placeholder value
-        if field in ["IMAP_PASSWORD", "OPENROUTER_API_KEY"] and value == "*****":
+        if field in ["IMAP_PASSWORD"] and value == "*****":
             continue
 
         if value is not None:
             # Encrypt sensitive fields before saving
-            if field in ["IMAP_PASSWORD", "OPENROUTER_API_KEY"]:
+            if field in ["IMAP_PASSWORD"]:
                 logger.info(f"Value to be encrypted ({field}): '{value}'")
                 encrypted_value = encrypt_value(value)
                 logger.info(f"Encrypted value ({field}): '{encrypted_value}'")

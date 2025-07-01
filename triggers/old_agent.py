@@ -66,7 +66,7 @@ class EmailAgent:
 
         self.client = OpenAI(
             base_url="https://openrouter.ai/api/v1",
-            api_key=self.app_settings.OPENROUTER_API_KEY,
+            api_key=settings.OPENROUTER_API_KEY,
         )
         self.mcp_client = None  # Will be initialized dynamically
         logger.info("EmailAgent initialized without a pre-configured MCP client.")
