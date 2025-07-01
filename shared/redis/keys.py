@@ -9,6 +9,7 @@ class RedisKeys:
 
     # Key for inbox initialization status
     INBOX_INITIALIZATION_STATUS = "inbox:initialization:status"
+    INBOX_VECTORIZATION_INTERRUPTED = "inbox:vectorization:interrupted"
 
     # Keys for application-wide settings
     IMAP_SERVER = "settings:imap_server"

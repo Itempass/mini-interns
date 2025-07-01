@@ -25,6 +25,22 @@ class EmbeddingService:
         self.api_key = None
         logger.info("EmbeddingService initialized. Client will be loaded on first use.")
 
+    def get_current_model_info(self) -> Dict[str, Any]:
+        """
+        Loads and returns the full info dictionary for the currently configured model.
+        """
+        embedding_model_key = load_app_settings().EMBEDDING_MODEL
+        if not embedding_model_key:
+            raise ValueError("Embedding model is not configured. Please set it on the settings page.")
+        return self._get_model_info(embedding_model_key)
+
+    def get_current_model_vector_size(self) -> int:
+        """
+        Returns the vector size of the currently configured embedding model.
+        """
+        model_info = self.get_current_model_info()
+        return model_info["vector_size"]
+
     def _lazy_load_client(self):
         """
         Loads the embedding client and configuration on the first call to an embedding method.
@@ -34,13 +50,7 @@ class EmbeddingService:
             return
 
         logger.info("First use of EmbeddingService, performing lazy load of client...")
-        app_settings = load_app_settings()
-        embedding_model_key = app_settings.EMBEDDING_MODEL
-
-        if not embedding_model_key:
-            raise ValueError("Embedding model is not configured. Please set it on the settings page.")
-
-        model_info = self._get_model_info(embedding_model_key)
+        model_info = self.get_current_model_info()
         self.provider = model_info.get("provider")
 
         if self.provider not in SUPPORTED_PROVIDERS:
@@ -81,16 +91,18 @@ class EmbeddingService:
             raise ValueError("Input text cannot be empty or non-string.")
 
         try:
+            model_vector_size = self.get_current_model_vector_size()
+            
             if self.provider == "voyage":
                 response = voyageai.Embedding.create(
                     input=[text], model=self.model_name, input_type="document",
-                    output_dimension=settings.EMBEDDING_VECTOR_SIZE, api_key=self.api_key
+                    output_dimension=model_vector_size, api_key=self.api_key
                 )
                 return response.data[0].embedding
             elif self.provider == "openai":
                 response = self.client.embeddings.create(
                     input=[text], model=self.model_name,
-                    dimensions=settings.EMBEDDING_VECTOR_SIZE
+                    dimensions=model_vector_size
                 )
                 return response.data[0].embedding
         except Exception as e:
@@ -104,16 +116,18 @@ class EmbeddingService:
             raise ValueError("Input must be a list of non-empty strings.")
 
         try:
+            model_vector_size = self.get_current_model_vector_size()
+            
             if self.provider == "voyage":
                 response = voyageai.Embedding.create(
                     input=texts, model=self.model_name, input_type="document",
-                    output_dimension=settings.EMBEDDING_VECTOR_SIZE, api_key=self.api_key
+                    output_dimension=model_vector_size, api_key=self.api_key
                 )
                 return [data.embedding for data in response.data]
             elif self.provider == "openai":
                 response = self.client.embeddings.create(
                     input=texts, model=self.model_name,
-                    dimensions=settings.EMBEDDING_VECTOR_SIZE
+                    dimensions=model_vector_size
                 )
                 return [d.embedding for d in response.data]
         except Exception as e:

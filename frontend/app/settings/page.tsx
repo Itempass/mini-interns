@@ -128,18 +128,50 @@ const SettingsPage = () => {
   };
 
   const handleEmbeddingModelChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const { name, value } = e.target;
-    
-    const newSettings = { ...settings, [name]: value };
-    setSettingsState(newSettings);
+    const newModelKey = e.target.value;
+    const currentUIModelKey = settings.EMBEDDING_MODEL;
+    const lastSavedModelKey = initialSettings.EMBEDDING_MODEL;
 
-    const selectedModel = embeddingModels.find(m => m.model_name_from_key === value);
+    // Do nothing if the model isn't actually changing from what's currently displayed
+    if (newModelKey === currentUIModelKey) {
+        return;
+    }
 
-    if (selectedModel && selectedModel.api_key_provided) {
-        await setSettings({ EMBEDDING_MODEL: value });
-        setInitialSettings(newSettings); // Update initial settings to reflect the save
-        setShowEmbeddingModelSaved(true);
-        setEmbeddingConfigError(''); // Clear error on successful selection
+    // Update the UI immediately to provide visual feedback.
+    setSettingsState(prev => ({ ...prev, EMBEDDING_MODEL: newModelKey }));
+
+    const selectedModel = embeddingModels.find(m => m.model_name_from_key === newModelKey);
+
+    // If the new selection is invalid, show a warning and stop. The UI will show the invalid selection.
+    if (!selectedModel || !selectedModel.api_key_provided) {
+        return;
+    }
+
+    // If the user is selecting a valid model that is the same as the last saved one
+    // (e.g., reverting an invalid choice), we don't need to save or re-vectorize.
+    if (newModelKey === lastSavedModelKey) {
+        setEmbeddingConfigError(''); // Clear any previous errors
+        return;
+    }
+
+    // If we get here, the user is trying to switch to a NEW, VALID model.
+    const confirmed = window.confirm(
+        'Changing the embedding model requires re-vectorizing your entire inbox. This will delete all existing email vectors and can take several minutes. Are you sure you want to proceed?'
+    );
+
+    if (confirmed) {
+        try {
+            await setSettings({ EMBEDDING_MODEL: newModelKey });
+            await reinitializeInbox();
+            setInitialSettings(prev => ({ ...prev, EMBEDDING_MODEL: newModelKey }));
+            setEmbeddingConfigError('');
+        } catch (error) {
+            console.error("Failed to update embedding model and re-vectorize:", error);
+            setSettingsState(initialSettings); // Revert UI on failure
+        }
+    } else {
+        // If the user cancels, revert the dropdown to its last saved state.
+        setSettingsState(initialSettings);
     }
   };
 
@@ -340,9 +372,6 @@ const SettingsPage = () => {
                       Warning: API key for this model's provider ({selectedEmbeddingModel.provider}) is not configured.
                     </p>
                   )}
-                  <div className={`text-green-600 text-xs mt-1 transition-opacity duration-500 ${showEmbeddingModelSaved ? 'opacity-100' : 'opacity-0'}`}>
-                    Saved
-                  </div>
                 </div>
               </div>
             </div>

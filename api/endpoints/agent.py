@@ -140,32 +140,40 @@ async def trigger_inbox_initialization(background_tasks: BackgroundTasks):
     return {"message": "Inbox initialization started."}
 
 @router.post("/agent/reinitialize-inbox")
-async def trigger_inbox_reinitialization(background_tasks: BackgroundTasks):
+async def reinitialize_inbox_endpoint(background_tasks: BackgroundTasks):
     """
     Clears existing vector data and triggers the background task to re-initialize the user's inbox.
+    If a vectorization process is already running, it will be gracefully interrupted.
     """
     redis_client = get_redis_client()
     status = redis_client.get(RedisKeys.INBOX_INITIALIZATION_STATUS)
 
-    if status == "running":
-        return {"message": "An inbox initialization process is already running."}
+    # If a job is currently running, signal it to stop.
+    if status == b'running':
+        logger.info("An inbox initialization process is already running. Sending interruption signal.")
+        redis_client.set(RedisKeys.INBOX_VECTORIZATION_INTERRUPTED, "true")
+        # Give the background worker a moment to see the signal and stop
+        await asyncio.sleep(1)
 
     logger.info("Starting inbox re-initialization. Clearing existing collections.")
     
     # Clear existing vector data
     qdrant_client = get_qdrant_client()
-    vector_size = settings.EMBEDDING_VECTOR_SIZE
-    recreate_collection(qdrant_client, "emails", vector_size)
-    recreate_collection(qdrant_client, "email_threads", vector_size)
+    recreate_collection(qdrant_client, "emails")
+    recreate_collection(qdrant_client, "email_threads")
     
-    logger.info("Collections cleared. Triggering background task.")
+    logger.info("Collections cleared. Resetting UID and status, then triggering background task.")
 
+    # Reset the last processed UID to start from scratch
+    redis_client.delete(RedisKeys.LAST_EMAIL_UID)
+    
     # Set the status to "running" immediately to prevent race conditions
     redis_client.set(RedisKeys.INBOX_INITIALIZATION_STATUS, "running")
-
+    
     # The background task will update the status upon completion or failure
     background_tasks.add_task(initialize_inbox)
-    return {"message": "Inbox re-initialization started."}
+    
+    return {"message": "Inbox re-initialization process started."}
 
 @router.get("/agent/initialize-inbox/status")
 async def get_inbox_initialization_status():
