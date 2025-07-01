@@ -4,19 +4,21 @@ Mini Interns is a framework to manage **trigger-based agentic workflows**. Add t
 
 
 ## Installation
+### Compatibility
+Only **gmail** (either personal or workspace) is supported. Support for Outlook and other email servers are on our roadmap.
 
 ### Prerequisites
 - Make sure you have [Docker installed](https://docs.docker.com/engine/install/)
-- Create an [Openrouter](https://openrouter.ai/) account and generate an API key
-- Create an [OpenAI API](https://platform.openai.com/) or [Voyage API](https://www.voyageai.com/) account and generate an API key. These are used for embedding and retrieval.
+- Create an [Openrouter](https://openrouter.ai/) account and generate an API key.
+- Create an [OpenAI API](https://platform.openai.com/) or [Voyage API](https://www.voyageai.com/) (recommended) account and generate an API key. These are used for embedding and retrieval.
 
 ### Installation steps using Terminal
 1. In terminal, navigate to the folder where you'd like to install the project
 2. Clone the project using `git clone https://github.com/Itempass/mini-interns`
 3. Navigate into the directory you just cloned using `cd mini-interns`
-4. Rename `.env.example` to `.env` (on Mac: `cp .env.example .env` | on Windows: `copy .env.example .env`)
+4. Rename .env.example to .env (on Mac: `cp .env.example .env` | on Windows: `copy .env.example .env`)
 5. Use `nano .env` to open the .env file
-6. Add your `OPENROUTER_API_KEY`, and your `EMBEDDING_OPENAI_API_KEY` or `EMBEDDING_VOYAGE_API_KEY` (or both)
+6. Add your `OPENROUTER_API_KEY`, and your `EMBEDDING_OPENAI_API_KEY` or `EMBEDDING_VOYAGE_API_KEY` (recommended).
 7. Use `ctrl + x` to save your changes
 8. Use `docker-compose up` to start the server. After a minute or two, you will be able to access the frontend at `http://localhost:3000/`
 
