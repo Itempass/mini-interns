@@ -16,11 +16,8 @@ class Settings(BaseSettings):
     CONTAINERPORT_MCP_IMAP: int
     CONTAINERPORT_API: int
     CONTAINERPORT_QDRANT: int
-    EMBEDDING_VECTOR_SIZE: int
-    EMBEDDING_OPENAI_MODEL_NAME: str
     EMBEDDING_OPENAI_API_KEY: Optional[str] = None
     EMBEDDING_VOYAGE_API_KEY: Optional[str] = None
-    EMBEDDING_VOYAGE_MODEL: str
     QDRANT_NAMESPACE_UUID: str = 'a1b2c3d4-e5f6-7890-1234-567890abcdef' # For deterministic UUID generation for Qdrant points
     OPENROUTER_API_KEY: str
     
