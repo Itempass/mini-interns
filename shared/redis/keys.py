@@ -17,10 +17,3 @@ class RedisKeys:
     IMAP_PASSWORD = "settings:imap_password"
     OPENROUTER_MODEL = "settings:openrouter_model"
     EMBEDDING_MODEL = "settings:embedding_model"
-
-    # Deprecated keys, kept for migration or cleanup
-    AGENT_INSTRUCTIONS = "agent:agent_instructions"
-    AGENT_TOOLS = "agent:tools"
-    TRIGGER_CONDITIONS = "agent:trigger_conditions"
-    FILTER_RULES = "agent:filter_rules"
-    DEFAULT_AGENT_ID = "agent:default_agent_id"

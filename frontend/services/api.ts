@@ -27,16 +27,6 @@ export interface FilterRules {
   domain_whitelist: string[];
 }
 
-export interface AgentSettings {
-  system_prompt?: string;
-  trigger_conditions?: string;
-  user_context?: string;
-  filter_rules?: FilterRules;
-  agent_steps?: string;
-  agent_instructions?: string;
-  agent_tools?: { [key: string]: { enabled: boolean; required: boolean; order?: number } };
-}
-
 export const getSettings = async (): Promise<{ settings: AppSettings, embeddingModels: EmbeddingModel[] }> => {
   console.log('Fetching settings from URL:', `${API_URL}/settings`);
   try {
@@ -130,46 +120,6 @@ export const testImapConnection = async () => {
   } catch (error) {
     console.error('An error occurred while testing IMAP connection:', error);
     throw error;
-  }
-};
-
-export const getAgentSettings = async (): Promise<AgentSettings> => {
-  console.log('Fetching agent settings from URL:', `${API_URL}/agent/settings`);
-  try {
-    const response = await fetch(`${API_URL}/agent/settings`);
-    if (!response.ok) {
-      console.error('Failed to fetch agent settings. Status:', response.status);
-      throw new Error('Failed to fetch agent settings');
-    }
-    const data = await response.json();
-    console.log('Successfully fetched agent settings:', data);
-    return data;
-  } catch (error) {
-    console.error('An error occurred while fetching agent settings:', error);
-    return {};
-  }
-};
-
-export const setAgentSettings = async (settings: AgentSettings) => {
-  console.log('Setting agent settings:', settings);
-  try {
-    const response = await fetch(`${API_URL}/agent/settings`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(settings),
-    });
-    if (!response.ok) {
-      console.error('Failed to set agent settings. Status:', response.status);
-      throw new Error('Failed to set agent settings');
-    }
-    const result = await response.json();
-    console.log('Successfully set agent settings:', result);
-    return result;
-  } catch (error) {
-    console.error('An error occurred while setting agent settings:', error);
-    return null;
   }
 };
 
