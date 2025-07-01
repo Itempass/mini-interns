@@ -16,7 +16,6 @@ from agentlogger.src.models import ConversationData, Message, Metadata
 from datetime import datetime
 import re
 from uuid import uuid4
-from triggers.migration import migrate_to_database_triggers
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -160,11 +159,6 @@ def main():
     Main polling loop that checks for new emails and runs them against database-driven triggers.
     """
     logger.info("Trigger service started.")
-    
-    # On startup, run the migration to ensure the default trigger exists in the DB.
-    logger.info("Running initial migration...")
-    asyncio.run(migrate_to_database_triggers())
-    logger.info("Initial migration complete.")
 
     while True:
         try:
