@@ -4,7 +4,6 @@ export interface AppSettings {
   IMAP_SERVER?: string;
   IMAP_USERNAME?: string;
   IMAP_PASSWORD?: string;
-  OPENROUTER_API_KEY?: string;
   OPENROUTER_MODEL?: string;
   EMBEDDING_MODEL?: string;
 }

@@ -261,47 +261,14 @@ const SettingsPage = () => {
               <div className="flex-1">
                 <input className={inputClasses} type="password" id="imap-password" name="IMAP_PASSWORD" value={settings.IMAP_PASSWORD || ''} onChange={handleInputChange} />
                 <div className="flex items-center mt-1">
-                    <p className="m-0 text-xs text-gray-600">
-                        Using Gmail? You may need an {""}
-                        <button onClick={() => setHelpPanelOpen(true)} className="text-blue-500 hover:underline cursor-pointer bg-transparent border-none p-0">
-                            App Password
-                        </button>.
-                    </p>
+                  <p className="m-0 text-xs text-gray-600">Enter your email password or an App Password. See help for more details.</p>
+                  <button onClick={() => setHelpPanelOpen(true)} className="ml-2 text-xs text-blue-500 hover:underline">Help</button>
                 </div>
-              </div>
-            </div>
-            <div className={settingRowClasses}>
-              <label className={labelClasses} htmlFor="openrouter-api-key">OpenRouter API Key:</label>
-              <div className="flex-1">
-                <input className={inputClasses} type="password" id="openrouter-api-key" name="OPENROUTER_API_KEY" value={settings.OPENROUTER_API_KEY || ''} onChange={handleInputChange} />
               </div>
             </div>
             <div className={settingRowClasses}>
               <label className={labelClasses} htmlFor="openrouter-model">OpenRouter Model:</label>
-              <div className="flex-1">
-                <div className="flex items-center">
-                  <input
-                    className={inputClasses}
-                    type="text"
-                    id="openrouter-model"
-                    name="OPENROUTER_MODEL"
-                    value={settings.OPENROUTER_MODEL || ''}
-                    onChange={handleInputChange}
-                  />
-                  <span
-                    title="copy the exact model slug from openrouter's website"
-                    className="ml-2 cursor-help text-xl text-gray-600"
-                  >
-                    &#9432;
-                  </span>
-                </div>
-                <div className="flex items-center mt-1">
-                  <p className="m-0 text-xs text-gray-600">example: google/gemini-2.5-flash-preview-05-20:thinking</p>
-                  <button onClick={() => handleCopy('google/gemini-2.5-flash-preview-05-20:thinking')} className={copyButtonStyle} title="Copy">
-                    <Copy size={14} />
-                  </button>
-                </div>
-              </div>
+              <input className={inputClasses} type="text" id="openrouter-model" name="OPENROUTER_MODEL" value={settings.OPENROUTER_MODEL || ''} onChange={handleInputChange} />
             </div>
             
             {testMessage && (
