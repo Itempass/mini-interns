@@ -6,6 +6,19 @@ export interface AppSettings {
   IMAP_PASSWORD?: string;
   OPENROUTER_API_KEY?: string;
   OPENROUTER_MODEL?: string;
+  EMBEDDING_MODEL?: string;
+}
+
+export interface EmbeddingModel {
+  provider: string;
+  model_name: string;
+  vector_size: number;
+  max_input_tokens: number;
+  max_batch_size: number;
+  max_batch_tokens: number | null;
+  default: boolean;
+  model_name_from_key: string;
+  api_key_provided: boolean;
 }
 
 export interface FilterRules {
@@ -25,7 +38,7 @@ export interface AgentSettings {
   agent_tools?: { [key: string]: { enabled: boolean; required: boolean; order?: number } };
 }
 
-export const getSettings = async (): Promise<AppSettings> => {
+export const getSettings = async (): Promise<{ settings: AppSettings, embeddingModels: EmbeddingModel[] }> => {
   console.log('Fetching settings from URL:', `${API_URL}/settings`);
   try {
     const response = await fetch(`${API_URL}/settings`);
@@ -35,10 +48,10 @@ export const getSettings = async (): Promise<AppSettings> => {
     }
     const data = await response.json();
     console.log('Successfully fetched settings:', data);
-    return data;
+    return { settings: data.settings, embeddingModels: data.embedding_models };
   } catch (error) {
     console.error('An error occurred while fetching settings:', error);
-    return {};
+    return { settings: {}, embeddingModels: [] };
   }
 };
 
@@ -222,7 +235,7 @@ export const getInboxInitializationStatus = async (): Promise<string> => {
 
 export const getOpenRouterModel = async () => {
   const settings = await getSettings();
-  return settings.OPENROUTER_MODEL || '';
+  return settings.settings.OPENROUTER_MODEL || '';
 };
 
 export const setOpenRouterModel = async (model: string) => {

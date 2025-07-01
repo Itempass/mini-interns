@@ -1,80 +1,130 @@
 import logging
-from typing import List, Dict, Any
+import json
+from typing import List, Optional, Dict, Any
 import voyageai
+import openai
+from functools import lru_cache
+
 from shared.config import settings
+from shared.app_settings import load_app_settings
 
 logger = logging.getLogger(__name__)
 
+SUPPORTED_PROVIDERS = ["voyage", "openai"]
+
 class EmbeddingService:
-    """A service to create embeddings using a Voyage AI model."""
+    """A service to create embeddings using various providers."""
 
     def __init__(self):
-        """Initializes the EmbeddingService."""
-        self.api_key = settings.EMBEDDING_VOYAGE_API_KEY
-        self.embedding_model = settings.EMBEDDING_VOYAGE_MODEL
+        """
+        Initializes the EmbeddingService. The actual client is loaded lazily.
+        """
+        self.client = None
+        self.provider = None
+        self.model_name = None
+        self.api_key = None
+        logger.info("EmbeddingService initialized. Client will be loaded on first use.")
+
+    def _lazy_load_client(self):
+        """
+        Loads the embedding client and configuration on the first call to an embedding method.
+        This avoids crashing on startup if settings are not yet configured.
+        """
+        if self.client:
+            return
+
+        logger.info("First use of EmbeddingService, performing lazy load of client...")
+        app_settings = load_app_settings()
+        embedding_model_key = app_settings.EMBEDDING_MODEL
+
+        if not embedding_model_key:
+            raise ValueError("Embedding model is not configured. Please set it on the settings page.")
+
+        model_info = self._get_model_info(embedding_model_key)
+        self.provider = model_info.get("provider")
+
+        if self.provider not in SUPPORTED_PROVIDERS:
+            raise ValueError(f"Unsupported embedding provider: {self.provider}")
+
+        self.model_name = model_info.get("model_name")
         
-        if not self.api_key:
-            raise ValueError("EMBEDDING_VOYAGE_API_KEY is not configured in settings.")
-        
-        self.client = voyageai.Client(api_key=self.api_key)
-        logger.info(f"EmbeddingService initialized with model: {self.embedding_model}")
+        if self.provider == "voyage":
+            self.api_key = settings.EMBEDDING_VOYAGE_API_KEY
+            if not self.api_key:
+                raise ValueError("Voyage API key is not configured.")
+            self.client = voyageai.Client(api_key=self.api_key)
+        elif self.provider == "openai":
+            self.api_key = settings.EMBEDDING_OPENAI_API_KEY
+            if not self.api_key:
+                raise ValueError("OpenAI API key is not configured.")
+            self.client = openai.OpenAI(api_key=self.api_key)
+            
+        logger.info(f"Embedding client loaded for provider '{self.provider}' with model '{self.model_name}'")
+
+    @staticmethod
+    @lru_cache(maxsize=1)
+    def _get_model_info(model_key: str) -> Dict[str, Any]:
+        """Loads embedding model details from the JSON file."""
+        try:
+            with open("shared/embedding_models.json", "r") as f:
+                models = json.load(f)
+            if model_key not in models:
+                raise ValueError(f"Model '{model_key}' not found in embedding_models.json")
+            return models[model_key]
+        except FileNotFoundError:
+            raise ValueError("embedding_models.json not found.")
 
     def create_embedding(self, text: str) -> List[float]:
-        """
-        Creates a vector embedding for a single text.
-        """
+        self._lazy_load_client()
         if not text or not isinstance(text, str):
             logger.error("Invalid input: Text cannot be empty or non-string.")
             raise ValueError("Input text cannot be empty or non-string.")
 
         try:
-            # Use the lower-level API directly to support output_dimension
-            response = voyageai.Embedding.create(
-                input=[text],
-                model=self.embedding_model,
-                input_type="document",
-                output_dimension=settings.EMBEDDING_VECTOR_SIZE,
-                api_key=self.api_key
-            )
-            return response.data[0].embedding
+            if self.provider == "voyage":
+                response = voyageai.Embedding.create(
+                    input=[text], model=self.model_name, input_type="document",
+                    output_dimension=settings.EMBEDDING_VECTOR_SIZE, api_key=self.api_key
+                )
+                return response.data[0].embedding
+            elif self.provider == "openai":
+                response = self.client.embeddings.create(
+                    input=[text], model=self.model_name,
+                    dimensions=settings.EMBEDDING_VECTOR_SIZE
+                )
+                return response.data[0].embedding
         except Exception as e:
             logger.error(f"An unexpected error occurred during embedding creation: {e}")
             raise Exception(f"An unexpected error occurred while creating embedding: {e}") from e
 
     def create_embeddings(self, texts: List[str]) -> List[List[float]]:
-        """
-        Creates vector embeddings for a list of texts.
-        """
+        self._lazy_load_client()
         if not texts or not isinstance(texts, list) or not all(isinstance(t, str) for t in texts):
             logger.error("Invalid input: Input must be a list of non-empty strings.")
             raise ValueError("Input must be a list of non-empty strings.")
 
         try:
-            # Use the lower-level API directly to support output_dimension
-            response = voyageai.Embedding.create(
-                input=texts,
-                model=self.embedding_model,
-                input_type="document",
-                output_dimension=settings.EMBEDDING_VECTOR_SIZE,
-                api_key=self.api_key
-            )
-            return [data.embedding for data in response.data]
+            if self.provider == "voyage":
+                response = voyageai.Embedding.create(
+                    input=texts, model=self.model_name, input_type="document",
+                    output_dimension=settings.EMBEDDING_VECTOR_SIZE, api_key=self.api_key
+                )
+                return [data.embedding for data in response.data]
+            elif self.provider == "openai":
+                response = self.client.embeddings.create(
+                    input=texts, model=self.model_name,
+                    dimensions=settings.EMBEDDING_VECTOR_SIZE
+                )
+                return [d.embedding for d in response.data]
         except Exception as e:
             logger.error(f"An unexpected error occurred during batch embedding creation: {e}")
             raise Exception(f"An unexpected error occurred while creating embeddings: {e}") from e
 
     def rerank(self, query: str, documents: List[str], top_k: int = None) -> List[Dict[str, Any]]:
-        """
-        Reranks a list of documents based on their relevance to a query using Voyage AI's rerank-2 model.
+        self._lazy_load_client()
+        if self.provider != "voyage":
+            raise NotImplementedError("Reranking is only supported for Voyage AI at the moment.")
         
-        Args:
-            query: The query text to rank documents against
-            documents: List of document texts to rerank
-            top_k: Maximum number of results to return (optional)
-            
-        Returns:
-            List of dictionaries containing reranked results with scores and indices
-        """
         if not query or not isinstance(query, str):
             logger.error("Invalid query: Query cannot be empty or non-string.")
             raise ValueError("Query cannot be empty or non-string.")
@@ -84,22 +134,17 @@ class EmbeddingService:
             raise ValueError("Documents must be a list of non-empty strings.")
 
         try:
-            # Use the lower-level API directly to access reranking
             response = voyageai.Reranking.create(
-                query=query,
-                documents=documents,
-                model="rerank-2",
-                top_k=top_k,
-                api_key=self.api_key
+                query=query, documents=documents, model="rerank-2",
+                top_k=top_k, api_key=self.api_key
             )
             
-            # Extract reranking results from response.data
             reranked_results = []
             for result in response.data:
                 reranked_results.append({
                     "index": result.index,
                     "relevance_score": result.relevance_score,
-                    "document": documents[result.index]  # Get document from original list using index
+                    "document": documents[result.index]
                 })
             
             return reranked_results

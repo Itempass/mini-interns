@@ -16,6 +16,7 @@ class RedisKeys:
     IMAP_PASSWORD = "settings:imap_password"
     OPENROUTER_API_KEY = "settings:openrouter_api_key"
     OPENROUTER_MODEL = "settings:openrouter_model"
+    EMBEDDING_MODEL = "settings:embedding_model"
 
     # Deprecated keys, kept for migration or cleanup
     AGENT_INSTRUCTIONS = "agent:agent_instructions"

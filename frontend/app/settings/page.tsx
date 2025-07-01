@@ -1,6 +1,6 @@
 'use client';
 import React, { useState, useEffect } from 'react';
-import { getSettings, setSettings, AppSettings, initializeInbox, getInboxInitializationStatus, testImapConnection, reinitializeInbox, getVersion } from '../../services/api';
+import { getSettings, setSettings, AppSettings, EmbeddingModel, initializeInbox, getInboxInitializationStatus, testImapConnection, reinitializeInbox, getVersion } from '../../services/api';
 import { Copy } from 'lucide-react';
 import TopBar from '../../components/TopBar';
 import VersionCheck from '../../components/VersionCheck';
@@ -10,12 +10,15 @@ import GoogleAppPasswordHelp from '../../components/help/GoogleAppPasswordHelp';
 const SettingsPage = () => {
   const [settings, setSettingsState] = useState<AppSettings>({});
   const [initialSettings, setInitialSettings] = useState<AppSettings>({});
+  const [embeddingModels, setEmbeddingModels] = useState<EmbeddingModel[]>([]);
   const [inboxStatus, setInboxStatus] = useState<string | null>(null);
   const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
   const [testMessage, setTestMessage] = useState<string>('');
   const [version, setVersion] = useState<string>('');
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
   const [isHelpPanelOpen, setHelpPanelOpen] = useState(false);
+  const [showEmbeddingModelSaved, setShowEmbeddingModelSaved] = useState(false);
+  const [embeddingConfigError, setEmbeddingConfigError] = useState<string>('');
 
   const hasUnsavedChanges = JSON.stringify(settings) !== JSON.stringify(initialSettings);
 
@@ -51,9 +54,17 @@ const SettingsPage = () => {
   useEffect(() => {
     console.log('Component mounted. Fetching initial data.');
     const fetchSettings = async () => {
-      const fetchedSettings = await getSettings();
+      const { settings: fetchedSettings, embeddingModels: fetchedModels } = await getSettings();
       setSettingsState(fetchedSettings);
       setInitialSettings(fetchedSettings);
+      setEmbeddingModels(fetchedModels);
+
+      if (!fetchedSettings.EMBEDDING_MODEL) {
+        setEmbeddingConfigError("No embedding model configured. Please select a model to enable vectorization.");
+      } else {
+        setEmbeddingConfigError('');
+      }
+
       await attemptAutoVectorization(fetchedSettings);
     };
     const fetchVersion = async () => {
@@ -73,6 +84,15 @@ const SettingsPage = () => {
     }
     return () => clearTimeout(timer);
   }, [saveStatus]);
+
+  useEffect(() => {
+    if (showEmbeddingModelSaved) {
+      const timer = setTimeout(() => {
+        setShowEmbeddingModelSaved(false);
+      }, 2000);
+      return () => clearTimeout(timer);
+    }
+  }, [showEmbeddingModelSaved]);
 
   useEffect(() => {
     const fetchStatus = async () => {
@@ -102,9 +122,25 @@ const SettingsPage = () => {
     await attemptAutoVectorization(settings);
   };
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
     setSettingsState(prev => ({ ...prev, [name]: value }));
+  };
+
+  const handleEmbeddingModelChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const { name, value } = e.target;
+    
+    const newSettings = { ...settings, [name]: value };
+    setSettingsState(newSettings);
+
+    const selectedModel = embeddingModels.find(m => m.model_name_from_key === value);
+
+    if (selectedModel && selectedModel.api_key_provided) {
+        await setSettings({ EMBEDDING_MODEL: value });
+        setInitialSettings(newSettings); // Update initial settings to reflect the save
+        setShowEmbeddingModelSaved(true);
+        setEmbeddingConfigError(''); // Clear error on successful selection
+    }
   };
 
   const handleTestConnection = async () => {
@@ -149,6 +185,8 @@ const SettingsPage = () => {
   const inputClasses = "w-full p-2 rounded border border-gray-300 box-border";
   const buttonClasses = "py-2 px-5 border-none rounded bg-blue-500 text-white cursor-pointer text-base block mx-auto";
 
+  const selectedEmbeddingModel = embeddingModels.find(m => m.model_name_from_key === settings.EMBEDDING_MODEL);
+  
   return (
     <div className="flex flex-col h-screen">
       <VersionCheck />
@@ -275,6 +313,37 @@ const SettingsPage = () => {
                 >
                   Re-vectorize
                 </button>
+              </div>
+              {embeddingConfigError && (
+                <div className="text-center p-2 mb-4 rounded-md text-sm bg-red-100 text-red-800">
+                    {embeddingConfigError}
+                </div>
+              )}
+              <div className={settingRowClasses}>
+                <label className={labelClasses} htmlFor="embedding-model">Embedding Model:</label>
+                <div className="flex-1">
+                  <select
+                    id="embedding-model"
+                    name="EMBEDDING_MODEL"
+                    value={settings.EMBEDDING_MODEL || ''}
+                    onChange={handleEmbeddingModelChange}
+                    className={inputClasses}
+                  >
+                    {embeddingModels.map(model => (
+                      <option key={model.model_name_from_key} value={model.model_name_from_key}>
+                        {model.provider} - {model.model_name}
+                      </option>
+                    ))}
+                  </select>
+                  {selectedEmbeddingModel && !selectedEmbeddingModel.api_key_provided && (
+                    <p className="text-red-500 text-xs mt-1">
+                      Warning: API key for this model's provider ({selectedEmbeddingModel.provider}) is not configured.
+                    </p>
+                  )}
+                  <div className={`text-green-600 text-xs mt-1 transition-opacity duration-500 ${showEmbeddingModelSaved ? 'opacity-100' : 'opacity-0'}`}>
+                    Saved
+                  </div>
+                </div>
               </div>
             </div>
             {version && <p className="text-center text-xs text-gray-400 mt-4">Version: {version}</p>}
