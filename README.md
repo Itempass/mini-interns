@@ -22,7 +22,7 @@ Only **gmail** (either personal or workspace) is supported. Support for Outlook 
 7. Use `ctrl + x` to save your changes
 8. Use `docker-compose up` to start the server. After a minute or two, you will be able to access the frontend at `http://localhost:3000/`
 
-
+*Note: currently, using EMBEDDING_OPENAI_API_KEY skips the reranking algorithm when retrieving relevant emails. Hence, EMBEDDING_VOYAGE_API_KEY is recommended.*
 
 ## Project Structure
 

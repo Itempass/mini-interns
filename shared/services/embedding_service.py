@@ -137,8 +137,12 @@ class EmbeddingService:
     def rerank(self, query: str, documents: List[str], top_k: int = None) -> List[Dict[str, Any]]:
         self._lazy_load_client()
         if self.provider != "voyage":
-            raise NotImplementedError("Reranking is only supported for Voyage AI at the moment.")
-        
+            logger.info(f"Reranking skipped for provider '{self.provider}'. Reranking is currently only supported for Voyage.")
+            # If top_k is not specified, return all documents, otherwise return top_k
+            num_to_return = top_k if top_k is not None else len(documents)
+            # The calling function expects a list of dicts with at least an 'index' key.
+            return [{"index": i} for i in range(min(len(documents), num_to_return))]
+
         if not query or not isinstance(query, str):
             logger.error("Invalid query: Query cannot be empty or non-string.")
             raise ValueError("Query cannot be empty or non-string.")
