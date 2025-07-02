@@ -17,7 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Logging:** Implemented an API-based logging system to replace direct database access.
 - **UI:** Added an IMAP connection status indicator to the main sidebar.
 - **UI:** Enhanced the settings page with visual indicators for unsaved changes and a help panel for Google App Passwords.
-- **Security:** Implemented encryption for sensitive application settings like `IMAP_PASSWORD` and `OPENROUTER_API_KEY`.
+- **Security:** Implemented encryption for sensitive application settings like `IMAP_PASSWORD` and `OPENROUTER_API_KEY` (note: `OPENROUTE_API_KEY` was moved to .env in another change.).
 - **Embeddings:** Added support for multiple embedding models (OpenAI and Voyage), selectable by the user.
 - **Embeddings:** Implemented an interruptible inbox vectorization process that can be gracefully stopped and restarted.
 - **Embeddings:** Added automatic inbox vectorization, triggered upon successful IMAP connection.
