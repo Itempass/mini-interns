@@ -1,4 +1,4 @@
-const API_URL = '/api'; // The backend is on port 5001, but we're proxying
+export const API_URL = '/api'; // The backend is on port 5001, but we're proxying
 
 export interface AppSettings {
   IMAP_SERVER?: string;
@@ -97,6 +97,15 @@ export const getLatestVersion = async (): Promise<string | null> => {
   } catch (error) {
     console.error('An error occurred while fetching latest version:', error);
     return null;
+  }
+};
+
+export const checkBackendHealth = async (): Promise<boolean> => {
+  try {
+    const response = await fetch(`${API_URL}/`);
+    return response.ok;
+  } catch (error) {
+    return false;
   }
 };
 

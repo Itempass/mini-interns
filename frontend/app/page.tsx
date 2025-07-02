@@ -6,6 +6,7 @@ import AgentSettings from '../components/AgentSettings';
 import { Agent, getAgents } from '../services/api';
 import VersionCheck from '../components/VersionCheck';
 import ConnectionStatusIndicator from '../components/ConnectionStatusIndicator';
+import BackendStatusChecker from '../components/BackendStatusChecker';
 
 const HomePage = () => {
   const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null);
@@ -35,6 +36,7 @@ const HomePage = () => {
 
   return (
     <div className="flex flex-col h-screen bg-white">
+      <BackendStatusChecker />
       <VersionCheck />
       <div className="flex flex-col flex-grow overflow-hidden">
         <TopBar />
