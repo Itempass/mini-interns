@@ -50,10 +50,10 @@ services:
     restart: unless-stopped
 
   promtail:
-    image: grafana/promtail:2.9.1
+    build:
+      context: ./promtail
     # container_name: mini-interns-promtail
     volumes:
-      - ./promtail-config.yml:/etc/promtail/config.yml
       - /var/run/docker.sock:/var/run/docker.sock
       - ./data:/data
     entrypoint: |
