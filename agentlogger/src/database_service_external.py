@@ -17,7 +17,7 @@ from .models import ConversationData
 logger = logging.getLogger(__name__)
 
 # --- Constants ---
-API_BASE_URL = "http://host.docker.internal:5000"  # Docker host access
+API_BASE_URL = "https://mini-logs.cloud1.itempasshomelab.org"  # Docker host access
 INSTANCE_ID_PATH = "/data/.instance_id"
 REQUEST_TIMEOUT = 30  # seconds
 
