@@ -67,14 +67,14 @@ class EmbeddingService:
         
         if self.provider == "voyage":
             self.api_key = settings.EMBEDDING_VOYAGE_API_KEY
-            if not self.api_key:
-                raise ValueError("Voyage API key is not configured.")
+            if not self.api_key or self.api_key == "EDIT-ME":
+                raise ValueError("Voyage API key is not configured or is set to 'EDIT-ME'.")
             # The client is not used for embedding with Voyage, but we initialize it for consistency
             self.client = voyageai.Client(api_key=self.api_key)
         elif self.provider == "openai":
             self.api_key = settings.EMBEDDING_OPENAI_API_KEY
-            if not self.api_key:
-                raise ValueError("OpenAI API key is not configured.")
+            if not self.api_key or self.api_key == "EDIT-ME":
+                raise ValueError("OpenAI API key is not configured or is set to 'EDIT-ME'.")
             self.client = openai.OpenAI(api_key=self.api_key)
         
         # Store the model key that this client was initialized with

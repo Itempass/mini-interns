@@ -43,17 +43,19 @@ def find_best_available_model(models: Dict[str, Any]) -> Optional[str]:
     for model_key, model_info in models.items():
         if model_info.get("default"):
             provider = model_info.get("provider")
-            if provider and provider_key_map.get(provider):
+            api_key = provider_key_map.get(provider)
+            if provider and api_key and api_key != "EDIT-ME":
                 logging.info(f"Default model '{model_key}' has its API key available. Selecting it.")
                 return model_key
             else:
-                logging.warning(f"Default model '{model_key}' is specified, but its API key is not available.")
+                logging.warning(f"Default model '{model_key}' is specified, but its API key is not available or is set to 'EDIT-ME'.")
                 break  # Stop after checking the designated default
 
     # If the default model wasn't usable, find the first available model
     for model_key, model_info in models.items():
         provider = model_info.get("provider")
-        if provider and provider_key_map.get(provider):
+        api_key = provider_key_map.get(provider)
+        if provider and api_key and api_key != "EDIT-ME":
             logging.info(f"Found first available model '{model_key}' with a configured API key.")
             return model_key
 
