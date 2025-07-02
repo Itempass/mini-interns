@@ -45,22 +45,21 @@ const AgentSidebar: React.FC<AgentSidebarProps> = ({ agents, onSelectAgent, sele
             <div className="flex items-center justify-between">
               <button
                 onClick={() => onSelectAgent(agent)}
-                className={`flex w-full items-center justify-between text-left px-3 py-2 rounded-md text-sm transition-colors ${
+                className={`flex w-full flex-col items-start text-left px-3 py-2 rounded-md text-sm transition-colors ${
                   selectedAgent?.uuid === agent.uuid
                     ? 'bg-blue-500 text-white'
                     : 'bg-white hover:bg-gray-100'
                 }`}
               >
                 <span>{agent.name}</span>
-                {!agent.paused ? (
-                    <span className="ml-2 rounded-full bg-green-100 px-2 py-1 text-xs font-bold text-green-800">
-                        ON
-                    </span>
-                ) : (
-                    <span className="ml-2 rounded-full bg-red-100 px-2 py-1 text-xs font-bold text-red-800">
-                        OFF
-                    </span>
-                )}
+                <div className="flex items-center mt-1">
+                  <div className={`w-2 h-2 rounded-full mr-2 ${
+                    !agent.paused ? 'bg-green-500' : 'bg-red-500'
+                  }`}></div>
+                  <span className="text-xs text-gray-500">
+                    {!agent.paused ? 'agent active' : 'agent paused'}
+                  </span>
+                </div>
               </button>
               <button
                 onClick={() => setMenuOpenFor(menuOpenFor === agent.uuid ? null : agent.uuid)}
