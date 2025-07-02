@@ -11,12 +11,18 @@ const VersionCheck = () => {
             const current = await getVersion();
             const latest = await getLatestVersion();
 
-            // Ignore pre-release versions (e.g., "0.0.2-rc1", "1.0.0-alpha")
-            if (!latest || latest.includes('-')) {
+            // Ignore pre-release 'latest' versions
+            if (!current || !latest || latest.includes('-')) {
                 return;
             }
 
-            if (current && latest > current) {
+            // Handles cases like `0.0.2-dev` or `0.0.2dev` vs `0.0.2`.
+            // First, take the part before any "-", then remove any trailing letters.
+            const comparableCurrent = current.split('-')[0].replace(/[a-zA-Z].*$/, '');
+
+            // An update is available if the latest version is greater than the comparable current version,
+            // or if they are equal, but the original current version was a dev build (implying it's older).
+            if (latest > comparableCurrent || (latest === comparableCurrent && current.length > latest.length)) {
                 setLatestVersion(latest);
                 setUpdateAvailable(true);
             }
