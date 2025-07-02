@@ -225,7 +225,7 @@ async def _execute_run(agent_model: AgentModel, instance: AgentInstanceModel) ->
                 tool_results = await asyncio.gather(*tasks)
 
                 for tool_call, result in zip(mcp_tool_calls, tool_results):
-                    result_text = "\n".join(item.text for item in result)
+                    result_text = "\n".join(item.text for item in result.content)
                     instance.messages.append(MessageModel(
                         tool_call_id=tool_call.id,
                         role="tool",
