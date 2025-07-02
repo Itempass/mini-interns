@@ -24,6 +24,12 @@ Only **gmail** (either personal or workspace) is supported. Support for Outlook 
 
 *Note: currently, using EMBEDDING_OPENAI_API_KEY skips the reranking algorithm when retrieving relevant emails. Hence, EMBEDDING_VOYAGE_API_KEY is recommended.*
 
+### Updating an existing installation
+1. In terminal, navigate to the folder containing the clone you made earlier (eg `cd Documents/mini-interns`)
+2. Use `docker-compose down` to stop the server, or stop it using [Docker for Desktop](https://www.docker.com/products/docker-desktop/)
+3. Use `git pull` to update
+4. Use `docker-compose up` to start the updated server
+
 ## Feedback and Feature Requests
 
 Don't hesitate to contact us on LinkedIn for feedback and feature requests!
