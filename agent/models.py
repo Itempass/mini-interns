@@ -11,6 +11,7 @@ class AgentModel(BaseModel):
     user_instructions: str
     tools: Dict[str, Any] = Field(default_factory=dict) # tool_id -> { enabled: bool, required: bool, order: int }
     paused: bool = False
+    model: str = Field(default="google/gemini-2.5-flash-preview-05-20:thinking")
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime = Field(default_factory=datetime.now)
 
@@ -37,5 +38,6 @@ class TriggerModel(BaseModel):
     trigger_conditions: str
     trigger_bypass: bool = False # If True, the trigger will immediately be bypassed and the agent will run
     filter_rules: Dict[str, Any] = Field(default_factory=dict)
+    model: str = Field(default="google/gemini-2.5-flash-preview-05-20:thinking")
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)

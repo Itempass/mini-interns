@@ -4,7 +4,6 @@ export interface AppSettings {
   IMAP_SERVER?: string;
   IMAP_USERNAME?: string;
   IMAP_PASSWORD?: string;
-  OPENROUTER_MODEL?: string;
   EMBEDDING_MODEL?: string;
 }
 
@@ -182,19 +181,16 @@ export const getInboxInitializationStatus = async (): Promise<string> => {
   }
 };
 
-export const getOpenRouterModel = async () => {
-  const settings = await getSettings();
-  return settings.settings.OPENROUTER_MODEL || '';
-};
-
-export const setOpenRouterModel = async (model: string) => {
-  return await setSettings({ OPENROUTER_MODEL: model });
-};
+// Note: OpenRouter model functions removed as models are now per-agent/trigger
 
 // Agent Logger API
 export interface ConversationData {
   metadata: {
     conversation_id: string;
+    timestamp?: string;
+    readable_workflow_name?: string;
+    readable_instance_context?: string;
+    model?: string;
     [key: string]: any;
   };
   messages: Array<{
@@ -314,16 +310,20 @@ export interface Agent {
   user_instructions: string;
   tools: { [key: string]: { enabled: boolean; required: boolean; order?: number } };
   paused?: boolean;
+  model: string;
   created_at: string;
   updated_at: string;
   trigger_conditions?: string;
   filter_rules?: FilterRules;
   trigger_bypass?: boolean;
+  trigger_model: string;
 }
 
 export interface CreateAgentRequest {
   name: string;
   description: string;
+  model?: string;
+  trigger_model?: string;
 }
 
 export interface Tool {

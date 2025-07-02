@@ -18,7 +18,6 @@ class AppSettings(BaseModel):
     IMAP_SERVER: Optional[str] = None
     IMAP_USERNAME: Optional[str] = None
     IMAP_PASSWORD: Optional[str] = None
-    OPENROUTER_MODEL: Optional[str] = None
     EMBEDDING_MODEL: Optional[str] = None
 
 def load_app_settings() -> AppSettings:
@@ -34,7 +33,6 @@ def load_app_settings() -> AppSettings:
         RedisKeys.IMAP_SERVER,
         RedisKeys.IMAP_USERNAME,
         RedisKeys.IMAP_PASSWORD,
-        RedisKeys.OPENROUTER_MODEL,
         RedisKeys.EMBEDDING_MODEL
     )
     results = pipeline.execute()[0]
@@ -43,8 +41,7 @@ def load_app_settings() -> AppSettings:
         "IMAP_SERVER": results[0],
         "IMAP_USERNAME": results[1],
         "IMAP_PASSWORD": results[2],
-        "OPENROUTER_MODEL": results[3],
-        "EMBEDDING_MODEL": results[4]
+        "EMBEDDING_MODEL": results[3]
     }
     
     # Decrypt sensitive fields if they exist
@@ -70,7 +67,6 @@ def save_app_settings(settings: AppSettings):
         "IMAP_SERVER": RedisKeys.IMAP_SERVER,
         "IMAP_USERNAME": RedisKeys.IMAP_USERNAME,
         "IMAP_PASSWORD": RedisKeys.IMAP_PASSWORD,
-        "OPENROUTER_MODEL": RedisKeys.OPENROUTER_MODEL,
         "EMBEDDING_MODEL": RedisKeys.EMBEDDING_MODEL,
     }
 

@@ -20,6 +20,7 @@ class Metadata(BaseModel):
     timestamp: Optional[str] = None
     readable_workflow_name: Optional[str] = None
     readable_instance_context: Optional[str] = None
+    model: Optional[str] = None  # Track which LLM model was used
     # Allow additional metadata fields
     model_config = {"extra": "allow"}
 

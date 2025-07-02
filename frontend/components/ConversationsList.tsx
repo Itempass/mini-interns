@@ -94,6 +94,7 @@ const ConversationsList: React.FC<ConversationsListProps> = ({ onSelectConversat
             <th className={thClasses}>Workflow Name</th>
             <th className={thClasses}>Context</th>
             <th className={thClasses}>Messages</th>
+            <th className={thClasses}>Model</th>
             <th className={thClasses}>Timestamp</th>
             <th className={thClasses}>Tool Chain</th>
           </tr>
@@ -115,6 +116,14 @@ const ConversationsList: React.FC<ConversationsListProps> = ({ onSelectConversat
                 </span>
               </td>
               <td className={tdClasses}>{conversation.messages.length}</td>
+              <td className={tdClasses}>
+                <span 
+                  className="text-sm text-gray-700"
+                  title={conversation.metadata.model || 'No model specified'}
+                >
+                  {conversation.metadata.model || 'N/A'}
+                </span>
+              </td>
               <td className={tdClasses}>
                 {conversation.metadata.timestamp 
                   ? new Date(conversation.metadata.timestamp).toLocaleString() 

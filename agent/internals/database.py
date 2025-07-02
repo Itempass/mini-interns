@@ -18,8 +18,8 @@ async def _create_agent_in_db(agent: AgentModel) -> AgentModel:
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
             """
-            INSERT INTO agents (uuid, name, description, system_prompt, user_instructions, tools, paused, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO agents (uuid, name, description, system_prompt, user_instructions, tools, paused, model, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 str(agent.uuid),
@@ -29,6 +29,7 @@ async def _create_agent_in_db(agent: AgentModel) -> AgentModel:
                 agent.user_instructions,
                 json.dumps(agent.tools),
                 agent.paused,
+                agent.model,
                 agent.created_at,
                 agent.updated_at,
             ),
@@ -74,7 +75,7 @@ async def _update_agent_in_db(agent: AgentModel) -> AgentModel:
         await db.execute(
             """
             UPDATE agents
-            SET name = ?, description = ?, system_prompt = ?, user_instructions = ?, tools = ?, paused = ?, updated_at = ?
+            SET name = ?, description = ?, system_prompt = ?, user_instructions = ?, tools = ?, paused = ?, model = ?, updated_at = ?
             WHERE uuid = ?
             """,
             (
@@ -84,6 +85,7 @@ async def _update_agent_in_db(agent: AgentModel) -> AgentModel:
                 agent.user_instructions,
                 json.dumps(agent.tools),
                 agent.paused,
+                agent.model,
                 agent.updated_at,
                 str(agent.uuid),
             ),
@@ -155,14 +157,15 @@ async def _create_trigger_in_db(trigger: TriggerModel) -> TriggerModel:
         }
         await db.execute(
             """
-            INSERT INTO triggers (uuid, agent_uuid, rules_json, trigger_bypass, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO triggers (uuid, agent_uuid, rules_json, trigger_bypass, model, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 str(trigger.uuid),
                 str(trigger.agent_uuid),
                 json.dumps(rules_payload),
                 trigger.trigger_bypass,
+                trigger.model,
                 trigger.created_at,
                 trigger.updated_at,
             ),
@@ -225,13 +228,14 @@ async def _update_trigger_in_db(trigger: TriggerModel) -> TriggerModel:
         await db.execute(
             """
             UPDATE triggers
-            SET agent_uuid = ?, rules_json = ?, trigger_bypass = ?, updated_at = ?
+            SET agent_uuid = ?, rules_json = ?, trigger_bypass = ?, model = ?, updated_at = ?
             WHERE uuid = ?
             """,
             (
                 str(trigger.agent_uuid),
                 json.dumps(rules_payload),
                 trigger.trigger_bypass,
+                trigger.model,
                 trigger.updated_at,
                 str(trigger.uuid),
             ),

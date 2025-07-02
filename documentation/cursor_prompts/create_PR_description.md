@@ -18,6 +18,7 @@ You are an expert software engineer assistant. Your task is to create a professi
         *   **Changes:** A detailed, bulleted list of the modifications.
             *   Group related changes under subheadings (e.g., "Feature:", "Chore:").
             *   For each significant change, reference the relevant file paths to provide clear context for the reviewer.
+    *   Do not include any planning documents that were made, but do include changes to general documentation
 
 3.  **Save the Output:**
     *   Create a new file named `YYYY-MM-DD-[Title of PR].md` inside the `documentation/PR_description_drafts/` directory. Note: use a command to get the current date in CET time.
