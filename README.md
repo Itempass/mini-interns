@@ -24,6 +24,20 @@ Only **gmail** (either personal or workspace) is supported. Support for Outlook 
 
 *Note: currently, using EMBEDDING_OPENAI_API_KEY skips the reranking algorithm when retrieving relevant emails. Hence, EMBEDDING_VOYAGE_API_KEY is recommended.*
 
+## Feedback and Feature Requests
+
+Don't hesitate to contact us on LinkedIn for feedback and feature requests!
+
+* [@ArthurDevel](https://www.linkedin.com/in/arthurstockman/)
+* [@roaldp](https://www.linkedin.com/in/roaldparmentier/)
+
+## Roadmap
+
+* 🛠️ Prompt optimizer
+* 🛠️ AI prompt writer
+* 🛠️ More triggers and integrations
+* 🛠️ Better logging and traceability of your agents
+
 ## Project Structure
 
 See [documentation/project_structure.md](documentation/project_structure.md) for high-level file tree with descriptions.
