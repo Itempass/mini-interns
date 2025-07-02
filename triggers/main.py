@@ -39,8 +39,13 @@ async def passes_trigger_conditions_check(msg, trigger, thread_context: str, mes
     """
     logger.info("Performing LLM-based trigger check with thread context...")
     
+    app_settings = load_app_settings()
+    my_email = app_settings.IMAP_USERNAME or ""
+
     current_date = datetime.now().strftime('%Y-%m-%d')
-    trigger_conditions_with_date = trigger.trigger_conditions.replace("<<CURRENT_DATE>>", f"{current_date} (format YYYY-MM-DD)")
+    
+    processed_conditions = trigger.trigger_conditions.replace("<<CURRENT_DATE>>", f"{current_date} (format YYYY-MM-DD)")
+    processed_conditions = processed_conditions.replace("<<MY_EMAIL>>", my_email)
 
     if not thread_context:
         logger.warning("No thread context provided to trigger check, falling back to single message")
@@ -58,7 +63,7 @@ async def passes_trigger_conditions_check(msg, trigger, thread_context: str, mes
 You are a helpful assistant that determines if an email meets a user's criteria.
 Your task is to analyze the email thread in the user message based on the following criteria:
 ---
-{trigger_conditions_with_date}
+{processed_conditions}
 ---
 Based on the criteria, decide if the email thread given by the user should be processed.
 Consider the full conversation context when making your decision.

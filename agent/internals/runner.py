@@ -121,8 +121,13 @@ async def _execute_run(agent_model: AgentModel, instance: AgentInstanceModel) ->
         required_tools_sequence = [tool_id for tool_id, order in required_tools_with_order]
         
         current_date = datetime.now().strftime('%Y-%m-%d')
+        my_email = app_settings.IMAP_USERNAME or ""
+
         system_prompt = agent_model.system_prompt.replace("<<CURRENT_DATE>>", current_date)
+        system_prompt = system_prompt.replace("<<MY_EMAIL>>", my_email)
+
         user_instructions = agent_model.user_instructions.replace("<<CURRENT_DATE>>", current_date)
+        user_instructions = user_instructions.replace("<<MY_EMAIL>>", my_email)
         
         required_tools_prompt = f"\n\nYou have multiple tools available to you. You MUST use the required tools, and you MUST use them in this order: {', '.join(required_tools_sequence)}." if required_tools_sequence else ""
 
