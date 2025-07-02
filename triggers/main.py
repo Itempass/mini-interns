@@ -198,7 +198,14 @@ def main():
                     if filtered_messages:
                         logger.info(f"Found {len(filtered_messages)} new email(s).")
                         
+                        my_email_address = app_settings.IMAP_USERNAME.lower() if app_settings.IMAP_USERNAME else ""
+
                         for msg in filtered_messages:
+                            # ADDED: Skip emails sent by the user to avoid loops
+                            if msg.from_ and my_email_address and my_email_address in msg.from_.lower():
+                                logger.info(f"Skipping email sent by self: '{msg.subject}'")
+                                continue
+
                             message_id_tuple = msg.headers.get('message-id')
                             if not message_id_tuple:
                                 logger.warning(f"Skipping an email because it has no Message-ID.")
