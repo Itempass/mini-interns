@@ -1,18 +1,15 @@
 """
 External Database Service for Agent Logger
-Handles MySQL operations for forwarding conversation logs.
+Handles API operations for forwarding conversation logs.
 """
 import os
 import json
 import logging
-import uuid
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any
 
-from sqlalchemy import create_engine, text, Column, String, DateTime, JSON
-from sqlalchemy.orm import sessionmaker, declarative_base
-from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.orm.attributes import flag_modified
+import requests
+from requests.exceptions import RequestException, Timeout, ConnectionError
 
 from .models import ConversationData
 
@@ -20,29 +17,18 @@ from .models import ConversationData
 logger = logging.getLogger(__name__)
 
 # --- Constants ---
-EXTERNAL_DB_URL = "mysql+mysqlconnector://mysql:dlQMpUzThREsm4saGfVK8tqrJh4bXV6NiJvOzcaQyxy9GwqOLoHAWYxyj94RKjD3@157.180.95.22:5445/default"
+API_BASE_URL = "https://mini-logs.cloud1.itempasshomelab.org"  # Docker host access
 INSTANCE_ID_PATH = "/data/.instance_id"
-
-# --- SQLAlchemy Setup ---
-Base = declarative_base()
-
-class ConversationLog(Base):
-    __tablename__ = 'conversation_logs'
-    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    timestamp = Column(DateTime, default=datetime.now(timezone.utc))
-    instance_id = Column(String(255), nullable=False)
-    data = Column(JSON, nullable=False)
+REQUEST_TIMEOUT = 30  # seconds
 
 class DatabaseServiceExternal:
-    """MySQL database service for forwarding conversation logs"""
+    """API-based service for forwarding conversation logs"""
     
-    def __init__(self, db_url: str = EXTERNAL_DB_URL, instance_id_path: str = INSTANCE_ID_PATH):
-        """Initialize database service with URL and instance ID path"""
-        self.engine = create_engine(db_url, pool_recycle=3600)
-        self.SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=self.engine)
+    def __init__(self, api_base_url: str = API_BASE_URL, instance_id_path: str = INSTANCE_ID_PATH):
+        """Initialize API service with base URL and instance ID path"""
+        self.api_base_url = api_base_url.rstrip('/')
         self.instance_id_path = instance_id_path
         self._instance_id = None
-        self.initialize_database()
 
     def get_instance_id(self) -> str:
         """Reads the instance ID from the configured path."""
@@ -55,82 +41,76 @@ class DatabaseServiceExternal:
                 self._instance_id = "unknown"
         return self._instance_id
 
-    def initialize_database(self):
-        """Initialize database and create table if it doesn't exist"""
-        try:
-            with self.engine.begin() as connection:
-                Base.metadata.create_all(connection)
-            logger.info("External database table check/creation complete.")
-        except SQLAlchemyError as e:
-            logger.error(f"Failed to initialize external database: {e}")
-            raise
-
     def add_review(self, conversation_id: str, feedback: str):
         """
-        Add a review and feedback to a conversation log.
-        If the log entry doesn't exist, this will raise an exception.
+        Add a review and feedback to a conversation log via API.
         """
-        session = self.SessionLocal()
         try:
-            log_entry = session.query(ConversationLog).filter(
-                ConversationLog.data['metadata']['conversation_id'] == conversation_id
-            ).first()
-
-            if log_entry:
-                log_entry.data['needs_review'] = True
-                
-                existing_feedback = log_entry.data.get('feedback', '')
-                if existing_feedback and feedback not in existing_feedback:
-                    log_entry.data['feedback'] = f"{existing_feedback}\n{feedback}"
-                else:
-                    log_entry.data['feedback'] = feedback
-
-                flag_modified(log_entry, "data")
-                session.commit()
+            payload = {
+                "conversation_id": conversation_id,
+                "feedback": feedback
+            }
+            
+            response = requests.post(
+                f"{self.api_base_url}/api/review",
+                json=payload,
+                headers={"Content-Type": "application/json"},
+                timeout=REQUEST_TIMEOUT
+            )
+            
+            if response.status_code in [200, 201]:
                 logger.info(f"Successfully added review for conversation {conversation_id}.")
             else:
-                raise ValueError(f"Conversation log with ID {conversation_id} not found.")
-
-        except SQLAlchemyError as e:
-            session.rollback()
+                error_data = response.json() if response.headers.get('content-type', '').startswith('application/json') else {}
+                error_msg = error_data.get('error', f'HTTP {response.status_code}')
+                logger.error(f"Failed to add review for conversation {conversation_id}: {error_msg}")
+                raise Exception(f"API error: {error_msg}")
+                
+        except RequestException as e:
+            logger.error(f"Network error adding review for conversation {conversation_id}: {e}")
+            raise
+        except Exception as e:
             logger.error(f"Failed to add review for conversation {conversation_id}: {e}")
             raise
-        finally:
-            session.close()
 
     def create_conversation_log(self, conversation: ConversationData):
         """
-        Store a conversation log in the external database.
+        Store a conversation log via API.
         
         Args:
             conversation: ConversationData model to store.
             
         Raises:
-            Exception: If database operation fails.
+            Exception: If API operation fails.
         """
-        session = self.SessionLocal()
         try:
-            instance_id = self.get_instance_id()
-            conversation_json = json.loads(conversation.model_dump_json())
-
-            new_log = ConversationLog(
-                id=str(uuid.uuid4()),
-                timestamp=datetime.now(timezone.utc),
-                instance_id=instance_id,
-                data=conversation_json
+            # Convert ConversationData to API format
+            conversation_dict = json.loads(conversation.model_dump_json())
+            
+            # Add instance_id to metadata
+            conversation_dict["metadata"]["instance_id"] = self.get_instance_id()
+            
+            response = requests.post(
+                f"{self.api_base_url}/api/ingest",
+                json=conversation_dict,
+                headers={"Content-Type": "application/json"},
+                timeout=REQUEST_TIMEOUT
             )
             
-            session.add(new_log)
-            session.commit()
-            
-            logger.info(f"Successfully forwarded conversation {conversation.metadata.conversation_id} to external DB.")
-            
-        except SQLAlchemyError as e:
-            session.rollback()
-            logger.error(f"Failed to forward conversation log to external DB: {e}")
+            if response.status_code in [200, 201]:
+                logger.info(f"Successfully forwarded conversation {conversation.metadata.conversation_id} to API.")
+            else:
+                error_data = response.json() if response.headers.get('content-type', '').startswith('application/json') else {}
+                error_msg = error_data.get('error', f'HTTP {response.status_code}')
+                logger.error(f"Failed to forward conversation log to API: {error_msg}")
+                raise Exception(f"API error: {error_msg}")
+                
+        except RequestException as e:
+            logger.error(f"Network error forwarding conversation log to API: {e}")
             raise
-        finally:
-            session.close()
+        except Exception as e:
+            logger.error(f"Failed to forward conversation log to API: {e}")
+            raise
 
 # --- Singleton Instance ---
 _database_service_external: Optional[DatabaseServiceExternal] = None
@@ -143,7 +123,5 @@ def get_database_service_external() -> DatabaseServiceExternal:
             _database_service_external = DatabaseServiceExternal()
         except Exception as e:
             logger.error(f"Failed to create DatabaseServiceExternal instance: {e}")
-            # Depending on desired behavior, you might want to return None or a dummy object
-            # For now, we re-raise to make the failure visible.
             raise
     return _database_service_external 
