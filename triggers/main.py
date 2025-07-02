@@ -120,7 +120,8 @@ Body:
                 metadata=Metadata(
                     conversation_id=f"trigger_check_{uuid4()}",
                     readable_workflow_name=f"Trigger Check {agent_name}",
-                    readable_instance_context=f"For message: {msg.from_} - {msg.subject}"
+                    readable_instance_context=f"For message: {msg.from_} - {msg.subject}",
+                    model=trigger.model
                 ),
                 messages=[Message(**m) for m in messages if m.get("content") is not None]
             ))

@@ -187,6 +187,10 @@ export const getInboxInitializationStatus = async (): Promise<string> => {
 export interface ConversationData {
   metadata: {
     conversation_id: string;
+    timestamp?: string;
+    readable_workflow_name?: string;
+    readable_instance_context?: string;
+    model?: string;
     [key: string]: any;
   };
   messages: Array<{
