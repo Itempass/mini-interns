@@ -266,33 +266,7 @@ const SettingsPage = () => {
                 </div>
               </div>
             </div>
-            <div className={settingRowClasses}>
-              <label className={labelClasses} htmlFor="openrouter-model">OpenRouter Model:</label>
-              <div className="flex-1">
-                <div className="flex items-center">
-                  <input
-                    className={inputClasses}
-                    type="text"
-                    id="openrouter-model"
-                    name="OPENROUTER_MODEL"
-                    value={settings.OPENROUTER_MODEL || ''}
-                    onChange={handleInputChange}
-                  />
-                  <span
-                    title="copy the exact model slug from openrouter's website"
-                    className="ml-2 cursor-help text-xl text-gray-600"
-                  >
-                    &#9432;
-                  </span>
-                </div>
-                <div className="flex items-center mt-1">
-                  <p className="m-0 text-xs text-gray-600">example: google/gemini-2.5-flash-preview-05-20:thinking</p>
-                  <button onClick={() => handleCopy('google/gemini-2.5-flash-preview-05-20:thinking')} className={copyButtonStyle} title="Copy">
-                    <Copy size={14} />
-                  </button>
-                </div>
-              </div>
-            </div>
+
             
             {testMessage && (
                 <div className={`text-center p-2 mb-4 rounded-md text-sm ${testStatus === 'success' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>

@@ -150,15 +150,25 @@ async def list_agents():
         async def enrich_agent_with_trigger(agent: AgentModel) -> AgentWithTriggerSettings:
             trigger = await agent_client.get_trigger_for_agent(agent.uuid)
             if not trigger:
+                # Create a temporary trigger in memory to get Pydantic defaults
+                from agent.models import TriggerModel
+                temp_trigger = TriggerModel(
+                    agent_uuid=agent.uuid,
+                    trigger_conditions=get_default_trigger_conditions(),
+                    filter_rules={}
+                )
                 trigger_settings = {
-                    "trigger_conditions": get_default_trigger_conditions(),
-                    "filter_rules": FilterRules()
+                    "trigger_conditions": temp_trigger.trigger_conditions,
+                    "trigger_bypass": temp_trigger.trigger_bypass,
+                    "filter_rules": FilterRules.model_validate(temp_trigger.filter_rules),
+                    "trigger_model": temp_trigger.model
                 }
             else:
                 trigger_settings = {
                     "trigger_conditions": trigger.trigger_conditions,
                     "trigger_bypass": trigger.trigger_bypass,
-                    "filter_rules": FilterRules.model_validate(trigger.filter_rules) if trigger.filter_rules else FilterRules()
+                    "filter_rules": FilterRules.model_validate(trigger.filter_rules) if trigger.filter_rules else FilterRules(),
+                    "trigger_model": trigger.model
                 }
             
             response_data = agent.model_dump()
@@ -194,6 +204,7 @@ async def import_agent(file: UploadFile = File(...)):
             system_prompt=import_data.system_prompt,
             user_instructions=import_data.user_instructions,
             tools=import_data.tools,
+            model=getattr(import_data, 'model', None)
         )
         
         new_agent.paused = import_data.paused
@@ -204,6 +215,7 @@ async def import_agent(file: UploadFile = File(...)):
             trigger_conditions=import_data.trigger_conditions,
             filter_rules=import_data.filter_rules.model_dump(),
             trigger_bypass=import_data.trigger_bypass,
+            model=getattr(import_data, 'trigger_model', None)
         )
 
         imported_agent_with_trigger = await get_agent(new_agent.uuid)
@@ -268,6 +280,7 @@ async def create_agent_from_template(request: CreateFromTemplateRequest):
             system_prompt=import_data.system_prompt,
             user_instructions=import_data.user_instructions,
             tools=import_data.tools,
+            model=getattr(import_data, 'model', None)
         )
         
         new_agent.paused = import_data.paused
@@ -278,6 +291,7 @@ async def create_agent_from_template(request: CreateFromTemplateRequest):
             trigger_conditions=import_data.trigger_conditions,
             filter_rules=import_data.filter_rules.model_dump(),
             trigger_bypass=import_data.trigger_bypass,
+            model=getattr(import_data, 'trigger_model', None)
         )
 
         created_agent_with_trigger = await get_agent(new_agent.uuid)
@@ -303,16 +317,25 @@ async def get_agent(agent_uuid: UUID):
 
         trigger = await agent_client.get_trigger_for_agent(agent_uuid)
         if not trigger:
-            # Create a default trigger settings response if none exists
+            # Create a temporary trigger in memory to get Pydantic defaults
+            from agent.models import TriggerModel
+            temp_trigger = TriggerModel(
+                agent_uuid=agent_uuid,
+                trigger_conditions=get_default_trigger_conditions(),
+                filter_rules={}
+            )
             trigger_settings = {
-                "trigger_conditions": get_default_trigger_conditions(),
-                "filter_rules": FilterRules()
+                "trigger_conditions": temp_trigger.trigger_conditions,
+                "trigger_bypass": temp_trigger.trigger_bypass,
+                "filter_rules": FilterRules.model_validate(temp_trigger.filter_rules),
+                "trigger_model": temp_trigger.model
             }
         else:
             trigger_settings = {
                 "trigger_conditions": trigger.trigger_conditions,
                 "trigger_bypass": trigger.trigger_bypass,
-                "filter_rules": FilterRules.model_validate(trigger.filter_rules) if trigger.filter_rules else FilterRules()
+                "filter_rules": FilterRules.model_validate(trigger.filter_rules) if trigger.filter_rules else FilterRules(),
+                "trigger_model": trigger.model
             }
 
         response_data = agent.model_dump()
@@ -353,13 +376,15 @@ async def update_agent(agent_uuid: UUID, agent_update: AgentWithTriggerSettings)
             trigger.trigger_conditions = agent_update.trigger_conditions
             trigger.filter_rules = agent_update.filter_rules.model_dump()
             trigger.trigger_bypass = agent_update.trigger_bypass
+            trigger.model = agent_update.trigger_model
             await agent_client.update_trigger(trigger)
         else:
             await agent_client.create_trigger(
                 agent_uuid=agent_uuid,
                 trigger_conditions=agent_update.trigger_conditions,
                 filter_rules=agent_update.filter_rules.model_dump(),
-                trigger_bypass=agent_update.trigger_bypass
+                trigger_bypass=agent_update.trigger_bypass,
+                model=agent_update.trigger_model
             )
 
         logger.info(f"PUT /agents/{agent_uuid} - Agent and trigger updated successfully")
@@ -433,14 +458,16 @@ async def create_agent(request: CreateAgentRequest):
             description=request.description,
             system_prompt=system_prompt,
             user_instructions=request.user_instructions,
-            tools={} # Start with no tools enabled
+            tools={}, # Start with no tools enabled
+            model=request.model
         )
 
         # 2. Create the associated Trigger
         await agent_client.create_trigger(
             agent_uuid=new_agent.uuid,
             trigger_conditions=request.trigger_conditions,
-            filter_rules=request.filter_rules.model_dump()
+            filter_rules=request.filter_rules.model_dump(),
+            model=request.trigger_model
         )
 
         # 3. Fetch and return the combined aent and trigger settings
@@ -467,16 +494,25 @@ async def export_agent(agent_uuid: UUID):
 
         trigger = await agent_client.get_trigger_for_agent(agent_uuid)
         if not trigger:
+            # Create a temporary trigger in memory to get Pydantic defaults
+            from agent.models import TriggerModel
+            temp_trigger = TriggerModel(
+                agent_uuid=agent_uuid,
+                trigger_conditions=get_default_trigger_conditions(),
+                filter_rules={}
+            )
             trigger_settings = {
-                "trigger_conditions": get_default_trigger_conditions(),
-                "filter_rules": FilterRules(),
-                "trigger_bypass": False,
+                "trigger_conditions": temp_trigger.trigger_conditions,
+                "trigger_bypass": temp_trigger.trigger_bypass,
+                "filter_rules": FilterRules.model_validate(temp_trigger.filter_rules),
+                "trigger_model": temp_trigger.model
             }
         else:
             trigger_settings = {
                 "trigger_conditions": trigger.trigger_conditions,
                 "trigger_bypass": trigger.trigger_bypass,
-                "filter_rules": FilterRules.model_validate(trigger.filter_rules) if trigger.filter_rules else FilterRules()
+                "filter_rules": FilterRules.model_validate(trigger.filter_rules) if trigger.filter_rules else FilterRules(),
+                "trigger_model": trigger.model
             }
         
         export_data = {
@@ -486,6 +522,7 @@ async def export_agent(agent_uuid: UUID):
             "user_instructions": agent.user_instructions,
             "tools": agent.tools,
             "paused": agent.paused,
+            "model": agent.model,
             **trigger_settings,
         }
         

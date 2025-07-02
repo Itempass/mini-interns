@@ -32,7 +32,7 @@ def set_last_uid(uid: str):
     redis_client = get_redis_client()
     redis_client.set(RedisKeys.LAST_EMAIL_UID, uid)
 
-async def passes_trigger_conditions_check(msg, trigger_conditions: str, app_settings, thread_context: str, message_id: str, agent_name: str) -> bool:
+async def passes_trigger_conditions_check(msg, trigger, thread_context: str, message_id: str, agent_name: str) -> bool:
     """
     Uses an LLM to check if the email passes the trigger conditions.
     Now uses full thread context for more informed trigger decisions.
@@ -40,7 +40,7 @@ async def passes_trigger_conditions_check(msg, trigger_conditions: str, app_sett
     logger.info("Performing LLM-based trigger check with thread context...")
     
     current_date = datetime.now().strftime('%Y-%m-%d')
-    trigger_conditions_with_date = trigger_conditions.replace("<<CURRENT_DATE>>", f"{current_date} (format YYYY-MM-DD)")
+    trigger_conditions_with_date = trigger.trigger_conditions.replace("<<CURRENT_DATE>>", f"{current_date} (format YYYY-MM-DD)")
 
     if not thread_context:
         logger.warning("No thread context provided to trigger check, falling back to single message")
@@ -98,7 +98,7 @@ Body:
     try:
         completion = await asyncio.to_thread(
             client.chat.completions.create,
-            model=app_settings.OPENROUTER_MODEL,
+            model=trigger.model,
             messages=messages,
             response_format={"type": "json_object"},
             temperature=0.1
@@ -276,7 +276,7 @@ def process_message(msg, message_id: str):
 
             # 3d. Check LLM-based trigger conditions unless bypassed
             if not trigger.trigger_bypass:
-                if not await passes_trigger_conditions_check(msg, trigger.trigger_conditions, app_settings, thread_context, message_id, agent_model.name):
+                if not await passes_trigger_conditions_check(msg, trigger, thread_context, message_id, agent_model.name):
                     logger.info(f"Email did not pass LLM trigger conditions for trigger '{trigger.uuid}'.")
                     continue
             else:

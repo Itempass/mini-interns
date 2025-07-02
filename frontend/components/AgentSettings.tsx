@@ -294,6 +294,17 @@ const AgentSettings: React.FC<AgentSettingsProps> = ({ agent, onAgentUpdate }) =
                 />
                 <p className="text-xs text-gray-600 mt-1">Note: &lt;&lt;CURRENT_DATE&gt;&gt; will be replaced with the current date (YYYY-MM-DD).</p>
               </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Trigger Model</label>
+                <input 
+                  type="text" 
+                  name="trigger_model" 
+                  value={editableAgent.trigger_model || ''} 
+                  onChange={handleInputChange} 
+                  className="mt-1 block w-full rounded-md border-gray-400 shadow-sm sm:text-sm p-2 border" 
+                />
+                <p className="text-xs text-gray-600 mt-1">OpenRouter model used when evaluating if this trigger should activate. Use the copy function on the <a href="https://openrouter.ai/models" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">OpenRouter models page</a> so you are using the correct model name.</p>
+              </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t">
                 <div>
                   <label className="block text-sm font-medium text-gray-700">Email Blacklist (comma-separated)</label>
@@ -330,6 +341,17 @@ const AgentSettings: React.FC<AgentSettingsProps> = ({ agent, onAgentUpdate }) =
                 <SaveButton />
             </div>
             <div className="space-y-4 mt-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Agent Model</label>
+                <input 
+                  type="text" 
+                  name="model" 
+                  value={editableAgent.model || ''} 
+                  onChange={handleInputChange} 
+                  className="mt-1 block w-full rounded-md border-gray-400 shadow-sm sm:text-sm p-2 border" 
+                />
+                <p className="text-xs text-gray-600 mt-1">OpenRouter model used when the agent executes tasks. Use the copy function on the <a href="https://openrouter.ai/models" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">OpenRouter models page</a> so you are using the correct model name.</p>
+              </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700">User Instructions</label>
                 <textarea name="user_instructions" value={editableAgent.user_instructions} onChange={handleInputChange} rows={10} className="mt-1 block w-full rounded-md border-gray-400 shadow-sm sm:text-sm p-2 border" />

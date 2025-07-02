@@ -88,8 +88,27 @@ def initialize_agent_db():
             print("Running agent table migrations...")
             add_column_if_not_exists(cursor, 'agents', 'tools', 'TEXT')
             add_column_if_not_exists(cursor, 'agents', 'paused', 'BOOLEAN DEFAULT FALSE')
+            
+            # Add model column and set default for existing records
+            cursor.execute("PRAGMA table_info(agents)")
+            columns = [row[1] for row in cursor.fetchall()]
+            if 'model' not in columns:
+                print("Adding 'model' column to agents table...")
+                cursor.execute("ALTER TABLE agents ADD COLUMN model TEXT")
+                cursor.execute("UPDATE agents SET model = 'google/gemini-2.5-flash-preview-05-20:thinking' WHERE model IS NULL")
+                print("Set default model for existing agents.")
+            
             add_column_if_not_exists(cursor, 'agent_instances', 'context_identifier', 'TEXT')
             add_column_if_not_exists(cursor, 'triggers', 'trigger_bypass', 'BOOLEAN DEFAULT FALSE')
+            
+            # Add model column to triggers and set default for existing records
+            cursor.execute("PRAGMA table_info(triggers)")
+            columns = [row[1] for row in cursor.fetchall()]
+            if 'model' not in columns:
+                print("Adding 'model' column to triggers table...")
+                cursor.execute("ALTER TABLE triggers ADD COLUMN model TEXT")
+                cursor.execute("UPDATE triggers SET model = 'google/gemini-2.5-flash-preview-05-20:thinking' WHERE model IS NULL")
+                print("Set default model for existing triggers.")
             
             # Migration to remove the 'function_name' column from 'triggers'
             cursor.execute("PRAGMA table_info(triggers)")

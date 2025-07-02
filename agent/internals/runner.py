@@ -141,7 +141,7 @@ async def _execute_run(agent_model: AgentModel, instance: AgentInstanceModel) ->
             
             response = await asyncio.to_thread(
                 llm_client.chat.completions.create,
-                model=app_settings.OPENROUTER_MODEL or "openai/gpt-4o",
+                model=agent_model.model,
                 messages=[msg.model_dump(exclude_none=True, include={'role', 'content', 'tool_calls', 'tool_call_id', 'name'}) for msg in instance.messages],
                 tools=tools,
                 tool_choice="auto",

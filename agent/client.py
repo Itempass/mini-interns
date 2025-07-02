@@ -31,17 +31,22 @@ async def create_agent(
     system_prompt: str,
     user_instructions: str,
     tools: Dict[str, Any] | None = None,
+    model: str | None = None,
 ) -> AgentModel:
     """
     Creates a new Agent, persists it to the database, and returns the Pydantic model.
     """
-    agent_model = AgentModel(
-        name=name,
-        description=description,
-        system_prompt=system_prompt,
-        user_instructions=user_instructions,
-        tools=tools or {},
-    )
+    agent_data = {
+        "name": name,
+        "description": description,
+        "system_prompt": system_prompt,
+        "user_instructions": user_instructions,
+        "tools": tools or {},
+    }
+    if model is not None:
+        agent_data["model"] = model
+    
+    agent_model = AgentModel(**agent_data)
     await _create_agent_in_db(agent_model)
     return agent_model
 
@@ -135,16 +140,21 @@ async def create_trigger(
     trigger_conditions: str,
     filter_rules: Dict[str, Any],
     trigger_bypass: bool = False,
+    model: str | None = None,
 ) -> TriggerModel:
     """
     Creates a new Trigger, persists it to the database, and returns the Pydantic model.
     """
-    trigger_model = TriggerModel(
-        agent_uuid=agent_uuid,
-        trigger_conditions=trigger_conditions,
-        filter_rules=filter_rules,
-        trigger_bypass=trigger_bypass,
-    )
+    trigger_data = {
+        "agent_uuid": agent_uuid,
+        "trigger_conditions": trigger_conditions,
+        "filter_rules": filter_rules,
+        "trigger_bypass": trigger_bypass,
+    }
+    if model is not None:
+        trigger_data["model"] = model
+    
+    trigger_model = TriggerModel(**trigger_data)
     await _create_trigger_in_db(trigger_model)
     return trigger_model
 
