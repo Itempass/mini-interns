@@ -37,6 +37,7 @@ Don't hesitate to contact us on LinkedIn for feedback and feature requests!
 * 🛠️ AI prompt writer
 * 🛠️ More triggers and integrations
 * 🛠️ Better logging and traceability of your agents
+* 🛠️ Support for Outlook and other email servers
 
 ## Project Structure
 

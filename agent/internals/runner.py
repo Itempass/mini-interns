@@ -120,9 +120,21 @@ async def _execute_run(agent_model: AgentModel, instance: AgentInstanceModel) ->
         )
         required_tools_sequence = [tool_id for tool_id, order in required_tools_with_order]
         
+        num_required_tools = len(required_tools_sequence)
+        num_enabled_mcp_tools = len(mcp_tools)
+        num_non_required_tools = num_enabled_mcp_tools - num_required_tools
+        num_internal_tools = 1  # For stop_workflow
+        max_cycles = num_internal_tools + (2 * num_required_tools) + num_non_required_tools
+        logger.info(f"Calculated max_cycles: {max_cycles} (internal: {num_internal_tools}, required: {num_required_tools}, non-required: {num_non_required_tools})")
+
         current_date = datetime.now().strftime('%Y-%m-%d')
+        my_email = app_settings.IMAP_USERNAME or ""
+
         system_prompt = agent_model.system_prompt.replace("<<CURRENT_DATE>>", current_date)
+        system_prompt = system_prompt.replace("<<MY_EMAIL>>", my_email)
+
         user_instructions = agent_model.user_instructions.replace("<<CURRENT_DATE>>", current_date)
+        user_instructions = user_instructions.replace("<<MY_EMAIL>>", my_email)
         
         required_tools_prompt = f"\n\nYou have multiple tools available to you. You MUST use the required tools, and you MUST use them in this order: {', '.join(required_tools_sequence)}." if required_tools_sequence else ""
 
@@ -135,9 +147,9 @@ async def _execute_run(agent_model: AgentModel, instance: AgentInstanceModel) ->
         instance.messages.extend(messages_for_run)
 
         completed_required_tools = set()
-        for turn in range(7):
+        for turn in range(max_cycles):
             next_required_tool = _get_next_required_tool(required_tools_sequence, completed_required_tools)
-            logger.info(f"Instance {instance.uuid}, Turn {turn + 1}. Completed required tools: {completed_required_tools}. Next required: {next_required_tool}")
+            logger.info(f"Instance {instance.uuid}, Turn {turn + 1}/{max_cycles}. Completed required tools: {completed_required_tools}. Next required: {next_required_tool}")
             
             response = await asyncio.to_thread(
                 llm_client.chat.completions.create,
