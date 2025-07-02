@@ -35,7 +35,7 @@ def get_embedding_models_with_key_status() -> List[Dict[str, Any]]:
         # We need a new dictionary to add the model_name to it
         model_data = model_info.copy()
         model_data["model_name_from_key"] = model_name
-        model_data["api_key_provided"] = bool(api_key)
+        model_data["api_key_provided"] = bool(api_key and api_key != "EDIT-ME")
         models_with_status.append(model_data)
         
     return models_with_status
