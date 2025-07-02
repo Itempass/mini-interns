@@ -34,7 +34,14 @@ Perform the following edits to `CHANGELOG.md`:
     ```
     Make sure to adjust the link for the previous version as well.
 
-## 4. Update VERSION file
+
+## 4. Check main branch for any updates that were not done through PR
+
+1. Use a command like `git log v0.0.1..HEAD --oneline --first-parent --no-merges | cat` to find which commits were not done through the conventional PR way
+2. Read the diff for each commit one by one. After reading it, check the CHANGELOG. If the change isn't in the changelog and it is a change that should be in there, append the changelog. 
+3. Do this for each commit, one by one.
+
+## 5. Update VERSION file
 
 - Open the `VERSION` file.
 - Replace the development version (e.g., `0.0.2-dev`) with the new stable version (e.g., `0.0.2`).
