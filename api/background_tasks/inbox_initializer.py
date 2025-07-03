@@ -86,6 +86,7 @@ async def initialize_inbox():
                         vector=embedding,
                         payload={
                             "thread_id": thread.thread_id,
+                            "thread_markdown": thread_markdown,
                             "messages": messages_payload,
                             "language": _detect_language(thread_markdown), # Detect language from the full markdown
                             "message_count": thread.message_count,
