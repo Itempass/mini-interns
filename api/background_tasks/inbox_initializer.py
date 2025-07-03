@@ -1,6 +1,7 @@
 import asyncio
 import logging
 from datetime import datetime
+from langdetect import detect, LangDetectException
 
 from mcp_servers.imap_mcpserver.src.imap_client.client import get_recent_threads_bulk
 from shared.qdrant.qdrant_client import upsert_points, generate_qdrant_point_id
@@ -8,10 +9,21 @@ from qdrant_client import models
 from shared.redis.redis_client import get_redis_client
 from shared.redis.keys import RedisKeys
 from shared.services.embedding_service import get_embedding
+from api.background_tasks.determine_tone_of_voice import determine_user_tone_of_voice
 
 logger = logging.getLogger(__name__)
 
 BATCH_SIZE = 10
+
+def _detect_language(text: str) -> str:
+    """Detects the language of a given text."""
+    if not text or not text.strip():
+        return "unknown"
+    try:
+        return detect(text)
+    except LangDetectException:
+        logger.warning("Language detection failed for a text snippet.")
+        return "unknown"
 
 async def initialize_inbox():
     """
@@ -58,13 +70,25 @@ async def initialize_inbox():
                     # Generate consistent point ID using the thread ID
                     point_id = generate_qdrant_point_id(thread.thread_id)
                     
-                    # Create point with simplified payload - just store the markdown
+                    # Create a simplified list of messages for the payload
+                    messages_payload = [
+                        {
+                            "from_": msg.from_,
+                            "date": msg.date,
+                            "body_cleaned": msg.body_cleaned,
+                        }
+                        for msg in thread.messages
+                    ]
+                    
+                    # Create point with enriched payload
                     point = models.PointStruct(
                         id=point_id,
                         vector=embedding,
                         payload={
                             "thread_id": thread.thread_id,
                             "thread_markdown": thread_markdown,
+                            "messages": messages_payload,
+                            "language": _detect_language(thread_markdown), # Detect language from the full markdown
                             "message_count": thread.message_count,
                             "subject": thread.subject,
                             "participants": thread.participants,
@@ -106,6 +130,10 @@ async def initialize_inbox():
 
         logger.info("Inbox initialization completed successfully.")
         redis_client.set(RedisKeys.INBOX_INITIALIZATION_STATUS, "completed")
+        
+        # Trigger the tone of voice analysis as a follow-up task
+        logger.info("Kicking off tone of voice analysis in the background.")
+        asyncio.create_task(determine_user_tone_of_voice())
 
     except Exception as e:
         logger.error(f"Inbox initialization failed: {e}", exc_info=True)

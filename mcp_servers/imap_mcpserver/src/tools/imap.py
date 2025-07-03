@@ -148,7 +148,7 @@ async def find_similar_threads(messageId: str, top_k: Optional[int] = 5) -> Dict
     # 7. Use reranker to improve ordering based on relevance
     try:
         reranked_results = rerank_documents(
-            query="Find similar threads to the following email and contain content that is relevant to the following email: " + thread_markdown,
+            query="Find similar threads to the following email and contain content that is relevant to the following email: " + source_thread.markdown,
             documents=thread_contents,
             top_k=top_k
         )

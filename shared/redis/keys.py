@@ -16,3 +16,6 @@ class RedisKeys:
     IMAP_USERNAME = "settings:imap_username"
     IMAP_PASSWORD = "settings:imap_password"
     EMBEDDING_MODEL = "settings:embedding_model"
+
+    # --- Tone of Voice ---
+    TONE_OF_VOICE_PROFILE = "tone_of_voice_profile"

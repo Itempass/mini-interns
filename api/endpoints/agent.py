@@ -6,6 +6,7 @@ from shared.redis.redis_client import get_redis_client
 from shared.redis.keys import RedisKeys
 from shared.qdrant.qdrant_client import count_points, get_qdrant_client, recreate_collection
 from api.background_tasks.inbox_initializer import initialize_inbox
+from api.background_tasks.determine_tone_of_voice import determine_user_tone_of_voice
 from shared.config import settings
 import json
 from uuid import UUID
@@ -114,6 +115,31 @@ async def reinitialize_inbox_endpoint(background_tasks: BackgroundTasks):
     background_tasks.add_task(initialize_inbox)
     
     return {"message": "Inbox re-initialization process started."}
+
+@router.post("/agent/rerun-tone-analysis")
+async def rerun_tone_of_voice_analysis():
+    """
+    Triggers the background task to re-run the tone of voice analysis,
+    but only if the inbox has been successfully initialized.
+    """
+    redis_client = get_redis_client()
+    status = redis_client.get(RedisKeys.INBOX_INITIALIZATION_STATUS)
+
+    # Fallback: if Redis has no status, check Qdrant directly
+    if not status:
+        if count_points(collection_name="email_threads") > 0:
+            status = "completed"
+    
+    if status != "completed":
+        logger.warning(f"Tone of voice analysis requested, but inbox initialization status is '{status}'.")
+        raise HTTPException(
+            status_code=400,
+            detail="Inbox must be successfully vectorized before running tone of voice analysis. Please wait for initialization to complete."
+        )
+
+    logger.info("Rerunning tone of voice analysis due to manual trigger.")
+    asyncio.create_task(determine_user_tone_of_voice())
+    return {"status": "success", "message": "Tone of voice analysis has been started."}
 
 @router.get("/agent/initialize-inbox/status")
 async def get_inbox_initialization_status():

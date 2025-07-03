@@ -1,11 +1,13 @@
 'use client';
 import React, { useState, useEffect } from 'react';
-import { getSettings, setSettings, AppSettings, EmbeddingModel, initializeInbox, getInboxInitializationStatus, testImapConnection, reinitializeInbox, getVersion } from '../../services/api';
+import { getSettings, setSettings, AppSettings, EmbeddingModel, initializeInbox, getInboxInitializationStatus, testImapConnection, reinitializeInbox, getVersion, getToneOfVoiceProfile, rerunToneAnalysis } from '../../services/api';
 import { Copy } from 'lucide-react';
 import TopBar from '../../components/TopBar';
 import VersionCheck from '../../components/VersionCheck';
 import Link from 'next/link';
 import GoogleAppPasswordHelp from '../../components/help/GoogleAppPasswordHelp';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 const SettingsPage = () => {
   const [settings, setSettingsState] = useState<AppSettings>({});
@@ -19,6 +21,9 @@ const SettingsPage = () => {
   const [isHelpPanelOpen, setHelpPanelOpen] = useState(false);
   const [showEmbeddingModelSaved, setShowEmbeddingModelSaved] = useState(false);
   const [embeddingConfigError, setEmbeddingConfigError] = useState<string>('');
+  const [toneOfVoiceProfile, setToneOfVoiceProfile] = useState<any>(null);
+  const [toneAnalysisStatus, setToneAnalysisStatus] = useState<'idle' | 'running' | 'success' | 'error'>('idle');
+  const [toneAnalysisMessage, setToneAnalysisMessage] = useState<string>('');
 
   const hasUnsavedChanges = JSON.stringify(settings) !== JSON.stringify(initialSettings);
 
@@ -71,8 +76,18 @@ const SettingsPage = () => {
         const fetchedVersion = await getVersion();
         setVersion(fetchedVersion);
     }
+    const fetchToneProfile = async () => {
+      try {
+        const profile = await getToneOfVoiceProfile();
+        setToneOfVoiceProfile(profile);
+      } catch (error) {
+        console.error("Failed to fetch tone of voice profile:", error);
+      }
+    };
+
     fetchSettings();
     fetchVersion();
+    fetchToneProfile();
   }, []);
 
   useEffect(() => {
@@ -193,6 +208,27 @@ const SettingsPage = () => {
       await reinitializeInbox();
       const status = await getInboxInitializationStatus();
       setInboxStatus(status);
+    }
+  };
+
+  const handleRerunToneAnalysis = async () => {
+    setToneAnalysisStatus('running');
+    setToneAnalysisMessage('');
+    try {
+      const result = await rerunToneAnalysis();
+      setToneAnalysisStatus('success');
+      setToneAnalysisMessage(result.message);
+      // Re-fetch the profile after a short delay to allow the background task to update it
+      setTimeout(() => {
+        const fetchToneProfile = async () => {
+          const profile = await getToneOfVoiceProfile();
+          setToneOfVoiceProfile(profile);
+        };
+        fetchToneProfile();
+      }, 5000);
+    } catch (error: any) {
+      setToneAnalysisStatus('error');
+      setToneAnalysisMessage(error.message || 'An unknown error occurred.');
     }
   };
 
@@ -338,6 +374,43 @@ const SettingsPage = () => {
                   )}
                 </div>
               </div>
+            </div>
+            <div className={settingsSectionClasses}>
+              <h2 className="text-center mb-5 text-2xl font-bold">Tone of Voice</h2>
+              <p className="text-center text-sm text-gray-600 mb-5">
+                This is an auto-generated analysis of your writing style based on your emails.
+              </p>
+              <div className="bg-gray-100 p-4 rounded-md">
+                {toneOfVoiceProfile && Object.keys(toneOfVoiceProfile).length > 0 ? (
+                  Object.entries(toneOfVoiceProfile).map(([lang, profile]) => (
+                    <div key={lang} className="mb-6">
+                      <h3 className="text-lg font-bold uppercase border-b border-gray-300 pb-2 mb-3">{lang}</h3>
+                      <div className="prose prose-sm max-w-none">
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                          {typeof profile === 'string' ? profile : JSON.stringify(profile)}
+                        </ReactMarkdown>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <p>No tone of voice profile found.</p>
+                )}
+              </div>
+              <div className="flex justify-center mt-4">
+                <button
+                  className={`${buttonClasses.replace('block mx-auto', '')} disabled:bg-gray-400 disabled:cursor-not-allowed`}
+                  onClick={handleRerunToneAnalysis}
+                  disabled={inboxStatus !== 'completed' || toneAnalysisStatus === 'running'}
+                  title={inboxStatus !== 'completed' ? "Inbox vectorization must be complete before running analysis." : ""}
+                >
+                  {toneAnalysisStatus === 'running' ? 'Running Analysis...' : 'Re-run Tone Analysis'}
+                </button>
+              </div>
+              {toneAnalysisMessage && (
+                <div className={`text-center p-2 mt-4 rounded-md text-sm ${toneAnalysisStatus === 'success' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                    {toneAnalysisMessage}
+                </div>
+              )}
             </div>
             {version && <p className="text-center text-xs text-gray-400 mt-4">Version: {version}</p>}
           </div>

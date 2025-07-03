@@ -63,3 +63,21 @@ async def set_settings(app_settings: AppSettings = Body(...)):
         return {"status": "success", "message": "Settings updated successfully."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/settings/tone-of-voice")
+async def get_tone_of_voice_profile():
+    """
+    Retrieves the stored tone of voice profile from Redis.
+    """
+    try:
+        redis_client = get_redis_client()
+        profile_json = redis_client.get(RedisKeys.TONE_OF_VOICE_PROFILE)
+        
+        if profile_json:
+            return json.loads(profile_json)
+            
+        # If no profile is found, return an empty object
+        return {}
+    except Exception as e:
+        logger.error(f"Error fetching tone of voice profile from Redis: {e}")
+        raise HTTPException(status_code=500, detail="Failed to retrieve tone of voice profile.")

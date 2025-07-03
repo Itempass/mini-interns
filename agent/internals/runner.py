@@ -58,43 +58,71 @@ async def _execute_run(agent_model: AgentModel, instance: AgentInstanceModel) ->
         api_key=settings.OPENROUTER_API_KEY,
     )
 
-    mcp_server_url, server_name = None, None
+    mcp_clients: dict[str, Client] = {}
     try:
         api_url = f"http://localhost:{settings.CONTAINERPORT_API}/mcp/servers"
         async with httpx.AsyncClient() as http_client:
             response = await http_client.get(api_url)
             response.raise_for_status()
-            servers = response.json()
-            if servers:
-                selected_server = servers[0]
-                server_name = selected_server.get("name")
-                mcp_server_url = selected_server.get("url")
-                logger.info(f"Selected MCP server: {server_name} at {mcp_server_url}")
+            servers_info = response.json()
+            if not servers_info:
+                logger.error("No MCP servers discovered. Cannot proceed.")
+                instance.messages.append(MessageModel(role="system", content="Error: No MCP servers available."))
+                return instance
+
+            for server_info in servers_info:
+                server_name = server_info.get("name")
+                server_url = server_info.get("url")
+                if server_name and server_url:
+                    mcp_clients[server_name] = Client(server_url)
+                    logger.info(f"Initialized client for MCP server: {server_name} at {server_url}")
+                else:
+                    logger.warning(f"Skipping server with incomplete info: {server_info}")
+
     except Exception as e:
-        logger.error(f"Failed to discover MCP servers: {e}", exc_info=True)
+        logger.error(f"Failed to discover or initialize MCP clients: {e}", exc_info=True)
         instance.messages.append(MessageModel(role="system", content=f"Error: Could not discover MCP servers. {e}"))
         return instance
 
-    if not mcp_server_url:
-        logger.error("No MCP servers discovered. Cannot proceed.")
+    if not mcp_clients:
+        logger.error("No MCP servers could be initialized. Cannot proceed.")
         instance.messages.append(MessageModel(role="system", content="Error: No MCP servers available."))
         return instance
 
-    mcp_client = Client(mcp_server_url)
-    async with mcp_client as client:
-        all_mcp_tools = await client.list_tools()
-        available_tool_names = {f"{server_name}-{tool.name}" for tool in all_mcp_tools}
+    all_mcp_tools = []
+    available_tool_names = set()
+    all_formatted_tools = []
+    
+    try:
+        # Enter all client contexts
+        await asyncio.gather(*(client.__aenter__() for client in mcp_clients.values()))
+
+        # List tools from all servers
+        tool_listing_tasks = [client.list_tools() for client in mcp_clients.values()]
+        server_tool_results = await asyncio.gather(*tool_listing_tasks, return_exceptions=True)
+
+        for (server_name, client), tools_result in zip(mcp_clients.items(), server_tool_results):
+            if isinstance(tools_result, Exception):
+                logger.error(f"Failed to list tools from server '{server_name}': {tools_result}")
+                continue
+            
+            server_tools = tools_result
+            all_mcp_tools.extend(server_tools)
+            for tool in server_tools:
+                available_tool_names.add(f"{server_name}-{tool.name}")
+            
+            all_formatted_tools.extend(_format_mcp_tools_for_openai(server_tools, server_name))
         
         enabled_tool_ids = {tool_id for tool_id, details in agent_model.tools.items() if details.get('enabled')}
-        mcp_tools = [tool for tool in all_mcp_tools if f"{server_name}-{tool.name}" in enabled_tool_ids]
         
-        if not mcp_tools:
-            logger.warning("Agent has no enabled tools.")
+        # Filter formatted tools based on whether they are enabled in the agent model
+        tools = [tool for tool in all_formatted_tools if tool['function']['name'] in enabled_tool_ids]
+        
+        if not tools:
+            logger.warning("Agent has no enabled tools from any available server.")
             instance.messages.append(MessageModel(role="system", content="Warning: Agent has no enabled tools. Cannot perform actions."))
             return instance
             
-        tools = _format_mcp_tools_for_openai(mcp_tools, server_name=server_name)
-        
         stop_workflow_tool = {
             "type": "function",
             "function": {
@@ -121,7 +149,7 @@ async def _execute_run(agent_model: AgentModel, instance: AgentInstanceModel) ->
         required_tools_sequence = [tool_id for tool_id, order in required_tools_with_order]
         
         num_required_tools = len(required_tools_sequence)
-        num_enabled_mcp_tools = len(mcp_tools)
+        num_enabled_mcp_tools = len(tools) - 1 # Exclude stop_workflow
         num_non_required_tools = num_enabled_mcp_tools - num_required_tools
         num_internal_tools = 1  # For stop_workflow
         max_cycles = num_internal_tools + (2 * num_required_tools) + num_non_required_tools
@@ -228,21 +256,41 @@ async def _execute_run(agent_model: AgentModel, instance: AgentInstanceModel) ->
 
             if mcp_tool_calls:
                 tasks = []
+                tool_call_details = []
                 for tool_call in mcp_tool_calls:
                     full_tool_name = tool_call.function.name
-                    short_tool_name = full_tool_name.replace(f"{server_name}-", "", 1)
+                    server_name, short_tool_name = full_tool_name.split('-', 1)
+                    
+                    if server_name not in mcp_clients:
+                        logger.error(f"Attempted to call tool on unknown server: {server_name}")
+                        # Append an error message for this tool call and skip it
+                        instance.messages.append(MessageModel(
+                            tool_call_id=tool_call.id,
+                            role="tool",
+                            name=full_tool_name,
+                            content=f"Error: Server '{server_name}' is not available.",
+                        ))
+                        continue
+                        
+                    client = mcp_clients[server_name]
                     function_args = json.loads(tool_call.function.arguments)
                     tasks.append(client.call_tool(short_tool_name, function_args))
+                    tool_call_details.append(tool_call)
                 
-                tool_results = await asyncio.gather(*tasks)
+                tool_results = await asyncio.gather(*tasks, return_exceptions=True)
 
-                for tool_call, result in zip(mcp_tool_calls, tool_results):
-                    result_text = "\n".join(item.text for item in result.content)
+                for tool_call, result in zip(tool_call_details, tool_results):
+                    if isinstance(result, Exception):
+                        logger.error(f"Error calling tool {tool_call.function.name}: {result}", exc_info=True)
+                        content = f"Error executing tool: {result}"
+                    else:
+                        content = "\n".join(item.text for item in result.content)
+                    
                     instance.messages.append(MessageModel(
                         tool_call_id=tool_call.id,
                         role="tool",
                         name=tool_call.function.name,
-                        content=result_text,
+                        content=content,
                     ))
 
             for tool_id in called_tool_ids:
@@ -255,6 +303,10 @@ async def _execute_run(agent_model: AgentModel, instance: AgentInstanceModel) ->
                 if final_answer:
                     instance.messages.append(MessageModel(role="assistant", content=final_answer))
                 break
+
+    finally:
+        # Exit all client contexts
+        await asyncio.gather(*(client.__aexit__(None, None, None) for client in mcp_clients.values()))
 
     logger.info(f"Finished execution for instance {instance.uuid}. Logging conversation.")
     try:
