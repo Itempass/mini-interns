@@ -66,7 +66,7 @@ async def analyze_tone_for_language(language_emails: List[Dict], user_email: str
         baseline_response = await openrouter_service.get_llm_response(
             prompt=context_str, 
             system_prompt=baseline_prompt, 
-            model="google/gemini-flash-1.5"
+            model="google/gemini-2.5-flash"
         )
         
         few_shot_examples.append({
@@ -183,7 +183,7 @@ async def _analyze_tone_of_voice(emails: List[Dict], user_email: str) -> Dict:
             baseline_response = await openrouter_service.get_llm_response(
                 prompt=context_str, 
                 system_prompt=baseline_prompt, 
-                model="google/gemini-2.5-flash-preview-05-20"
+                model="google/gemini-2.5-flash"
             )
             
             few_shot_examples.append({
