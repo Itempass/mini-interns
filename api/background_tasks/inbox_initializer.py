@@ -1,6 +1,7 @@
 import asyncio
 import logging
 from datetime import datetime
+from langdetect import detect, LangDetectException
 
 from mcp_servers.imap_mcpserver.src.imap_client.client import get_recent_threads_bulk
 from shared.qdrant.qdrant_client import upsert_points, generate_qdrant_point_id
@@ -12,6 +13,16 @@ from shared.services.embedding_service import get_embedding
 logger = logging.getLogger(__name__)
 
 BATCH_SIZE = 10
+
+def _detect_language(text: str) -> str:
+    """Detects the language of a given text."""
+    if not text or not text.strip():
+        return "unknown"
+    try:
+        return detect(text)
+    except LangDetectException:
+        logger.warning("Language detection failed for a text snippet.")
+        return "unknown"
 
 async def initialize_inbox():
     """
@@ -52,6 +63,9 @@ async def initialize_inbox():
                 thread_markdown = thread.markdown
                 
                 if thread_markdown.strip():
+                    # Detect the language from the markdown content
+                    language = _detect_language(thread_markdown)
+                    
                     # Generate embedding from the markdown content
                     embedding = get_embedding(f"embed this email thread, focus on the meaning of the conversation: {thread_markdown}")
                     
@@ -65,6 +79,7 @@ async def initialize_inbox():
                         payload={
                             "thread_id": thread.thread_id,
                             "thread_markdown": thread_markdown,
+                            "language": language,
                             "message_count": thread.message_count,
                             "subject": thread.subject,
                             "participants": thread.participants,
