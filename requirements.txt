@@ -34,3 +34,4 @@ voyageai
 pytest
 html2text
 filelock
+langdetect

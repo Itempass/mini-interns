@@ -487,4 +487,23 @@ export const createAgentFromTemplate = async (templateId: string): Promise<Agent
   }
 
   return response.json();
+};
+
+export const getToneOfVoiceProfile = async (): Promise<any> => {
+  const response = await fetch(`${API_URL}/settings/tone-of-voice`);
+  if (!response.ok) {
+    throw new Error('Failed to fetch tone of voice profile');
+  }
+  return response.json();
+};
+
+export const rerunToneAnalysis = async (): Promise<any> => {
+  const response = await fetch(`${API_URL}/agent/rerun-tone-analysis`, {
+    method: 'POST',
+  });
+  if (!response.ok) {
+    const errorData = await response.json();
+    throw new Error(errorData.detail || 'Failed to start tone of voice analysis');
+  }
+  return response.json();
 }; 
