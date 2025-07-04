@@ -19,3 +19,4 @@ class RedisKeys:
 
     # --- Tone of Voice ---
     TONE_OF_VOICE_PROFILE = "tone_of_voice_profile"
+    TONE_OF_VOICE_STATUS = "tone_of_voice_status"

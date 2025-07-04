@@ -105,7 +105,7 @@ const CreateAgentModal: React.FC<CreateAgentModalProps> = ({ isOpen, onClose, on
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50" onClick={resetAndClose}>
-      <div className="bg-white rounded-lg p-8 w-full max-w-md relative" onClick={(e) => e.stopPropagation()}>
+      <div className="bg-white rounded-lg p-8 w-full max-w-4xl relative" onClick={(e) => e.stopPropagation()}>
         <button onClick={resetAndClose} className="absolute top-3 right-4 text-gray-500 hover:text-gray-800 text-2xl leading-none">&times;</button>
         <h2 className="text-2xl font-bold mb-6 text-center">Create New Agent</h2>
         {error && <p className="text-red-500 text-sm mb-4 text-center">{error}</p>}
@@ -113,25 +113,10 @@ const CreateAgentModal: React.FC<CreateAgentModalProps> = ({ isOpen, onClose, on
 
         {view === 'options' && !isProcessing && (
           <div>
-            <div className="flex justify-center space-x-4">
-              <button
-                onClick={() => setView('scratch')}
-                className="px-6 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600"
-              >
-                Create from Scratch
-              </button>
-              <button
-                onClick={() => setView('import')}
-                className="px-6 py-2 bg-green-500 text-white rounded-md hover:bg-green-600"
-              >
-                Import from File
-              </button>
-            </div>
-
             {templates.length > 0 && (
-              <div className="mt-8">
-                <p className="text-center text-gray-500 mb-4">... or import from a template</p>
-                <div className="space-y-2 max-h-60 overflow-y-auto">
+              <div className="mb-8">
+                <p className="text-center text-gray-500 mb-4">import from a template</p>
+                <div className="space-y-2 max-h-96 overflow-y-auto">
                   {templates.map((template) => (
                     <div
                       key={template.id}
@@ -145,6 +130,23 @@ const CreateAgentModal: React.FC<CreateAgentModalProps> = ({ isOpen, onClose, on
                 </div>
               </div>
             )}
+
+            <div className="text-center text-gray-500">
+              ... or&nbsp;
+              <button
+                onClick={() => setView('scratch')}
+                className="px-4 py-2 text-sm bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300"
+              >
+                create from scratch
+              </button>
+              <span className="mx-2">|</span>
+              <button
+                onClick={() => setView('import')}
+                className="px-4 py-2 text-sm bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300"
+              >
+                import from file
+              </button>
+            </div>
           </div>
         )}
 

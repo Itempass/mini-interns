@@ -81,3 +81,24 @@ async def get_tone_of_voice_profile():
     except Exception as e:
         logger.error(f"Error fetching tone of voice profile from Redis: {e}")
         raise HTTPException(status_code=500, detail="Failed to retrieve tone of voice profile.")
+
+@router.get("/settings/tone-of-voice/status")
+async def get_tone_of_voice_status(redis_client: redis.Redis = Depends(get_redis_client)):
+    """
+    Retrieves the current status of the tone of voice analysis task.
+    If the status key is missing, it checks for a saved profile as a fallback.
+    """
+    try:
+        status = redis_client.get(RedisKeys.TONE_OF_VOICE_STATUS)
+        if status:
+            return {"status": status}
+
+        # Fallback: If no status, check if a profile exists.
+        # This handles cases where the server restarted after completion.
+        if redis_client.exists(RedisKeys.TONE_OF_VOICE_PROFILE):
+            return {"status": "completed"}
+            
+        return {"status": "not_started"}
+    except Exception as e:
+        logger.error(f"Error fetching tone of voice status from Redis: {e}")
+        raise HTTPException(status_code=500, detail="Failed to retrieve tone of voice status.")

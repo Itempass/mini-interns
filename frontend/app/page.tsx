@@ -7,6 +7,7 @@ import { Agent, getAgents } from '../services/api';
 import VersionCheck from '../components/VersionCheck';
 import ConnectionStatusIndicator from '../components/ConnectionStatusIndicator';
 import BackendStatusChecker from '../components/BackendStatusChecker';
+import NoAgentsView from '../components/NoAgentsView';
 
 const HomePage = () => {
   const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null);
@@ -53,7 +54,11 @@ const HomePage = () => {
             <ConnectionStatusIndicator />
           </div>
           <main className="flex-1 overflow-y-auto bg-gray-100">
-            <AgentSettings agent={selectedAgent} onAgentUpdate={fetchAgents} />
+            {agents.length > 0 ? (
+              <AgentSettings agent={selectedAgent} onAgentUpdate={fetchAgents} />
+            ) : (
+              <NoAgentsView />
+            )}
           </main>
         </div>
       </div>

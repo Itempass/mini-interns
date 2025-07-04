@@ -37,6 +37,7 @@ async def initialize_inbox():
     # Ensure the interruption flag is clear before we start
     redis_client.delete(RedisKeys.INBOX_VECTORIZATION_INTERRUPTED)
     redis_client.set(RedisKeys.INBOX_INITIALIZATION_STATUS, "running")
+    redis_client.set(RedisKeys.TONE_OF_VOICE_STATUS, "running")
     
     try:
         # Step 1: Fetch threads from "Sent Mail" to prioritize user-involved conversations
