@@ -26,7 +26,7 @@ const TopBar: React.FC<TopBarProps> = () => {
           className={getButtonClasses('agent')}
           onClick={() => router.push('/')}
         >
-          Agent
+          Agents
         </button>
         <button
           className={getButtonClasses('settings')}
