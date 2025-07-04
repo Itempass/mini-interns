@@ -268,6 +268,10 @@ const SettingsPage = () => {
                 All settings are saved locally to your Docker Container. Your IMAP password is encrypted.
               </p>
               
+              <div className="text-center p-2 mb-4 rounded-md text-sm bg-orange-100 text-orange-800 border border-orange-200">
+                ⚠️ Only gmail supported for now! Get in touch with us if you're using Outlook.
+              </div>
+              
               <div className={settingRowClasses}>
               <label className={labelClasses}>IMAP Server:</label>
               <div className="flex-1">
