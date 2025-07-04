@@ -23,6 +23,8 @@ async def determine_user_tone_of_voice():
     3. (Future) Running tone analysis on the selected emails.
     """
     logger.info("Starting tone of voice determination task...")
+    redis_client = get_redis_client()
+    redis_client.set(RedisKeys.TONE_OF_VOICE_STATUS, "running")
 
     try:
         # 1. Get the distribution of languages across all email threads
@@ -48,7 +50,6 @@ async def determine_user_tone_of_voice():
         logger.info(f"Found {len(eligible_languages)} eligible languages for tone analysis: {eligible_languages}")
 
         # Get the user's email address, which is needed for the analysis
-        redis_client = get_redis_client()
         user_email = redis_client.get(RedisKeys.IMAP_USERNAME)
         if not user_email:
             logger.error("Could not determine user email from Redis. Aborting tone analysis.")
@@ -114,9 +115,11 @@ async def determine_user_tone_of_voice():
             logger.warning("No tone profiles were generated. Nothing to save to Redis.")
 
         logger.info("Tone of voice determination task completed.")
+        redis_client.set(RedisKeys.TONE_OF_VOICE_STATUS, "completed")
 
     except Exception as e:
         logger.error(f"An error occurred during tone of voice determination: {e}", exc_info=True)
+        redis_client.set(RedisKeys.TONE_OF_VOICE_STATUS, "failed")
 
 # Example of how to run this task directly for testing
 if __name__ == "__main__":

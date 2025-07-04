@@ -490,11 +490,31 @@ export const createAgentFromTemplate = async (templateId: string): Promise<Agent
 };
 
 export const getToneOfVoiceProfile = async (): Promise<any> => {
-  const response = await fetch(`${API_URL}/settings/tone-of-voice`);
-  if (!response.ok) {
-    throw new Error('Failed to fetch tone of voice profile');
+  try {
+    const response = await fetch(`${API_URL}/settings/tone-of-voice`);
+    if (!response.ok) {
+      throw new Error("Failed to fetch tone of voice profile");
+    }
+    return await response.json();
+  } catch (error) {
+    console.error("Error fetching tone of voice profile:", error);
+    return null;
   }
-  return response.json();
+};
+
+export const getToneOfVoiceStatus = async (): Promise<string> => {
+  try {
+    const response = await fetch(`${API_URL}/settings/tone-of-voice/status`);
+    if (!response.ok) {
+      console.error('Failed to fetch tone of voice status. Status:', response.status);
+      throw new Error('Failed to fetch tone of voice status');
+    }
+    const data = await response.json();
+    return data.status;
+  } catch (error) {
+    console.error('An error occurred while fetching tone of voice status:', error);
+    return 'error';
+  }
 };
 
 export const rerunToneAnalysis = async (): Promise<any> => {

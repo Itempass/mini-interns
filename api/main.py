@@ -17,6 +17,10 @@ async def lifespan(app: FastAPI):
     in a "running" state and mark them as "failed" since they were
     interrupted by the server restart.
     """
+
+    # TODO: Redis hasn't started yet, + this function runs for all 4 instances of our api!!
+
+
     from shared.redis.redis_client import get_redis_client
     from shared.redis.keys import RedisKeys
 
