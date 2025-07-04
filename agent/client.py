@@ -3,6 +3,7 @@ from typing import List, Dict, Any
 from uuid import UUID
 import httpx
 from fastmcp import Client
+import logging
 
 from agent.models import AgentModel, AgentInstanceModel, TriggerModel
 from agent.internals.database import (
@@ -23,6 +24,7 @@ from agent.internals.database import (
 from agent.internals.runner import _execute_run
 from shared.config import settings
 
+logger = logging.getLogger(__name__)
 
 # --- Agent Functions ---
 async def create_agent(
@@ -30,25 +32,28 @@ async def create_agent(
     description: str,
     system_prompt: str,
     user_instructions: str,
-    tools: Dict[str, Any] | None = None,
+    tools: dict,
     model: str | None = None,
+    param_schema: list | None = None,
+    param_values: dict | None = None,
+    use_abstracted_editor: bool = False,
+    paused: bool = False,
 ) -> AgentModel:
-    """
-    Creates a new Agent, persists it to the database, and returns the Pydantic model.
-    """
-    agent_data = {
-        "name": name,
-        "description": description,
-        "system_prompt": system_prompt,
-        "user_instructions": user_instructions,
-        "tools": tools or {},
-    }
-    if model is not None:
-        agent_data["model"] = model
-    
-    agent_model = AgentModel(**agent_data)
-    await _create_agent_in_db(agent_model)
-    return agent_model
+    """Creates an agent and stores it in the database."""
+    logger.info(f"Creating agent with name: {name}")
+    agent = AgentModel(
+        name=name,
+        description=description,
+        system_prompt=system_prompt,
+        user_instructions=user_instructions,
+        tools=tools,
+        model=model or "google/gemini-2.5-flash-preview-05-20:thinking",
+        param_schema=param_schema or [],
+        param_values=param_values or {},
+        use_abstracted_editor=use_abstracted_editor,
+        paused=paused,
+    )
+    return await _create_agent_in_db(agent)
 
 async def get_agent(uuid: UUID) -> AgentModel | None:
     """

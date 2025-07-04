@@ -230,12 +230,13 @@ async def import_agent(file: UploadFile = File(...)):
             system_prompt=import_data.system_prompt,
             user_instructions=import_data.user_instructions,
             tools=import_data.tools,
-            model=getattr(import_data, 'model', None)
+            model=getattr(import_data, 'model', None),
+            param_schema=import_data.param_schema,
+            param_values=import_data.param_values,
+            use_abstracted_editor=import_data.use_abstracted_editor,
+            paused=import_data.paused
         )
         
-        new_agent.paused = import_data.paused
-        await agent_client.save_agent(new_agent)
-
         await agent_client.create_trigger(
             agent_uuid=new_agent.uuid,
             trigger_conditions=import_data.trigger_conditions,
@@ -306,12 +307,13 @@ async def create_agent_from_template(request: CreateFromTemplateRequest):
             system_prompt=import_data.system_prompt,
             user_instructions=import_data.user_instructions,
             tools=import_data.tools,
-            model=getattr(import_data, 'model', None)
+            model=getattr(import_data, 'model', None),
+            param_schema=import_data.param_schema,
+            param_values=import_data.param_values,
+            use_abstracted_editor=import_data.use_abstracted_editor,
+            paused=import_data.paused
         )
         
-        new_agent.paused = import_data.paused
-        await agent_client.save_agent(new_agent)
-
         await agent_client.create_trigger(
             agent_uuid=new_agent.uuid,
             trigger_conditions=import_data.trigger_conditions,

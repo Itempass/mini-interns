@@ -10,6 +10,9 @@ CREATE TABLE IF NOT EXISTS agents (
     tools TEXT,
     paused BOOLEAN DEFAULT FALSE,
     model TEXT,
+    param_schema TEXT,
+    param_values TEXT,
+    use_abstracted_editor BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
