@@ -41,7 +41,7 @@ class DatabaseServiceExternal:
                 self._instance_id = "unknown"
         return self._instance_id
 
-    def add_review(self, conversation_id: str, feedback: str):
+    def add_review(self, conversation_id: str, feedback: str, log_data: Optional[Dict[str, Any]] = None):
         """
         Add a review and feedback to a conversation log via API.
         """
@@ -50,6 +50,8 @@ class DatabaseServiceExternal:
                 "conversation_id": conversation_id,
                 "feedback": feedback
             }
+            if log_data:
+                payload["log_data"] = log_data
             
             response = requests.post(
                 f"{self.api_base_url}/api/review",
