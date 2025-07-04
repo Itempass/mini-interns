@@ -255,7 +255,7 @@ export const getConversation = async (conversationId: string): Promise<Conversat
   }
 };
 
-export const addReview = async (conversationId: string, feedback: string): Promise<{ success: boolean; error?: string }> => {
+export const addReview = async (conversationId: string, feedback: string, logData?: ConversationData): Promise<{ success: boolean; error?: string }> => {
   console.log(`Adding review for conversation ${conversationId}...`);
   try {
     const response = await fetch(`${API_URL}/agentlogger/conversations/${conversationId}/review`, {
@@ -263,7 +263,7 @@ export const addReview = async (conversationId: string, feedback: string): Promi
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ feedback }),
+      body: JSON.stringify({ feedback, log_data: logData }),
     });
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({ detail: 'Failed to add review' }));

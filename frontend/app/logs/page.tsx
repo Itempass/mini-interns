@@ -3,18 +3,20 @@ import React, { useState, useEffect } from 'react';
 import ConversationsList from '../../components/ConversationsList';
 import ConversationDetail from '../../components/ConversationDetail';
 import TopBar from '../../components/TopBar';
-import { addReview } from '../../services/api';
+import { addReview, getConversation, ConversationData } from '../../services/api';
 import VersionCheck from '../../components/VersionCheck';
 
 type SubmissionStatus = 'idle' | 'sending' | 'success' | 'error';
 
 const LogsPage = () => {
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
+  const [selectedConversation, setSelectedConversation] = useState<ConversationData | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isFeedbackFormVisible, setIsFeedbackFormVisible] = useState(false);
   const [feedbackText, setFeedbackText] = useState('');
   const [submissionStatus, setSubmissionStatus] = useState<SubmissionStatus>('idle');
   const [submissionMessage, setSubmissionMessage] = useState('');
+  const [isLoadingConversation, setIsLoadingConversation] = useState(false);
 
   useEffect(() => {
     if (submissionStatus === 'success' || submissionStatus === 'error') {
@@ -27,24 +29,35 @@ const LogsPage = () => {
     }
   }, [submissionStatus]);
 
-  const handleSelectConversation = (conversationId: string) => {
+  const handleSelectConversation = async (conversationId: string) => {
     setSelectedConversationId(conversationId);
     setIsModalOpen(true);
     // Reset feedback state when opening a new conversation
     setIsFeedbackFormVisible(false);
     setFeedbackText('');
     setSubmissionStatus('idle');
+
+    setIsLoadingConversation(true);
+    const data = await getConversation(conversationId);
+    if (data) {
+      setSelectedConversation(data);
+    } else {
+      console.error("Could not load conversation");
+      // Optionally handle error in UI
+    }
+    setIsLoadingConversation(false);
   };
 
   const handleCloseModal = () => {
     setIsModalOpen(false);
     setSelectedConversationId(null);
+    setSelectedConversation(null);
   };
 
   const handleSendFeedback = async () => {
-    if (!selectedConversationId || !feedbackText) return;
+    if (!selectedConversationId || !feedbackText || !selectedConversation) return;
     setSubmissionStatus('sending');
-    const result = await addReview(selectedConversationId, feedbackText);
+    const result = await addReview(selectedConversationId, feedbackText, selectedConversation);
     if (result.success) {
       setSubmissionStatus('success');
       setSubmissionMessage('Feedback submitted successfully!');
@@ -63,22 +76,23 @@ const LogsPage = () => {
         
         <ConversationsList onSelectConversation={handleSelectConversation} />
 
-        {isModalOpen && selectedConversationId && (
-          <div 
-            className="fixed top-0 left-0 right-0 bottom-0 bg-black bg-opacity-50 flex justify-center items-center z-50"
-            onClick={handleCloseModal}
-          >
-            <div 
-              className="bg-white rounded-lg w-11/12 max-w-5xl max-h-[90vh] overflow-auto shadow-lg relative"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <button 
-                className="absolute top-4 right-4 bg-gray-100 border border-gray-300 rounded py-2 px-3 cursor-pointer text-sm font-bold z-10"
-                onClick={handleCloseModal}
-              >
-                ✕ Close
-              </button>
-              <ConversationDetail conversationId={selectedConversationId} />
+        {isModalOpen && (
+          <div className="fixed inset-0 z-50 overflow-y-auto bg-gray-900 bg-opacity-75 flex justify-center items-center">
+            <div className="bg-white rounded-lg shadow-2xl w-full max-w-4xl h-[90vh] flex flex-col relative">
+              <div className="flex justify-between items-center p-4 border-b">
+                <h2 className="text-xl font-bold">Conversation Details</h2>
+                <button onClick={handleCloseModal} className="text-gray-500 hover:text-gray-800 text-3xl font-bold">&times;</button>
+              </div>
+
+              <div className="p-5 overflow-y-auto flex-grow">
+                {isLoadingConversation ? (
+                  <div>Loading...</div>
+                ) : selectedConversation ? (
+                  <ConversationDetail conversation={selectedConversation} />
+                ) : (
+                  <div>Conversation not found.</div>
+                )}
+              </div>
 
               <div className="sticky bottom-4 right-4 flex justify-end p-4">
                 {submissionStatus === 'idle' && !isFeedbackFormVisible && (

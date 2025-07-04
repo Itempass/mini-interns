@@ -31,7 +31,7 @@ def get_single_conversation(conversation_id: str):
         if conversation is None:
             raise HTTPException(status_code=404, detail=f"Conversation {conversation_id} not found")
         
-        return ConversationResponse(conversation=conversation)
+        return ConversationResponse(conversation=conversation.model_dump())
     except HTTPException:
         raise
     except Exception as e:
@@ -44,7 +44,7 @@ def add_conversation_review(conversation_id: str, review_request: AddReviewReque
     Add a review to a conversation.
     """
     try:
-        result = add_review(conversation_id, review_request.feedback)
+        result = add_review(conversation_id, review_request.feedback, review_request.log_data)
         if not result.get("success"):
             error_detail = result.get("error", "Failed to add review.")
             if "not found" in error_detail:

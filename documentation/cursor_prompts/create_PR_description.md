@@ -25,7 +25,8 @@ You are an expert software engineer assistant. Your task is to create a professi
     *   Do not include any planning documents that were made, but do include changes to general documentation
 
 4.  **Save the Output:**
-    *   Create a new file named `YYYY-MM-DD-[version]-[Title of PR].md` inside the `documentation/PR_description_drafts/` directory.
+    *   Create a new file named `YYYY-MM-DD-v[version]-[Title of PR].md` inside the `documentation/PR_description_drafts/` directory.
+    *   an example filename would be: 2025-07-04-v0.0.3dev-Include-full-conversation-log-in-feedback-submissions . Pay special attention to the version number.
     *   Place the complete, formatted Markdown description into this new file.
 
 

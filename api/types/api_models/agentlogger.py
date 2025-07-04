@@ -1,10 +1,10 @@
 from pydantic import BaseModel
-from typing import List
+from typing import List, Dict, Any, Optional
 from agentlogger.src.models import ConversationData
 
 class ConversationResponse(BaseModel):
     """Single conversation response"""
-    conversation: ConversationData
+    conversation: Dict[str, Any]
 
 class ConversationsResponse(BaseModel):
     """Multiple conversations response"""
@@ -12,4 +12,5 @@ class ConversationsResponse(BaseModel):
     count: int
 
 class AddReviewRequest(BaseModel):
-    feedback: str 
+    feedback: str
+    log_data: Optional[Dict[str, Any]] = None 

@@ -36,39 +36,12 @@ const formatToolArguments = (args: string) => {
 };
 
 interface ConversationDetailProps {
-  conversationId: string;
+  conversation: ConversationData;
 }
 
-const ConversationDetail: React.FC<ConversationDetailProps> = ({ conversationId }) => {
-  const [conversation, setConversation] = useState<ConversationData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    const fetchConversation = async () => {
-      setLoading(true);
-      setError(null);
-      const data = await getConversation(conversationId);
-      if (data) {
-        setConversation(data);
-      } else {
-        setError('Conversation not found');
-      }
-      setLoading(false);
-    };
-    fetchConversation();
-  }, [conversationId]);
-
-  if (loading) {
-    return <div className="p-5 max-w-6xl mx-auto font-sans">Loading conversation...</div>;
-  }
-
-  if (error) {
-    return <div className="p-5 max-w-6xl mx-auto font-sans">Error: {error}</div>;
-  }
-
+const ConversationDetail: React.FC<ConversationDetailProps> = ({ conversation }) => {
   if (!conversation) {
-    return <div className="p-5 max-w-6xl mx-auto font-sans">Conversation not found</div>;
+    return <div className="p-5 max-w-6xl mx-auto font-sans">Loading conversation...</div>;
   }
 
   return (
