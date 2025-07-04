@@ -39,11 +39,37 @@ async def initialize_inbox():
     redis_client.set(RedisKeys.INBOX_INITIALIZATION_STATUS, "running")
     
     try:
-        # Fetch recent threads using the client's bulk function
-        recent_threads, timing_info = await get_recent_threads_bulk(target_thread_count=300, max_age_months=6)
-        logger.info(f"Fetched {len(recent_threads)} unique threads in {timing_info.get('total_time', 0):.2f}s")
+        # Step 1: Fetch threads from "Sent Mail" to prioritize user-involved conversations
+        logger.info("Fetching recent threads from Sent Mail...")
+        sent_threads, sent_timing = await get_recent_threads_bulk(
+            target_thread_count=300, 
+            max_age_months=6, 
+            mailbox='"[Gmail]/Sent Mail"'
+        )
+        logger.info(f"Fetched {len(sent_threads)} threads from Sent Mail in {sent_timing.get('total_time', 0):.2f}s")
 
-        # Check for interruption immediately after the long fetch operation
+        # Check for interruption after the first fetch
+        if redis_client.exists(RedisKeys.INBOX_VECTORIZATION_INTERRUPTED):
+            logger.warning("Interruption signal received after sent mail fetch. Stopping.")
+            return
+
+        # Step 2: Fetch threads from "All Mail" for comprehensive coverage
+        logger.info("Fetching recent threads from All Mail...")
+        all_mail_threads, all_mail_timing = await get_recent_threads_bulk(
+            target_thread_count=300, 
+            max_age_months=6, 
+            mailbox='"[Gmail]/All Mail"'
+        )
+        logger.info(f"Fetched {len(all_mail_threads)} threads from All Mail in {all_mail_timing.get('total_time', 0):.2f}s")
+        
+        # Step 3: Combine and deduplicate threads
+        all_threads = sent_threads + all_mail_threads
+        unique_threads_map = {thread.thread_id: thread for thread in all_threads}
+        recent_threads = list(unique_threads_map.values())
+        
+        logger.info(f"Combined and deduplicated threads: {len(all_threads)} -> {len(recent_threads)} unique threads.")
+
+        # Check for interruption immediately after the long fetch operations
         if redis_client.exists(RedisKeys.INBOX_VECTORIZATION_INTERRUPTED):
             logger.warning("Interruption signal received after fetch. Stopping vectorization process.")
             redis_client.delete(RedisKeys.INBOX_VECTORIZATION_INTERRUPTED)
@@ -76,6 +102,7 @@ async def initialize_inbox():
                             "from_": msg.from_,
                             "date": msg.date,
                             "body_cleaned": msg.body_cleaned,
+                            "type": msg.type,
                         }
                         for msg in thread.messages
                     ]
@@ -93,7 +120,8 @@ async def initialize_inbox():
                             "subject": thread.subject,
                             "participants": thread.participants,
                             "last_message_date": thread.last_message_date,
-                            "folders": thread.folders
+                            "folders": thread.folders,
+                            "contains_user_reply": thread.contains_user_reply
                         }
                     )
                     points_batch.append(point)

@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import List, Optional
+from typing import List, Optional, Literal
 from datetime import datetime
 from email.utils import parsedate_to_datetime
 
@@ -19,6 +19,7 @@ class EmailMessage(BaseModel):
     gmail_labels: List[str] = Field(default_factory=list)  # Folder information
     references: Optional[str] = ""
     in_reply_to: Optional[str] = ""
+    type: Literal["sent", "received"]
     
     model_config = {"populate_by_name": True}  # Allow using 'from' field name
 
@@ -31,6 +32,7 @@ class EmailThread(BaseModel):
     subject: str  # Subject of the thread (from first message)
     last_message_date: str
     folders: List[str] = Field(default_factory=list)  # All folders this thread appears in
+    contains_user_reply: bool
     
     @classmethod
     def from_messages(cls, messages: List[EmailMessage], thread_id: str) -> 'EmailThread':
@@ -40,6 +42,9 @@ class EmailThread(BaseModel):
         
         # Sort messages by date
         sorted_messages = sorted(messages, key=lambda m: parsedate_to_datetime(m.date))
+        
+        # Determine if the thread contains a reply from the user
+        user_replied = any(msg.type == 'sent' for msg in messages)
         
         # Extract participants (unique email addresses)
         participants = set()
@@ -66,7 +71,8 @@ class EmailThread(BaseModel):
             participants=list(participants),
             subject=sorted_messages[0].subject,
             last_message_date=sorted_messages[-1].date,
-            folders=list(all_folders)
+            folders=list(all_folders),
+            contains_user_reply=user_replied
         )
     
     @property

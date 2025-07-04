@@ -61,10 +61,11 @@ async def determine_user_tone_of_voice():
         for language in eligible_languages:
             logger.info(f"Processing tone analysis for language: '{language}'")
             
-            # Create a filter to only search for emails in the current language
+            # Create a filter to search for emails in the current language that contain a user reply
             query_filter = models.Filter(
                 must=[
-                    models.FieldCondition(key="language", match=models.MatchValue(value=language))
+                    models.FieldCondition(key="language", match=models.MatchValue(value=language)),
+                    models.FieldCondition(key="contains_user_reply", match=models.MatchValue(value=True))
                 ]
             )
             

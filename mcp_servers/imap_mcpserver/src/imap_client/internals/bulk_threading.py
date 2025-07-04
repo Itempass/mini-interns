@@ -13,8 +13,10 @@ import re
 import time
 import datetime
 import logging
+import os
 from typing import List, Dict, Set, Optional, Tuple
 from collections import defaultdict
+from email.utils import parseaddr
 from email_reply_parser import EmailReplyParser
 try:
     import html2text
@@ -32,6 +34,7 @@ def _fetch_bulk_threads_sync(
     connection_manager: IMAPConnectionManager,
     target_thread_count: int,
     max_age_months: int,
+    mailbox: Optional[str] = None
 ) -> tuple[list[EmailThread], dict[str, float]]:
     """
     Synchronous implementation of bulk thread fetching.
@@ -40,6 +43,7 @@ def _fetch_bulk_threads_sync(
         connection_manager: An IMAPConnectionManager instance to handle connections.
         target_thread_count: Number of unique threads to return
         max_age_months: Maximum age of threads to consider (default 6 months)
+        mailbox: Optional mailbox to search for threads in. Defaults to '"[Gmail]/Sent Mail"'.
         
     Returns:
         Tuple of (threads_list, timing_dict)
@@ -50,9 +54,10 @@ def _fetch_bulk_threads_sync(
         with connection_manager.connect() as mail:
             timing = {}
             
-            # Step 1: Get all sent messages within age limit
-            fetch_sent_start = time.time()
-            mail.select('"[Gmail]/Sent Mail"', readonly=True)
+            # Step 1: Get all messages from source mailbox within age limit
+            fetch_source_start = time.time()
+            source_mailbox = mailbox if mailbox else '"[Gmail]/Sent Mail"'
+            mail.select(source_mailbox, readonly=True)
             
             # Calculate date cutoff for max_age_months
             cutoff_date = datetime.datetime.now() - datetime.timedelta(days=max_age_months * 30)
@@ -61,14 +66,14 @@ def _fetch_bulk_threads_sync(
             # Search for messages newer than cutoff date
             typ, data = mail.uid('search', None, f'SINCE {date_str}')
             if typ != 'OK' or not data or not data[0]:
-                return [], {"total_time": time.time() - start_time, "error": "No sent messages found within age limit"}
+                return [], {"total_time": time.time() - start_time, "error": f"No messages found in {source_mailbox} within age limit"}
             
-            all_sent_uids = data[0].split()
+            all_source_uids = data[0].split()
             # Start from most recent (end of list)
-            all_sent_uids.reverse()  # Newest first
+            all_source_uids.reverse()  # Newest first
             
-            timing['fetch_sent_time'] = time.time() - fetch_sent_start
-            logger.info(f"Found {len(all_sent_uids)} sent messages within {max_age_months} months in {timing['fetch_sent_time']:.2f}s")
+            timing['fetch_source_time'] = time.time() - fetch_source_start
+            logger.info(f"Found {len(all_source_uids)} messages in {source_mailbox} within {max_age_months} months in {timing['fetch_source_time']:.2f}s")
             
             # Step 2: Dynamic batch X-GM-THRID fetches until we have enough unique threads
             thread_discovery_start = time.time()
@@ -80,13 +85,13 @@ def _fetch_bulk_threads_sync(
             logger.info(f"Dynamically scanning for {target_thread_count} unique threads (batches of {BATCH_SIZE})...")
             
             # Scan in batches until we have enough unique threads
-            for i in range(0, len(all_sent_uids), BATCH_SIZE):
+            for i in range(0, len(all_source_uids), BATCH_SIZE):
                 # Stop if we have enough unique threads
                 if len(thread_id_to_uids) >= target_thread_count:
                     logger.info(f"Target reached: {len(thread_id_to_uids)} unique threads found")
                     break
                 
-                batch_uids = all_sent_uids[i:i+BATCH_SIZE]
+                batch_uids = all_source_uids[i:i+BATCH_SIZE]
                 uid_list = ','.join([uid.decode() for uid in batch_uids])
                 processed_uids += len(batch_uids)
                 
@@ -126,7 +131,7 @@ def _fetch_bulk_threads_sync(
             timing['thread_discovery_time'] = time.time() - thread_discovery_start
             actual_threads_found = len(thread_id_to_uids)
             logger.info(f"Dynamic scan complete: {actual_threads_found} unique threads found in {timing['thread_discovery_time']:.2f}s")
-            logger.info(f"Scanned {processed_uids}/{len(all_sent_uids)} messages ({processed_uids/len(all_sent_uids)*100:.1f}%)")
+            logger.info(f"Scanned {processed_uids}/{len(all_source_uids)} messages ({processed_uids/len(all_source_uids)*100:.1f}%)")
             
             # Step 3: Smart thread fetching with deduplication
             bulk_fetch_start = time.time()
@@ -137,6 +142,8 @@ def _fetch_bulk_threads_sync(
             
             logger.info(f"Smart fetching {len(thread_id_to_uids)} unique threads (target was {target_thread_count})...")
             
+            user_email = os.getenv("IMAP_USERNAME")
+
             for thread_id, sent_uids in thread_id_to_uids.items():
                 # Skip if we've already processed this thread (deduplication)
                 if thread_id in processed_thread_ids:
@@ -191,6 +198,9 @@ def _fetch_bulk_threads_sync(
                                     labels = re.findall(r'"([^"]*)"', labels_str)
                                     labels = [label.replace('\\\\', '\\') for label in labels]
                                 
+                                # Determine message type based on the presence of the \Sent label
+                                message_type = 'sent' if '\\Sent' in labels else 'received'
+
                                 # Extract body formats
                                 body_formats = extract_body_formats(msg)
                                 
@@ -208,7 +218,8 @@ def _fetch_bulk_threads_sync(
                                     body_cleaned=body_formats['cleaned'],
                                     gmail_labels=labels,
                                     references=msg.get('References', ''),
-                                    in_reply_to=msg.get('In-Reply-To', '').strip('<>')
+                                    in_reply_to=msg.get('In-Reply-To', '').strip('<>'),
+                                    type=message_type
                                 ))
                             k += 1
                         
@@ -225,7 +236,7 @@ def _fetch_bulk_threads_sync(
             timing['total_time'] = time.time() - start_time
             
             logger.info(f"BULK THREAD FETCH: {len(threads)} threads in {timing['total_time']:.2f}s (target: {target_thread_count})")
-            logger.info(f"  Breakdown: sent({timing['fetch_sent_time']:.2f}s) + discovery({timing['thread_discovery_time']:.2f}s) + fetch({timing['bulk_fetch_time']:.2f}s)")
+            logger.info(f"  Breakdown: source({timing['fetch_source_time']:.2f}s) + discovery({timing['thread_discovery_time']:.2f}s) + fetch({timing['bulk_fetch_time']:.2f}s)")
             logger.info(f"  Efficiency: Found {len(threads)} threads by scanning {processed_uids} messages ({processed_uids/len(threads) if threads else 0:.1f} messages per thread)")
             
             return threads, timing
@@ -237,6 +248,7 @@ def _fetch_bulk_threads_sync(
 async def fetch_recent_threads_bulk(
     target_thread_count: int = 50,
     max_age_months: int = 6,
+    mailbox: Optional[str] = None
 ) -> tuple[list[EmailThread], dict[str, float]]:
     """
     Fetch a target number of recent email threads efficiently.
@@ -247,6 +259,7 @@ async def fetch_recent_threads_bulk(
     Args:
         target_thread_count: Number of unique threads to return (default 50)
         max_age_months: Maximum age of threads to consider in months (default 6)
+        mailbox: Optional mailbox to search for threads in. Defaults to '"[Gmail]/Sent Mail"'.
         
     Returns:
         Tuple of (threads_list, timing_dict)
@@ -258,5 +271,6 @@ async def fetch_recent_threads_bulk(
         _fetch_bulk_threads_sync,
         connection_manager,
         target_thread_count,
-        max_age_months
+        max_age_months,
+        mailbox
     ) 
