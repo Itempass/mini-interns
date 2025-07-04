@@ -13,6 +13,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.header import decode_header
 import email.utils
+from email.utils import parseaddr
 try:
     import html2text
 except ImportError:
@@ -103,6 +104,9 @@ def _fetch_single_message(mail: imaplib.IMAP4_SSL, uid: str, folder: str) -> Opt
             labels = re.findall(r'"([^"]*)"', labels_str)
             labels = [label.replace('\\\\', '\\') for label in labels]
         
+        # Determine message type based on the presence of the \Sent label
+        message_type = 'sent' if '\\Sent' in labels else 'received'
+        
         # Extract body in multiple formats
         body_formats = extract_body_formats(msg)
         
@@ -120,7 +124,8 @@ def _fetch_single_message(mail: imaplib.IMAP4_SSL, uid: str, folder: str) -> Opt
             body_cleaned=body_formats['cleaned'],
             gmail_labels=labels,
             references=msg.get('References', ''),
-            in_reply_to=msg.get('In-Reply-To', '').strip('<>')
+            in_reply_to=msg.get('In-Reply-To', '').strip('<>'),
+            type=message_type
         )
         
     except Exception as e:
@@ -184,6 +189,9 @@ def _get_complete_thread_sync(message_id: str) -> Optional[EmailThread]:
                         i += 1
                         continue
                     
+                    # Determine message type based on the presence of the \Sent label
+                    message_type = 'sent' if '\\Sent' in labels else 'received'
+                    
                     # Extract UID from header info
                     uid_match = re.search(r'(\d+) \(', header_info)
                     uid = uid_match.group(1) if uid_match else thread_uids[len(messages)]
@@ -208,7 +216,8 @@ def _get_complete_thread_sync(message_id: str) -> Optional[EmailThread]:
                         body_cleaned=body_formats['cleaned'],
                         gmail_labels=labels,
                         references=msg.get('References', ''),
-                        in_reply_to=msg.get('In-Reply-To', '').strip('<>')
+                        in_reply_to=msg.get('In-Reply-To', '').strip('<>'),
+                        type=message_type
                     ))
                 i += 1
             
@@ -297,6 +306,9 @@ def _get_recent_messages_from_folder_sync(folder: str, count: int = 20) -> List[
                         i += 1
                         continue
                     
+                    # Determine message type based on the presence of the \Sent label
+                    message_type = 'sent' if '\\Sent' in labels else 'received'
+
                     # Extract UID from header info
                     uid_match = re.search(r'(\d+) \(', header_info)
                     uid = uid_match.group(1) if uid_match else recent_uids[len(messages)].decode()
@@ -321,7 +333,8 @@ def _get_recent_messages_from_folder_sync(folder: str, count: int = 20) -> List[
                         body_cleaned=body_formats['cleaned'],
                         gmail_labels=labels,
                         references=msg.get('References', ''),
-                        in_reply_to=msg.get('In-Reply-To', '').strip('<>')
+                        in_reply_to=msg.get('In-Reply-To', '').strip('<>'),
+                        type=message_type
                     ))
                 i += 1
             
@@ -660,17 +673,30 @@ async def draft_reply(original_message: EmailMessage, reply_body: str) -> Dict[s
     """Create a draft reply for a given message."""
     return await asyncio.to_thread(_draft_reply_sync, original_message, reply_body)
 
-async def get_recent_threads_bulk(target_thread_count: int = 50, max_age_months: int = 6) -> Tuple[List[EmailThread], Dict[str, float]]:
+async def get_recent_threads_bulk(
+    target_thread_count: int = 50, 
+    max_age_months: int = 6, 
+    mailbox: Optional[str] = None
+) -> Tuple[List[EmailThread], Dict[str, float]]:
     """
     High-performance bulk retrieval of recent email threads.
     
     This is a pass-through to the optimized bulk fetching implementation,
     which uses a single persistent connection and advanced IMAP features
     to discover and fetch threads efficiently.
+
+    Args:
+        target_thread_count (int, optional): The target number of threads to fetch. Defaults to 50.
+        max_age_months (int, optional): The maximum age of emails to consider. Defaults to 6.
+        mailbox (Optional[str], optional): The mailbox to search in. Defaults to None, which uses the default sent folder.
+
+    Returns:
+        Tuple[List[EmailThread], Dict[str, float]]: A tuple containing the list of threads and performance timing data.
     """
     return await fetch_recent_threads_bulk(
         target_thread_count=target_thread_count,
-        max_age_months=max_age_months
+        max_age_months=max_age_months,
+        mailbox=mailbox
     )
 
 async def set_label(message_id: str, label: str) -> Dict[str, Any]:
