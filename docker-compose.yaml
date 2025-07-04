@@ -15,7 +15,7 @@ services:
       - .env
       
     ports:
-      - "${FRONTEND_HOST_PORT:-3000}:3000"
+      - "${HOSTPORT_FRONTEND:-3000}:${CONTAINERPORT_FRONTEND:-3000}"
       - "6274:6274"  # MCP Inspector Web UI
       - "6277:6277"  # MCP Inspector Proxy Server
     volumes:
@@ -35,19 +35,12 @@ services:
     # container_name: mini-interns-qdrant
     volumes:
       - ./data/qdrant:/qdrant/storage
-
-  # Optional: Qdrant Read-Only Dashboard
-  qdrant-dashboard:
-    build:
-      context: .
-      dockerfile: qdrant-dashboard.Dockerfile
-    # container_name: mini-interns-qdrant-readonly-dashboard
     ports:
-      # Exposes a READ-ONLY dashboard on http://localhost:6333
-      - "6333:80"
-    depends_on:
-      - qdrant
-    restart: unless-stopped
+      - "${HOSTPORT_QDRANT:-6333}:${CONTAINERPORT_QDRANT:-6333}" # HTTP
+      - "${HOSTPORT_QDRANT_GRPC:-6334}:${CONTAINERPORT_QDRANT_GRPC:-6334}" # gRPC
+    environment:
+      - QDRANT__SERVICE__HTTP_PORT=${CONTAINERPORT_QDRANT:-6333} # leave left side as is, this is the required name by the qdrant server config
+      - QDRANT__SERVICE__GRPC_PORT=${CONTAINERPORT_QDRANT_GRPC:-6334} # leave left side as is, this is the required name by the qdrant server config
 
   promtail:
     build:

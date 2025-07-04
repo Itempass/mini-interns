@@ -1,22 +1,38 @@
 # Port Configuration
 
+This project uses a flexible system for port configuration to avoid conflicts and allow for advanced setups. All ports can be configured using environment variables in your `.env` file.
 
-## Keeping everything internal: only exposing the frontend
+## Host vs. Container Ports
 
-The application is configured to keep the backend API private and only expose the frontend to external traffic. This is achieved through:
+For each service, you can configure two types of ports:
 
-- **Next.js Proxy**: The frontend (`next.config.js`) rewrites all `/api/*` requests to the internal backend at `127.0.0.1:5001`
-- **Single Port Exposure**: Only port 3000 (frontend) is exposed in Docker, while the backend runs internally on port 5001
-- **API Client Configuration**: The frontend API client (`services/api.ts`) uses `/api` as the base URL, routing through the Next.js proxy
+*   **`HOSTPORT_*`**: This is the port on your local machine (the "host") that you use to access a service. You can change this to any available port on your system.
+*   **`CONTAINERPORT_*`**: This is the internal port that the service uses *inside* its Docker container. **You should generally not change this unless you have a specific reason to.**
 
-This setup ensures that:
-- External users can only access the frontend interface
-- All API communication happens internally within the Docker container
-- The backend remains completely isolated from external network access
-## Port Configuration
+For example, the frontend mapping is `"${HOSTPORT_FRONTEND:-3000}:${CONTAINERPORT_FRONTEND:-3000}"`. If you set `HOSTPORT_FRONTEND=3001` in your `.env` file, you can access the application at `http://localhost:3001`, while the application inside the container continues to run on port `3000`.
 
-The host machine port that the Docker container maps to can be customized using the `FRONTEND_HOST_PORT` environment variable (defaults to 3000). This is useful when running multiple instances to avoid port conflicts:
+## Configurable Ports
 
-```bash
-FRONTEND_HOST_PORT=3001 docker compose up -d
+Here is a complete list of all configurable ports. You can override any of these by adding the variable to your `.env` file.
+
+| Service                     | Environment Variable                | Default Value | Description                                  |
+| --------------------------- | ----------------------------------- | ------------- | -------------------------------------------- |
+| **Frontend (Host)**         | `HOSTPORT_FRONTEND`                 | `3000`        | The port to access the web UI in your browser. |
+| **Frontend (Container)**    | `CONTAINERPORT_FRONTEND`            | `3000`        | The internal port for the Next.js server.    |
+| **Qdrant HTTP (Host)**      | `HOSTPORT_QDRANT`                   | `6333`        | The port to access the Qdrant dashboard.     |
+| **Qdrant HTTP (Container)** | `CONTAINERPORT_QDRANT`              | `6333`        | The internal port for the Qdrant HTTP API.   |
+| **Qdrant gRPC (Host)**      | `HOSTPORT_QDRANT_GRPC`              | `6334`        | The port for high-performance gRPC connections. |
+| **Qdrant gRPC (Container)** | `CONTAINERPORT_QDRANT_GRPC`         | `6334`        | The internal port for the Qdrant gRPC API.   |
+| **API Server (Container)**  | `CONTAINERPORT_API`                 | `8000`        | The internal port for the main backend API.  |
+| **IMAP MCP (Container)**    | `CONTAINERPORT_MCP_IMAP`            | `8001`        | The internal port for the IMAP MCP server.   |
+| **Tone MCP (Container)**    | `CONTAINERPORT_MCP_TONE_OF_VOICE`   | `8002`        | The internal port for the Tone MCP server.   |
+
+### MCP Inspector
+
+The MCP Inspector ports are hardcoded to `6274` (Web UI) and `6277` (Proxy) to simplify its use. It is disabled by default.
+
+To enable it, add the following variable to your `.env` file:
+
+```
+ENABLE_MCP_INSPECTOR=true
 ```

@@ -42,8 +42,6 @@ COPY triggers/ ./triggers/
 COPY scripts/ ./scripts/
 COPY promtail-config.yml .
 COPY supervisord.conf .
-COPY nginx-qdrant-readonly.conf .
-COPY qdrant-dashboard.Dockerfile .
 
 # Copy the built frontend from the builder stage
 COPY --from=frontend-builder /app/frontend/.next ./frontend/.next

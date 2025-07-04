@@ -29,7 +29,7 @@ def generate_qdrant_point_id(identifier: str) -> str:
 qdrant_client = QdrantClient(
     host="qdrant", 
     port=settings.CONTAINERPORT_QDRANT,
-    grpc_port=6334,
+    grpc_port=settings.CONTAINERPORT_QDRANT_GRPC,
     prefer_grpc=True,  # Use gRPC for better performance and connection handling
     timeout=30,  # 30 second timeout to prevent hanging connections
     limits=httpx.Limits(

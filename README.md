@@ -60,11 +60,16 @@ You can contribute to the project by sharing your logs with the developers. Acce
 These logs are used to detect and fix bugs, improve agents workflows, and improve system prompts. These improvements are shared back with the community in future updates. 
 
 ## Port configuration
-By default, ports 3000, 6333, 6334, 6379, 8000, and 8001 are used. See [documentation/port_configuration.md](documentation/port_configuration.md) for a detailled explanation and customization options.
+By default, the following host ports are used: 3000 (Frontend), 6333 (Qdrant), 6334 (Qdrant gRPC), 6274 (MCP Inspector), and 6277 (MCP Inspector Proxy). These, and the internal container ports, can be fully customized. See [documentation/port_configuration.md](documentation/port_configuration.md) for a detailed explanation.
 
 ## MCP Inspector
 
 As this project is heavily reliant on MCP, Anthropic's MCP Inspector Dashboard is included for easy debugging.
+
+It is disabled by default. To enable it, add the following variable to your `.env` file:
+```
+ENABLE_MCP_INSPECTOR=true
+```
 
 See [documentation/mcp_inspector.md](documentation/mcp_inspector.md) for an explanation on how to use it.
 
