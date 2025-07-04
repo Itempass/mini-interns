@@ -11,6 +11,7 @@ from agent import client as agent_client
 from shared.config import settings
 import json
 from mcp_servers.imap_mcpserver.src.imap_client import client as imap_client
+from mcp_servers.imap_mcpserver.src.tools.imap import find_similar_threads
 from openai import OpenAI
 from agentlogger.src.models import ConversationData, Message, Metadata
 from datetime import datetime
@@ -46,6 +47,20 @@ async def passes_trigger_conditions_check(msg, trigger, thread_context: str, mes
     
     processed_conditions = trigger.trigger_conditions.replace("<<CURRENT_DATE>>", f"{current_date} (format YYYY-MM-DD)")
     processed_conditions = processed_conditions.replace("<<MY_EMAIL>>", my_email)
+
+    if "<<TOOLRESULT:IMAP:find_similar_threads>>" in processed_conditions:
+        logger.info("Found find_similar_threads tool tag in trigger conditions. Executing tool...")
+        try:
+            similar_threads_result = await find_similar_threads.fn(messageId=message_id)
+            # Format the result nicely for the prompt
+            tool_result_str = json.dumps(similar_threads_result, indent=2)
+            processed_conditions = processed_conditions.replace("<<TOOLRESULT:IMAP:find_similar_threads>>", tool_result_str)
+            logger.info("Successfully executed find_similar_threads and injected result into prompt.")
+        except Exception as e:
+            logger.error(f"Failed to execute find_similar_threads tool: {e}", exc_info=True)
+            # Fallback: replace the tag with an error message
+            error_message = f"Error executing find_similar_threads: {e}"
+            processed_conditions = processed_conditions.replace("<<TOOLRESULT:IMAP:find_similar_threads>>", error_message)
 
     if not thread_context:
         logger.warning("No thread context provided to trigger check, falling back to single message")
