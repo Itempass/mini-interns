@@ -57,9 +57,9 @@ const HomePage = () => {
           <main className="flex-1 overflow-y-auto bg-gray-100">
             {agents.length > 0 && selectedAgent ? (
               selectedAgent.use_abstracted_editor ? (
-                <AgentSettingsAbstracted agent={selectedAgent} onAgentUpdate={fetchAgents} />
+                <AgentSettingsAbstracted key={selectedAgent.uuid} agent={selectedAgent} onAgentUpdate={fetchAgents} />
               ) : (
-                <AgentSettings agent={selectedAgent} onAgentUpdate={fetchAgents} />
+                <AgentSettings key={selectedAgent.uuid} agent={selectedAgent} onAgentUpdate={fetchAgents} />
               )
             ) : (
               <NoAgentsView />
