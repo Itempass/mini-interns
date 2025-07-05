@@ -60,16 +60,22 @@ You can contribute to the project by sharing your logs with the developers. Acce
 These logs are used to detect and fix bugs, improve agents workflows, and improve system prompts. These improvements are shared back with the community in future updates. 
 
 ## Port configuration
-By default, the following host ports are used: 3000 (Frontend), 6333 (Qdrant), 6334 (Qdrant gRPC), 6274 (MCP Inspector), and 6277 (MCP Inspector Proxy). These, and the internal container ports, can be fully customized. See [documentation/port_configuration.md](documentation/port_configuration.md) for a detailed explanation.
+By default, the following host ports are used: 3000 (Frontend), 6333 (Qdrant), and 6334 (Qdrant gRPC). MCP Inspector ports (6274 and 6277) are commented out by default. These, and the internal container ports, can be fully customized. See [documentation/port_configuration.md](documentation/port_configuration.md) for a detailed explanation.
 
 ## MCP Inspector
 
 As this project is heavily reliant on MCP, Anthropic's MCP Inspector Dashboard is included for easy debugging.
 
-It is disabled by default. To enable it, add the following variable to your `.env` file:
-```
-ENABLE_MCP_INSPECTOR=true
-```
+It is disabled by default. To enable it:
+1. Add the following variable to your `.env` file:
+   ```
+   ENABLE_MCP_INSPECTOR=true
+   ```
+2. Uncomment the MCP Inspector port lines in `docker-compose.yaml`:
+   ```yaml
+   - "6274:6274"  # MCP Inspector Web UI
+   - "6277:6277"  # MCP Inspector Proxy Server
+   ```
 
 See [documentation/mcp_inspector.md](documentation/mcp_inspector.md) for an explanation on how to use it.
 

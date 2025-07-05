@@ -4,12 +4,19 @@ The MCP Inspector is a powerful debugging tool that is included in this project.
 
 ## Enabling the Inspector
 
-By default, the MCP Inspector is **disabled** to save resources.
+By default, the MCP Inspector is **disabled** to save resources and prevent port conflicts.
 
-To enable it, add the following line to your `.env` file and restart the application:
-```env
-ENABLE_MCP_INSPECTOR=true
-```
+To enable it:
+1. Add the following line to your `.env` file:
+   ```env
+   ENABLE_MCP_INSPECTOR=true
+   ```
+2. Uncomment the MCP Inspector port lines in `docker-compose.yaml`:
+   ```yaml
+   - "6274:6274"  # MCP Inspector Web UI
+   - "6277:6277"  # MCP Inspector Proxy Server
+   ```
+3. Restart the application with `docker-compose up`
 
 ## Accessing the Inspector
 
