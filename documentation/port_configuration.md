@@ -29,10 +29,15 @@ Here is a complete list of all configurable ports. You can override any of these
 
 ### MCP Inspector
 
-The MCP Inspector ports are hardcoded to `6274` (Web UI) and `6277` (Proxy) to simplify its use. It is disabled by default.
+The MCP Inspector ports are hardcoded to `6274` (Web UI) and `6277` (Proxy) to simplify its use. The ports are commented out by default in `docker-compose.yaml` to prevent port conflicts.
 
-To enable it, add the following variable to your `.env` file:
-
-```
-ENABLE_MCP_INSPECTOR=true
-```
+To enable it:
+1. Add the following variable to your `.env` file:
+   ```
+   ENABLE_MCP_INSPECTOR=true
+   ```
+2. Uncomment the MCP Inspector port lines in `docker-compose.yaml`:
+   ```yaml
+   - "6274:6274"  # MCP Inspector Web UI
+   - "6277:6277"  # MCP Inspector Proxy Server
+   ```

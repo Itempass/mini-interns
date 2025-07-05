@@ -45,7 +45,7 @@ async def initialize_inbox():
         sent_threads, sent_timing = await get_recent_threads_bulk(
             target_thread_count=300, 
             max_age_months=6, 
-            mailbox='"[Gmail]/Sent Mail"'
+            source_folder_attribute='\\Sent'
         )
         logger.info(f"Fetched {len(sent_threads)} threads from Sent Mail in {sent_timing.get('total_time', 0):.2f}s")
 
@@ -59,7 +59,7 @@ async def initialize_inbox():
         all_mail_threads, all_mail_timing = await get_recent_threads_bulk(
             target_thread_count=300, 
             max_age_months=6, 
-            mailbox='"[Gmail]/All Mail"'
+            source_folder_attribute='\\All'
         )
         logger.info(f"Fetched {len(all_mail_threads)} threads from All Mail in {all_mail_timing.get('total_time', 0):.2f}s")
         
@@ -70,6 +70,12 @@ async def initialize_inbox():
         
         logger.info(f"Combined and deduplicated threads: {len(all_threads)} -> {len(recent_threads)} unique threads.")
 
+        # If there are no recent threads, we can consider the job done.
+        if not recent_threads:
+            logger.info("No recent threads found to process. Inbox initialization is complete.")
+            redis_client.set(RedisKeys.INBOX_INITIALIZATION_STATUS, "failed")
+            return
+
         # Check for interruption immediately after the long fetch operations
         if redis_client.exists(RedisKeys.INBOX_VECTORIZATION_INTERRUPTED):
             logger.warning("Interruption signal received after fetch. Stopping vectorization process.")
@@ -77,6 +83,7 @@ async def initialize_inbox():
             return
 
         points_batch = []
+        successful_threads = 0
 
         for i, thread in enumerate(recent_threads):
             # Check for interruption every BATCH_SIZE items or before upserting
@@ -126,6 +133,7 @@ async def initialize_inbox():
                         }
                     )
                     points_batch.append(point)
+                    successful_threads += 1
 
                     if len(points_batch) >= BATCH_SIZE:
                         # Check for interruption before starting the expensive upload
@@ -150,6 +158,11 @@ async def initialize_inbox():
                 
             logger.info(f"Upserting remaining {len(points_batch)} thread points.")
             upsert_points(collection_name="email_threads", points=points_batch)
+
+        # If we had threads to process but failed to vectorize any of them, raise an error.
+        if successful_threads == 0:
+            redis_client.set(RedisKeys.INBOX_INITIALIZATION_STATUS, "failed")
+            raise ValueError("Failed to process any email threads; vectorization may have failed for all of them.")
 
         # Check one last time before declaring success
         if redis_client.exists(RedisKeys.INBOX_VECTORIZATION_INTERRUPTED):

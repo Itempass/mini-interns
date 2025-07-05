@@ -16,8 +16,9 @@ services:
       
     ports:
       - "${HOSTPORT_FRONTEND:-3000}:${CONTAINERPORT_FRONTEND:-3000}"
-      - "6274:6274"  # MCP Inspector Web UI
-      - "6277:6277"  # MCP Inspector Proxy Server
+      # Uncomment the following lines to enable MCP Inspector (requires ENABLE_MCP_INSPECTOR=true in .env)
+      # - "6274:6274"  # MCP Inspector Web UI
+      # - "6277:6277"  # MCP Inspector Proxy Server
     volumes:
       - ./data/db:/data/db
       - ./data/redis:/data/redis
