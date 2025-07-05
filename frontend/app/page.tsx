@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import TopBar from '../components/TopBar';
 import AgentSidebar from '../components/AgentSidebar';
 import AgentSettings from '../components/AgentSettings';
+import AgentSettingsAbstracted from '../components/AgentSettingsAbstracted';
 import { Agent, getAgents } from '../services/api';
 import VersionCheck from '../components/VersionCheck';
 import ConnectionStatusIndicator from '../components/ConnectionStatusIndicator';
@@ -54,8 +55,12 @@ const HomePage = () => {
             <ConnectionStatusIndicator />
           </div>
           <main className="flex-1 overflow-y-auto bg-gray-100">
-            {agents.length > 0 ? (
-              <AgentSettings agent={selectedAgent} onAgentUpdate={fetchAgents} />
+            {agents.length > 0 && selectedAgent ? (
+              selectedAgent.use_abstracted_editor ? (
+                <AgentSettingsAbstracted key={selectedAgent.uuid} agent={selectedAgent} onAgentUpdate={fetchAgents} />
+              ) : (
+                <AgentSettings key={selectedAgent.uuid} agent={selectedAgent} onAgentUpdate={fetchAgents} />
+              )
             ) : (
               <NoAgentsView />
             )}

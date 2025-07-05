@@ -12,6 +12,11 @@ class AgentModel(BaseModel):
     tools: Dict[str, Any] = Field(default_factory=dict) # tool_id -> { enabled: bool, required: bool, order: int }
     paused: bool = False
     model: str = Field(default="google/gemini-2.5-flash-preview-05-20:thinking")
+    param_schema: List[Dict[str, Any]] = Field(default_factory=list)
+    param_values: Dict[str, Any] = Field(default_factory=dict)
+    use_abstracted_editor: bool = False
+    template_id: Optional[str] = None
+    template_version: Optional[str] = None
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime = Field(default_factory=datetime.now)
 

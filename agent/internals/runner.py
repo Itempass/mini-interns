@@ -163,6 +163,29 @@ async def _execute_run(agent_model: AgentModel, instance: AgentInstanceModel) ->
 
         user_instructions = agent_model.user_instructions.replace("<<CURRENT_DATE>>", current_date)
         user_instructions = user_instructions.replace("<<MY_EMAIL>>", my_email)
+
+        # New prompt injection logic
+        if agent_model.param_values:
+            # 1. Bulk injection
+            param_values_json = json.dumps(agent_model.param_values)
+            system_prompt = system_prompt.replace("<<PARAM_VALUES>>", param_values_json)
+            user_instructions = user_instructions.replace("<<PARAM_VALUES>>", param_values_json)
+
+            # 2. Individual injection
+            if agent_model.param_schema:
+                for field in agent_model.param_schema:
+                    injection_key = field.get("injection_key")
+                    if injection_key:
+                        value = agent_model.param_values.get(field["parameter_key"])
+                        
+                        # JSON-serialize complex types, otherwise convert to string
+                        if isinstance(value, (dict, list)):
+                            replacement = json.dumps(value)
+                        else:
+                            replacement = str(value)
+                        
+                        system_prompt = system_prompt.replace(f"<<{injection_key}>>", replacement)
+                        user_instructions = user_instructions.replace(f"<<{injection_key}>>", replacement)
         
         required_tools_prompt = f"\n\nYou have multiple tools available to you. You MUST use the required tools, and you MUST use them in this order: {', '.join(required_tools_sequence)}." if required_tools_sequence else ""
 

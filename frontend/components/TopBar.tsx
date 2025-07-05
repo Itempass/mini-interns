@@ -20,7 +20,7 @@ const TopBar: React.FC<TopBarProps> = () => {
 
   return (
     <div className="bg-blue-500 px-10 py-4 flex justify-between items-center border-b border-blue-700">
-      <h1 className="text-white text-2xl font-bold m-0">Mini Interns Dashboard</h1>
+      <h1 className="text-white text-2xl font-bold m-0">Email Intern</h1>
       <nav className="flex gap-3">
         <button
           className={getButtonClasses('agent')}

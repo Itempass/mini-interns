@@ -311,6 +311,14 @@ export const getMcpServers = async (): Promise<McpServer[]> => {
 
 // --- New Agent Management API ---
 
+export interface ParamSchemaField {
+  parameter_key: string;
+  display_text: string;
+  type: 'text' | 'checkbox' | 'list' | 'textarea' | 'key_value_field_one_line';
+  injection_key?: string;
+  item_schema?: ParamSchemaField[];
+}
+
 export interface Agent {
   uuid: string;
   name: string;
@@ -320,8 +328,13 @@ export interface Agent {
   tools: { [key: string]: { enabled: boolean; required: boolean; order?: number } };
   paused?: boolean;
   model: string;
+  param_schema?: ParamSchemaField[];
+  param_values?: { [key: string]: any };
+  use_abstracted_editor?: boolean;
   created_at: string;
   updated_at: string;
+  template_id?: string;
+  template_version?: string;
   trigger_conditions?: string;
   filter_rules?: FilterRules;
   trigger_bypass?: boolean;
