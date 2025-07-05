@@ -234,7 +234,9 @@ async def import_agent(file: UploadFile = File(...)):
             param_schema=import_data.param_schema,
             param_values=import_data.param_values,
             use_abstracted_editor=import_data.use_abstracted_editor,
-            paused=import_data.paused
+            paused=import_data.paused,
+            template_id=getattr(import_data, 'template_id', None),
+            template_version=getattr(import_data, 'template_version', None)
         )
         
         await agent_client.create_trigger(
@@ -311,7 +313,9 @@ async def create_agent_from_template(request: CreateFromTemplateRequest):
             param_schema=import_data.param_schema,
             param_values=import_data.param_values,
             use_abstracted_editor=import_data.use_abstracted_editor,
-            paused=import_data.paused
+            paused=import_data.paused,
+            template_id=getattr(import_data, 'template_id', None),
+            template_version=getattr(import_data, 'template_version', None)
         )
         
         await agent_client.create_trigger(
@@ -551,6 +555,11 @@ async def export_agent(agent_uuid: UUID):
             "tools": agent.tools,
             "paused": agent.paused,
             "model": agent.model,
+            "param_schema": agent.param_schema,
+            "param_values": agent.param_values,
+            "use_abstracted_editor": agent.use_abstracted_editor,
+            "template_id": agent.template_id,
+            "template_version": agent.template_version,
             **trigger_settings,
         }
         

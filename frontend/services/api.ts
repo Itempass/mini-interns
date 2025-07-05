@@ -333,6 +333,8 @@ export interface Agent {
   use_abstracted_editor?: boolean;
   created_at: string;
   updated_at: string;
+  template_id?: string;
+  template_version?: string;
   trigger_conditions?: string;
   filter_rules?: FilterRules;
   trigger_bypass?: boolean;

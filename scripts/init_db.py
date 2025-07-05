@@ -94,6 +94,10 @@ def initialize_agent_db():
             add_column_if_not_exists(cursor, 'agents', 'param_values', 'TEXT')
             add_column_if_not_exists(cursor, 'agents', 'use_abstracted_editor', 'BOOLEAN DEFAULT FALSE')
 
+            # Add columns for agent versioning
+            add_column_if_not_exists(cursor, 'agents', 'template_id', 'TEXT')
+            add_column_if_not_exists(cursor, 'agents', 'template_version', 'TEXT')
+
             # Add model column and set default for existing records
             cursor.execute("PRAGMA table_info(agents)")
             columns = [row[1] for row in cursor.fetchall()]

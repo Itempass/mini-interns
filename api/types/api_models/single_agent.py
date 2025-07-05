@@ -18,6 +18,8 @@ class AgentWithTriggerSettings(BaseModel):
     use_abstracted_editor: bool = False
     created_at: datetime
     updated_at: datetime
+    template_id: Optional[str] = None
+    template_version: Optional[str] = None
     trigger_conditions: str
     filter_rules: FilterRules
     trigger_bypass: bool = False
@@ -43,6 +45,8 @@ class AgentImportModel(BaseModel):
     param_schema: Optional[List[Dict[str, Any]]] = Field(default_factory=list)
     param_values: Optional[Dict[str, Any]] = Field(default_factory=dict)
     use_abstracted_editor: bool = False
+    template_id: Optional[str] = None
+    template_version: Optional[str] = None
     trigger_conditions: str
     filter_rules: FilterRules
     trigger_bypass: bool = False

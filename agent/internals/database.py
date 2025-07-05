@@ -18,8 +18,8 @@ async def _create_agent_in_db(agent: AgentModel) -> AgentModel:
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
             """
-            INSERT INTO agents (uuid, name, description, system_prompt, user_instructions, tools, paused, model, param_schema, param_values, use_abstracted_editor, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO agents (uuid, name, description, system_prompt, user_instructions, tools, paused, model, param_schema, param_values, use_abstracted_editor, template_id, template_version, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 str(agent.uuid),
@@ -33,6 +33,8 @@ async def _create_agent_in_db(agent: AgentModel) -> AgentModel:
                 json.dumps(agent.param_schema),
                 json.dumps(agent.param_values),
                 agent.use_abstracted_editor,
+                agent.template_id,
+                agent.template_version,
                 agent.created_at,
                 agent.updated_at,
             ),
@@ -99,7 +101,7 @@ async def _update_agent_in_db(agent: AgentModel) -> AgentModel:
         await db.execute(
             """
             UPDATE agents
-            SET name = ?, description = ?, system_prompt = ?, user_instructions = ?, tools = ?, paused = ?, model = ?, param_schema = ?, param_values = ?, use_abstracted_editor = ?, updated_at = ?
+            SET name = ?, description = ?, system_prompt = ?, user_instructions = ?, tools = ?, paused = ?, model = ?, param_schema = ?, param_values = ?, use_abstracted_editor = ?, template_id = ?, template_version = ?, updated_at = ?
             WHERE uuid = ?
             """,
             (
@@ -113,6 +115,8 @@ async def _update_agent_in_db(agent: AgentModel) -> AgentModel:
                 json.dumps(agent.param_schema),
                 json.dumps(agent.param_values),
                 agent.use_abstracted_editor,
+                agent.template_id,
+                agent.template_version,
                 agent.updated_at,
                 str(agent.uuid),
             ),

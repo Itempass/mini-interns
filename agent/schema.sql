@@ -13,6 +13,8 @@ CREATE TABLE IF NOT EXISTS agents (
     param_schema TEXT,
     param_values TEXT,
     use_abstracted_editor BOOLEAN DEFAULT FALSE,
+    template_id TEXT,
+    template_version TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

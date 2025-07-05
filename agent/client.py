@@ -38,6 +38,8 @@ async def create_agent(
     param_values: dict | None = None,
     use_abstracted_editor: bool = False,
     paused: bool = False,
+    template_id: str | None = None,
+    template_version: str | None = None,
 ) -> AgentModel:
     """Creates an agent and stores it in the database."""
     logger.info(f"Creating agent with name: {name}")
@@ -52,6 +54,8 @@ async def create_agent(
         param_values=param_values or {},
         use_abstracted_editor=use_abstracted_editor,
         paused=paused,
+        template_id=template_id,
+        template_version=template_version,
     )
     return await _create_agent_in_db(agent)
 
