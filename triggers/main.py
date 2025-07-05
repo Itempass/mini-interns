@@ -17,6 +17,7 @@ from agentlogger.src.models import ConversationData, Message, Metadata
 from datetime import datetime
 import re
 from uuid import uuid4
+from mcp_servers.imap_mcpserver.src.imap_client.internals.connection_manager import imap_connection, FolderNotFoundError
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -180,19 +181,39 @@ def main():
     Main polling loop that checks for new emails and runs them against database-driven triggers.
     """
     logger.info("Trigger service started.")
+    
+    resolved_inbox_name = None
 
     while True:
         try:
             # Quick MCP server health check
             try: requests.get(f"http://localhost:{settings.CONTAINERPORT_MCP_IMAP}/mcp", timeout=2)
-            except: continue
+            except: 
+                time.sleep(10)
+                continue
             
             app_settings = load_app_settings()
 
             if app_settings.IMAP_SERVER and app_settings.IMAP_USERNAME and app_settings.IMAP_PASSWORD:
-                logger.info(f"Settings loaded for {app_settings.IMAP_USERNAME}. Checking for mail...")
+                # Dynamically resolve the Inbox folder name once
+                if not resolved_inbox_name:
+                    try:
+                        logger.info("Attempting to resolve special-use folder for Inbox...")
+                        with imap_connection() as (_, resolver):
+                            resolved_inbox_name = resolver.get_folder_by_attribute('\\Inbox')
+                        logger.info(f"Successfully resolved Inbox to: '{resolved_inbox_name}'")
+                    except FolderNotFoundError:
+                        logger.error("Could not resolve the Inbox folder. Trigger checking will be paused. Retrying in 1 minute.")
+                        time.sleep(60)
+                        continue
+                    except Exception as e:
+                        logger.error(f"An unexpected error occurred during Inbox resolution: {e}. Retrying in 1 minute.", exc_info=True)
+                        time.sleep(60)
+                        continue
                 
-                with MailBox(app_settings.IMAP_SERVER).login(app_settings.IMAP_USERNAME, app_settings.IMAP_PASSWORD, initial_folder='INBOX') as mailbox:
+                logger.info(f"Settings loaded for {app_settings.IMAP_USERNAME}. Checking for mail in '{resolved_inbox_name}'...")
+                
+                with MailBox(app_settings.IMAP_SERVER).login(app_settings.IMAP_USERNAME, app_settings.IMAP_PASSWORD, initial_folder=resolved_inbox_name) as mailbox:
                     last_uid = get_last_uid()
                     logger.info(f"Last processed UID: {last_uid}")
 

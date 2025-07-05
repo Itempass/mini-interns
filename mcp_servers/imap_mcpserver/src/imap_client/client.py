@@ -22,16 +22,21 @@ except ImportError:
 from mcp_servers.imap_mcpserver.src.imap_client.models import EmailMessage, EmailThread
 from mcp_servers.imap_mcpserver.src.imap_client.internals.bulk_threading import fetch_recent_threads_bulk
 from mcp_servers.imap_mcpserver.src.imap_client.helpers.contextual_id import create_contextual_id
-from mcp_servers.imap_mcpserver.src.imap_client.internals.connection_manager import imap_connection, IMAPConnectionError
+from mcp_servers.imap_mcpserver.src.imap_client.internals.connection_manager import imap_connection, IMAPConnectionError, FolderResolver, FolderNotFoundError
 from mcp_servers.imap_mcpserver.src.imap_client.helpers.body_parser import extract_body_formats
 
 load_dotenv(override=True)
 
 logger = logging.getLogger(__name__)
 
-def _find_uid_by_message_id(mail: imaplib.IMAP4_SSL, message_id: str) -> Tuple[Optional[str], Optional[str]]:
+def _find_uid_by_message_id(mail: imaplib.IMAP4_SSL, resolver: FolderResolver, message_id: str) -> Tuple[Optional[str], Optional[str]]:
     """Find UID and mailbox for a given Message-ID header."""
-    mailboxes_to_search = ["INBOX", "[Gmail]/All Mail", "[Gmail]/Sent Mail"]
+    # Use resolver to get key mailboxes. This will raise FolderNotFoundError if a folder is missing.
+    mailboxes_to_search = [
+        resolver.get_folder_by_attribute('\\Inbox'),
+        resolver.get_folder_by_attribute('\\All'),
+        resolver.get_folder_by_attribute('\\Sent')
+    ]
     
     for mailbox in mailboxes_to_search:
         try:
@@ -52,25 +57,27 @@ def _find_uid_by_message_id(mail: imaplib.IMAP4_SSL, message_id: str) -> Tuple[O
 def _get_message_by_id_sync(message_id: str) -> Optional[EmailMessage]:
     """
     Synchronous function to get a single EmailMessage by its Message-ID.
-    Searches across INBOX and [Gmail]/All Mail to find the message.
+    Searches across key mailboxes to find the message.
     """
     try:
-        with imap_connection() as mail:
-            # Search in INBOX first
-            mail.select('INBOX', readonly=True)
-            typ, data = mail.uid('search', None, f'(HEADER Message-ID "{message_id}")')
-            
-            if typ == 'OK' and data[0]:
-                uid = data[0].split()[0].decode()
-                return _fetch_single_message(mail, uid, 'INBOX')
-            
-            # If not found in INBOX, search in [Gmail]/All Mail
-            mail.select('"[Gmail]/All Mail"', readonly=True)
-            typ, data = mail.uid('search', None, f'(HEADER Message-ID "{message_id}")')
-            
-            if typ == 'OK' and data[0]:
-                uid = data[0].split()[0].decode()
-                return _fetch_single_message(mail, uid, '[Gmail]/All Mail')
+        with imap_connection() as (mail, resolver):
+            # Define search order. This will raise FolderNotFoundError if a folder is missing.
+            folders_to_search = [
+                resolver.get_folder_by_attribute('\\Inbox'),
+                resolver.get_folder_by_attribute('\\All')
+            ]
+
+            for folder in folders_to_search:
+                try:
+                    mail.select(f'"{folder}"', readonly=True)
+                    typ, data = mail.uid('search', None, f'(HEADER Message-ID "{message_id}")')
+                    
+                    if typ == 'OK' and data[0]:
+                        uid = data[0].split()[0].decode()
+                        return _fetch_single_message(mail, uid, folder)
+                except Exception as e:
+                    logger.warning(f"Could not search in folder '{folder}': {e}")
+                    continue
             
             return None
         
@@ -135,9 +142,9 @@ def _fetch_single_message(mail: imaplib.IMAP4_SSL, uid: str, folder: str) -> Opt
 def _get_complete_thread_sync(message_id: str) -> Optional[EmailThread]:
     """Synchronous function to get complete thread. It filters out draft messages. """
     try:
-        with imap_connection() as mail:
+        with imap_connection() as (mail, resolver):
             # Step 1: Find the message and get its thread ID
-            uid, mailbox = _find_uid_by_message_id(mail, message_id)
+            uid, mailbox = _find_uid_by_message_id(mail, resolver, message_id)
             if not uid:
                 return None
             
@@ -154,7 +161,8 @@ def _get_complete_thread_sync(message_id: str) -> Optional[EmailThread]:
             gmail_thread_id = thrid_match.group(1).decode()
             
             # Step 3: Search for all thread messages in All Mail
-            mail.select('"[Gmail]/All Mail"', readonly=True)
+            all_mail_folder = resolver.get_folder_by_attribute('\\All')
+            mail.select(f'"{all_mail_folder}"', readonly=True)
             typ, data = mail.uid('search', None, f'(X-GM-THRID {gmail_thread_id})')
             if typ != 'OK' or not data:
                 return None
@@ -197,7 +205,7 @@ def _get_complete_thread_sync(message_id: str) -> Optional[EmailThread]:
                     uid = uid_match.group(1) if uid_match else thread_uids[len(messages)]
                     
                     # Create contextual ID
-                    contextual_id = create_contextual_id('[Gmail]/All Mail', uid)
+                    contextual_id = create_contextual_id(all_mail_folder, uid)
                     
                     # Extract body in multiple formats
                     body_formats = extract_body_formats(msg)
@@ -234,8 +242,9 @@ def _get_complete_thread_sync(message_id: str) -> Optional[EmailThread]:
 def _get_recent_message_ids_sync(count: int = 20) -> List[str]:
     """Synchronous function to get recent Message-IDs from INBOX"""
     try:
-        with imap_connection() as mail:
-            mail.select('"INBOX"', readonly=True)
+        with imap_connection() as (mail, resolver):
+            inbox_folder = resolver.get_folder_by_attribute('\\Inbox')
+            mail.select(f'"{inbox_folder}"', readonly=True)
             typ, data = mail.uid('search', None, 'ALL')
             
             if typ != 'OK' or not data:
@@ -264,10 +273,12 @@ def _get_recent_message_ids_sync(count: int = 20) -> List[str]:
         logger.error(f"Error getting inbox message IDs: {e}")
         return []
 
-def _get_recent_messages_from_folder_sync(folder: str, count: int = 20) -> List[EmailMessage]:
-    """Synchronous function to get recent messages from a specific folder"""
+def _get_recent_messages_from_attribute_sync(attribute: str, count: int = 20) -> List[EmailMessage]:
+    """Synchronous function to get recent messages from a folder identified by a special-use attribute."""
+    folder = None # Define for use in exception logging
     try:
-        with imap_connection() as mail:
+        with imap_connection() as (mail, resolver):
+            folder = resolver.get_folder_by_attribute(attribute)
             mail.select(f'"{folder}"', readonly=True)
             typ, data = mail.uid('search', None, 'ALL')
             
@@ -367,40 +378,13 @@ def _markdown_to_html(markdown_text: str) -> str:
     html = html.replace('\n', '<br>\n')
     return html
 
-def _find_drafts_folder(mail: imaplib.IMAP4_SSL) -> str:
-    """Find the correct drafts folder name by trying common variations"""
-    draft_folders = ["[Gmail]/Drafts", "DRAFTS", "Drafts", "[Google Mail]/Drafts"]
-    
-    try:
-        status, folders = mail.list()
-        if status == "OK":
-            folder_list = [
-                folder.decode().split('"')[-2] if '"' in folder.decode() else folder.decode().split()[-1]
-                for folder in folders
-            ]
-            logger.info(f"Available folders: {folder_list}")
-            for draft_folder in draft_folders:
-                if draft_folder in folder_list:
-                    logger.info(f"Found drafts folder: {draft_folder}")
-                    return draft_folder
-            # Search for any folder containing "draft"
-            for folder_name in folder_list:
-                if "draft" in folder_name.lower():
-                    logger.info(f"Found drafts folder by search: {folder_name}")
-                    return folder_name
-    except Exception as e:
-        logger.warning(f"Error listing folders: {e}")
-    
-    # Default fallback
-    logger.info("Using default drafts folder: [Gmail]/Drafts")
-    return "[Gmail]/Drafts"
-
 def _get_user_signature() -> Tuple[Optional[str], Optional[str]]:
     """Get user signature from recent sent emails using Gmail signature shortcut"""
     try:
-        with imap_connection() as mail:
+        with imap_connection() as (mail, resolver):
             # Select Gmail sent folder
-            mail.select('"[Gmail]/Sent Mail"', readonly=True)
+            sent_folder = resolver.get_folder_by_attribute('\\Sent')
+            mail.select(f'"{sent_folder}"', readonly=True)
             typ, data = mail.uid('search', None, 'ALL')
             
             if typ != 'OK' or not data or not data[0]:
@@ -510,7 +494,7 @@ def _get_user_signature() -> Tuple[Optional[str], Optional[str]]:
 def _draft_reply_sync(original_message: EmailMessage, reply_body: str) -> Dict[str, Any]:
     """Synchronous function to create a draft reply"""
     try:
-        with imap_connection() as mail:
+        with imap_connection() as (mail, resolver):
             # Prepare reply headers
             original_subject = original_message.subject
             reply_subject = original_subject if original_subject.lower().startswith("re:") else f"Re: {original_subject}"
@@ -568,7 +552,7 @@ def _draft_reply_sync(original_message: EmailMessage, reply_body: str) -> Dict[s
             reply_message.attach(part2)
             
             # Find drafts folder and save
-            drafts_folder = _find_drafts_folder(mail)
+            drafts_folder = resolver.get_folder_by_attribute('\\Drafts')
             logger.info(f"Saving draft reply to folder: {drafts_folder}")
             
             message_string = reply_message.as_string()
@@ -604,14 +588,14 @@ def _get_all_labels_sync(mail: imaplib.IMAP4_SSL) -> List[str]:
 def _set_label_sync(message_id: str, label: str) -> Dict[str, Any]:
     """Synchronous function to add a label to a message."""
     try:
-        with imap_connection() as mail:
+        with imap_connection() as (mail, resolver):
             # Step 1: Get all available labels and validate
             all_labels = _get_all_labels_sync(mail)
             if label not in all_labels:
                 return {"success": False, "message": f"Label '{label}' does not exist. Available labels are: {all_labels}"}
 
             # Step 2: Find UID and mailbox for the message
-            uid, mailbox = _find_uid_by_message_id(mail, message_id)
+            uid, mailbox = _find_uid_by_message_id(mail, resolver, message_id)
             if not uid or not mailbox:
                 return {"success": False, "message": f"Could not find message with Message-ID: {message_id}"}
 
@@ -660,14 +644,14 @@ async def get_recent_inbox_messages(count: int = 10) -> List[EmailMessage]:
     Get recent messages from INBOX.
     Returns a list of EmailMessage objects.
     """
-    return await asyncio.get_event_loop().run_in_executor(None, _get_recent_messages_from_folder_sync, "INBOX", count)
+    return await asyncio.get_event_loop().run_in_executor(None, _get_recent_messages_from_attribute_sync, "\\Inbox", count)
 
 async def get_recent_sent_messages(count: int = 20) -> List[EmailMessage]:
     """
     Get recent messages from Sent folder.
     Returns a list of EmailMessage objects.
     """
-    return await asyncio.get_event_loop().run_in_executor(None, _get_recent_messages_from_folder_sync, "[Gmail]/Sent Mail", count)
+    return await asyncio.get_event_loop().run_in_executor(None, _get_recent_messages_from_attribute_sync, "\\Sent", count)
 
 async def draft_reply(original_message: EmailMessage, reply_body: str) -> Dict[str, Any]:
     """Create a draft reply for a given message."""
@@ -676,7 +660,7 @@ async def draft_reply(original_message: EmailMessage, reply_body: str) -> Dict[s
 async def get_recent_threads_bulk(
     target_thread_count: int = 50, 
     max_age_months: int = 6, 
-    mailbox: Optional[str] = None
+    source_folder_attribute: str = '\\Sent'
 ) -> Tuple[List[EmailThread], Dict[str, float]]:
     """
     High-performance bulk retrieval of recent email threads.
@@ -688,7 +672,7 @@ async def get_recent_threads_bulk(
     Args:
         target_thread_count (int, optional): The target number of threads to fetch. Defaults to 50.
         max_age_months (int, optional): The maximum age of emails to consider. Defaults to 6.
-        mailbox (Optional[str], optional): The mailbox to search in. Defaults to None, which uses the default sent folder.
+        source_folder_attribute (str, optional): The special-use attribute for the folder to search. Defaults to '\\Sent'.
 
     Returns:
         Tuple[List[EmailThread], Dict[str, float]]: A tuple containing the list of threads and performance timing data.
@@ -696,7 +680,7 @@ async def get_recent_threads_bulk(
     return await fetch_recent_threads_bulk(
         target_thread_count=target_thread_count,
         max_age_months=max_age_months,
-        mailbox=mailbox
+        source_folder_attribute=source_folder_attribute
     )
 
 async def set_label(message_id: str, label: str) -> Dict[str, Any]:

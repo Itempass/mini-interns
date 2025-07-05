@@ -45,7 +45,7 @@ async def initialize_inbox():
         sent_threads, sent_timing = await get_recent_threads_bulk(
             target_thread_count=300, 
             max_age_months=6, 
-            mailbox='"[Gmail]/Sent Mail"'
+            source_folder_attribute='\\Sent'
         )
         logger.info(f"Fetched {len(sent_threads)} threads from Sent Mail in {sent_timing.get('total_time', 0):.2f}s")
 
@@ -59,7 +59,7 @@ async def initialize_inbox():
         all_mail_threads, all_mail_timing = await get_recent_threads_bulk(
             target_thread_count=300, 
             max_age_months=6, 
-            mailbox='"[Gmail]/All Mail"'
+            source_folder_attribute='\\All'
         )
         logger.info(f"Fetched {len(all_mail_threads)} threads from All Mail in {all_mail_timing.get('total_time', 0):.2f}s")
         
