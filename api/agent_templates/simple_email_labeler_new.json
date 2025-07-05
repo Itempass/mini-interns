@@ -42,7 +42,7 @@
     {
       "parameter_key": "labeling_rules",
       "display_text": "Labeling Rules",
-      "type": "list",
+      "type": "key_value_field_one_line",
       "injection_key": "LABELING_RULES",
       "item_schema": [
         {
@@ -53,7 +53,7 @@
         {
           "parameter_key": "label_description",
           "display_text": "Label Description",
-          "type": "text"
+          "type": "textarea"
         }
       ]
     }

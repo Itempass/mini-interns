@@ -6,9 +6,11 @@ interface DynamicFieldRendererProps {
   value: any;
   onChange: (parameterKey: string, value: any) => void;
   path: string; // e.g., "labeling_rules.0.keyword"
+  showLabel?: boolean;
+  footer?: React.ReactNode;
 }
 
-const DynamicFieldRenderer: React.FC<DynamicFieldRendererProps> = ({ field, value, onChange, path }) => {
+const DynamicFieldRenderer: React.FC<DynamicFieldRendererProps> = ({ field, value, onChange, path, showLabel = true, footer }) => {
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { type, checked, value } = e.target as HTMLInputElement;
     onChange(path, type === 'checkbox' ? checked : value);
@@ -35,6 +37,8 @@ const DynamicFieldRenderer: React.FC<DynamicFieldRendererProps> = ({ field, valu
   };
 
   const renderField = () => {
+    const inputClassName = `${showLabel ? 'mt-1' : ''} block w-full rounded-md border-gray-400 shadow-sm sm:text-sm p-2 border ${!showLabel ? 'h-full' : ''}`;
+
     switch (field.type) {
       case 'text':
         return (
@@ -42,7 +46,18 @@ const DynamicFieldRenderer: React.FC<DynamicFieldRendererProps> = ({ field, valu
             type="text"
             value={value || ''}
             onChange={handleInputChange}
-            className="mt-1 block w-full rounded-md border-gray-400 shadow-sm sm:text-sm p-2 border"
+            placeholder={!showLabel ? field.display_text : ''}
+            className={inputClassName}
+          />
+        );
+      case 'textarea':
+        return (
+          <textarea
+            value={value || ''}
+            onChange={handleInputChange}
+            placeholder={!showLabel ? field.display_text : ''}
+            className={inputClassName}
+            rows={!showLabel ? 2 : 3}
           />
         );
       case 'checkbox':
@@ -53,6 +68,47 @@ const DynamicFieldRenderer: React.FC<DynamicFieldRendererProps> = ({ field, valu
             onChange={handleInputChange}
             className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
           />
+        );
+      case 'key_value_field_one_line':
+        return (
+          <div className="space-y-2">
+            {Array.isArray(value) && value.map((item, index) => (
+              <div key={index} className="flex items-stretch space-x-2">
+                <div className="grid grid-cols-3 gap-2 flex-grow">
+                  {field.item_schema?.map((itemField, itemIndex) => (
+                    <div key={itemField.parameter_key} className={`${itemIndex === 0 ? 'col-span-1' : 'col-span-2'}`}>
+                      <DynamicFieldRenderer
+                        key={itemField.parameter_key}
+                        field={itemField}
+                        value={item[itemField.parameter_key]}
+                        onChange={handleNestedChange}
+                        path={`${path}.${index}.${itemField.parameter_key}`}
+                        showLabel={false}
+                      />
+                    </div>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleRemoveItem(index)}
+                  className="text-red-500 hover:text-red-700 font-bold p-2"
+                  aria-label="Remove item"
+                >
+                  &times;
+                </button>
+              </div>
+            ))}
+            <div className="flex items-center space-x-2 mt-2">
+              <button
+                type="button"
+                onClick={handleAddItem}
+                className="px-3 py-1 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700"
+              >
+                Add {field.display_text}
+              </button>
+              {footer}
+            </div>
+          </div>
         );
       case 'list':
         return (
@@ -82,13 +138,16 @@ const DynamicFieldRenderer: React.FC<DynamicFieldRendererProps> = ({ field, valu
                 </div>
               </div>
             ))}
-            <button
-              type="button"
-              onClick={handleAddItem}
-              className="mt-2 px-3 py-1 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700"
-            >
-              Add {field.display_text}
-            </button>
+            <div className="flex items-center space-x-2 mt-2">
+              <button
+                type="button"
+                onClick={handleAddItem}
+                className="px-3 py-1 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700"
+              >
+                Add {field.display_text}
+              </button>
+              {footer}
+            </div>
           </div>
         );
       default:
@@ -99,8 +158,8 @@ const DynamicFieldRenderer: React.FC<DynamicFieldRendererProps> = ({ field, valu
   };
 
   return (
-    <div>
-      <label className="block text-sm font-medium text-gray-700">{field.display_text}</label>
+    <div className={!showLabel ? 'h-full' : ''}>
+      {showLabel && <label className="block text-sm font-medium text-gray-700">{field.display_text}</label>}
       {renderField()}
     </div>
   );

@@ -314,7 +314,7 @@ export const getMcpServers = async (): Promise<McpServer[]> => {
 export interface ParamSchemaField {
   parameter_key: string;
   display_text: string;
-  type: 'text' | 'checkbox' | 'list';
+  type: 'text' | 'checkbox' | 'list' | 'textarea' | 'key_value_field_one_line';
   injection_key?: string;
   item_schema?: ParamSchemaField[];
 }
