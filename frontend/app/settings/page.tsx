@@ -1,7 +1,7 @@
 'use client';
 import React, { useState, useEffect } from 'react';
 import { getSettings, setSettings, AppSettings, EmbeddingModel, initializeInbox, getInboxInitializationStatus, testImapConnection, reinitializeInbox, getVersion, getToneOfVoiceProfile, rerunToneAnalysis, getToneOfVoiceStatus } from '../../services/api';
-import { Copy } from 'lucide-react';
+import { Copy, HelpCircle } from 'lucide-react';
 import TopBar from '../../components/TopBar';
 import VersionCheck from '../../components/VersionCheck';
 import Link from 'next/link';
@@ -336,8 +336,10 @@ const SettingsPage = () => {
               <div className="flex-1">
                 <input className={inputClasses} type="password" id="imap-password" name="IMAP_PASSWORD" value={settings.IMAP_PASSWORD || ''} onChange={handleInputChange} />
                 <div className="flex items-center mt-1">
-                  <p className="m-0 text-xs text-gray-600">Enter your email password or an App Password. See help for more details.</p>
-                  <button onClick={() => setHelpPanelOpen(true)} className="ml-2 text-xs text-blue-500 hover:underline">Help</button>
+                  <button onClick={() => setHelpPanelOpen(true)} className="flex items-center text-xs text-blue-500 hover:underline">
+                    <HelpCircle size={14} className="mr-1" />
+                    Where to find your gmail App Password
+                  </button>
                 </div>
               </div>
             </div>
