@@ -225,7 +225,7 @@ async def import_agent(file: UploadFile = File(...)):
         import_data = AgentImportModel.model_validate(data)
         
         new_agent = await agent_client.create_agent(
-            name=f"{import_data.name} (imported)",
+            name=import_data.name,
             description=import_data.description,
             system_prompt=import_data.system_prompt,
             user_instructions=import_data.user_instructions,
@@ -290,21 +290,24 @@ async def create_agent_from_template(request: CreateFromTemplateRequest):
     """
     Creates a new agent from a specified template.
     """
-    logger.info(f"POST /agents/from-template - Creating agent from template '{request.template_id}'")
-    template_file_path = AGENT_TEMPLATES_DIR / f"{request.template_id}.json"
-
-    if not template_file_path.is_file():
-        logger.error(f"Template file not found: {template_file_path}")
-        raise HTTPException(status_code=404, detail=f"Template '{request.template_id}' not found.")
-
+    logger.info(f"POST /agents/from-template - Creating agent '{request.template_id}' from template")
     try:
-        with open(template_file_path, "r") as f:
-            data = json.load(f)
+        # 1. Find the template file
+        template_path = AGENT_TEMPLATES_DIR / f"{request.template_id}.json"
+        if not template_path.is_file():
+            logger.error(f"Template file not found at {template_path}")
+            raise HTTPException(status_code=404, detail=f"Template with ID '{request.template_id}' not found.")
 
-        import_data = AgentImportModel.model_validate(data)
+        # 2. Load and validate the template data
+        with open(template_path, "r") as f:
+            template_data = json.load(f)
         
+        import_data = AgentImportModel.model_validate(template_data)
+        agent_name = import_data.name
+
+        # 3. Create the agent in the database
         new_agent = await agent_client.create_agent(
-            name=f"{import_data.name} (from template)",
+            name=agent_name,
             description=import_data.description,
             system_prompt=import_data.system_prompt,
             user_instructions=import_data.user_instructions,
