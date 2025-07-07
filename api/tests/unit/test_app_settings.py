@@ -24,34 +24,48 @@ from api.endpoints.app_settings import get_embedding_models_with_key_status
 def client():
     return TestClient(app)
 
-@pytest.mark.parametrize("old_username, new_username, should_reset_uid", [
-    # Case 1: Username changes, should reset UID
-    ("old@example.com", "new@example.com", True),
-    # Case 2: Username is the same, should NOT reset UID
-    ("user@example.com", "user@example.com", False),
-    # Case 3: Initial setup (no old username), should NOT reset UID
-    (None, "new@example.com", False),
+@pytest.mark.parametrize("username_to_set", [
+    "user1@example.com",
+    "another.user@gmail.com",
 ])
-def test_set_settings_resets_uid_only_on_username_change(client, old_username, new_username, should_reset_uid):
+def test_set_settings_always_resets_uid_for_provided_username(client, username_to_set):
     """
-    Verifies that changing the IMAP username resets the last processed email UID,
-    and other changes do not. This is a unit test focusing on the endpoint's logic.
+    Verifies that saving settings with an IMAP username always resets the last
+    processed email UID for that specific user.
     """
     mock_redis_client = MagicMock()
-    old_settings = AppSettings(IMAP_USERNAME=old_username)
-    new_settings_payload = {"IMAP_USERNAME": new_username, "IMAP_PASSWORD": "new_password"}
+    new_settings_payload = {"IMAP_USERNAME": username_to_set, "IMAP_PASSWORD": "some_password"}
 
-    with patch('api.endpoints.app_settings.load_app_settings', return_value=old_settings), \
+    # We patch load_app_settings because it's called inside the endpoint, but we don't need its return value for this test.
+    with patch('api.endpoints.app_settings.load_app_settings'), \
          patch('api.endpoints.app_settings.get_redis_client', return_value=mock_redis_client), \
          patch('api.endpoints.app_settings.save_app_settings'):
-        
+
         response = client.post("/settings", json=new_settings_payload)
 
     assert response.status_code == 200
-    if should_reset_uid:
-        mock_redis_client.delete.assert_called_once_with(RedisKeys.LAST_EMAIL_UID)
-    else:
-        mock_redis_client.delete.assert_not_called()
+    
+    # Check that the delete method was called with the correctly namespaced key
+    expected_key = RedisKeys.get_last_email_uid_key(username_to_set)
+    mock_redis_client.delete.assert_called_once_with(expected_key)
+
+def test_set_settings_does_not_reset_uid_if_no_username_provided(client):
+    """
+    Verifies that if the settings are saved without a username (e.g., updating another
+    setting), the delete function for UIDs is not called.
+    """
+    mock_redis_client = MagicMock()
+    # Payload does not include IMAP_USERNAME
+    new_settings_payload = {"IMAP_PASSWORD": "a_new_password"}
+
+    with patch('api.endpoints.app_settings.load_app_settings'), \
+         patch('api.endpoints.app_settings.get_redis_client', return_value=mock_redis_client), \
+         patch('api.endpoints.app_settings.save_app_settings'):
+
+        response = client.post("/settings", json=new_settings_payload)
+
+    assert response.status_code == 200
+    mock_redis_client.delete.assert_not_called()
 
 def test_get_embedding_models_with_key_status():
     """

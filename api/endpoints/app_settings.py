@@ -57,8 +57,17 @@ async def get_settings():
 async def set_settings(app_settings: AppSettings = Body(...)):
     """
     Updates one or more application settings.
+    If the IMAP server or username changes, the last processed email UID is reset.
     """
     try:
+        # If a username is provided in the update, always reset the UID for that account.
+        # This ensures that re-saving settings for an account starts its sync from scratch.
+        if app_settings.IMAP_USERNAME:
+            logger.info(f"Settings contain a username ('{app_settings.IMAP_USERNAME}'). Resetting its last processed email UID.")
+            redis_client = get_redis_client()
+            namespaced_uid_key = RedisKeys.get_last_email_uid_key(app_settings.IMAP_USERNAME)
+            redis_client.delete(namespaced_uid_key)
+
         save_app_settings(app_settings)
         return {"status": "success", "message": "Settings updated successfully."}
     except Exception as e:

@@ -23,16 +23,16 @@ from mcp_servers.imap_mcpserver.src.imap_client.internals.connection_manager imp
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-def get_last_uid():
-    """Gets the last processed UID from Redis."""
+def get_last_uid(username: str):
+    """Gets the last processed UID from Redis for a specific user."""
     redis_client = get_redis_client()
-    uid = redis_client.get(RedisKeys.LAST_EMAIL_UID)
+    uid = redis_client.get(RedisKeys.get_last_email_uid_key(username))
     return uid if uid else None
 
-def set_last_uid(uid: str):
-    """Sets the last processed UID in Redis."""
+def set_last_uid(username: str, uid: str):
+    """Sets the last processed UID in Redis for a specific user."""
     redis_client = get_redis_client()
-    redis_client.set(RedisKeys.LAST_EMAIL_UID, uid)
+    redis_client.set(RedisKeys.get_last_email_uid_key(username), uid)
 
 async def passes_trigger_conditions_check(msg, trigger, thread_context: str, message_id: str, agent_name: str) -> bool:
     """
@@ -214,15 +214,15 @@ def main():
                 logger.info(f"Settings loaded for {app_settings.IMAP_USERNAME}. Checking for mail in '{resolved_inbox_name}'...")
                 
                 with MailBox(app_settings.IMAP_SERVER).login(app_settings.IMAP_USERNAME, app_settings.IMAP_PASSWORD, initial_folder=resolved_inbox_name) as mailbox:
-                    last_uid = get_last_uid()
-                    logger.info(f"Last processed UID: {last_uid}")
+                    last_uid = get_last_uid(app_settings.IMAP_USERNAME)
+                    logger.info(f"Last processed UID for '{app_settings.IMAP_USERNAME}': {last_uid}")
 
                     if last_uid is None:
                         uids = mailbox.uids()
                         if uids:
                             latest_uid_on_server = uids[-1]
-                            set_last_uid(latest_uid_on_server)
-                            logger.info(f"No previous UID found. Baseline set to latest email UID: {latest_uid_on_server}.")
+                            set_last_uid(app_settings.IMAP_USERNAME, latest_uid_on_server)
+                            logger.info(f"No previous UID found for '{app_settings.IMAP_USERNAME}'. Baseline set to latest email UID: {latest_uid_on_server}.")
                         else:
                             logger.info("No emails found in the inbox. Will check again.")
                         time.sleep(60)
@@ -251,8 +251,8 @@ def main():
                             process_message(msg, message_id)
 
                         latest_uid = filtered_messages[-1].uid
-                        set_last_uid(latest_uid)
-                        logger.info(f"Last processed UID updated to {latest_uid}")
+                        set_last_uid(app_settings.IMAP_USERNAME, latest_uid)
+                        logger.info(f"Last processed UID for '{app_settings.IMAP_USERNAME}' updated to {latest_uid}")
                     else:
                         logger.info("No new emails.")
             else:
