@@ -2,7 +2,7 @@ import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from api.endpoints import app_settings, agent, agentlogger, mcp, connection
+from api.endpoints import app_settings, agent, agentlogger, mcp, connection, auth
 from shared.config import settings
 from shared.version import __version__, get_latest_version
 import uvicorn
@@ -59,6 +59,7 @@ app.add_middleware(
     allow_headers=["*"],  # Allows all headers
 )
 
+app.include_router(auth.router) # Add auth router
 app.include_router(app_settings.router, tags=["app_settings"])
 app.include_router(agent.router, tags=["agent"])
 app.include_router(agentlogger.router, tags=["agentlogger"])

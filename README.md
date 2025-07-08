@@ -30,6 +30,15 @@ Only **gmail** (either personal or workspace) is supported. Support for Outlook 
 3. Use `git pull` to update
 4. Use `docker-compose up` to start the updated server
 
+### Securing Your Installation
+By default, your Mini Interns instance is accessible to anyone on your network (or on the public internet if deployed to a VPS). You can secure it with a simple password.
+
+1. Open your `.env` file.
+2. Find the `AUTH_PASSWORD=` line.
+3. Add a secure password to it, for example: `AUTH_PASSWORD=your_secret_password`
+
+If `AUTH_PASSWORD` is set, users will be prompted to enter this password before they can access the web interface. If it is left blank, authentication is disabled.
+
 ## Feedback and Feature Requests
 
 Don't hesitate to contact us on LinkedIn for feedback and feature requests!

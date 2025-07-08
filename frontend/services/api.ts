@@ -1,5 +1,23 @@
 export const API_URL = '/api'; // The backend is on port 5001, but we're proxying
 
+// --- Auth ---
+
+export const login = async (password: string): Promise<boolean> => {
+  try {
+    const response = await fetch(`${API_URL}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password }),
+    });
+    return response.ok;
+  } catch (error) {
+    console.error('Login request failed:', error);
+    return false;
+  }
+};
+
+// --- End Auth ---
+
 export interface AppSettings {
   IMAP_SERVER?: string;
   IMAP_USERNAME?: string;
