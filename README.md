@@ -79,4 +79,27 @@ It is disabled by default. To enable it:
 
 See [documentation/mcp_inspector.md](documentation/mcp_inspector.md) for an explanation on how to use it.
 
+## Startup Process
+
+The application uses a managed startup sequence to ensure all services launch in the correct order and are properly initialized. This process is orchestrated by `supervisord` and defined in `supervisord.conf`.
+
+The sequence is as follows:
+
+1.  **Database Initialization (`scripts/init_db.py`)**: The `entrypoint.sh` script first runs this script to set up the necessary SQL database tables. This happens once before any other services are started.
+
+2.  **Redis Server**: `supervisord` starts the Redis server with the highest priority to ensure it is available for other services.
+
+3.  **API Pre-launch Scripts**: Before launching the main API server, `supervisord` executes two scripts:
+    *   `scripts/clear_redis_on_startup.py`: Clears any transient data from previous sessions to ensure a clean start.
+    *   `scripts/set_initial_embedding_model.py`: Detects available API keys and configures the optimal embedding model for the session.
+
+4.  **API Server**: The main FastAPI application is launched with 4 worker processes.
+
+5.  **Startup Orchestrator (`scripts/startup_orchestrator.py`)**: This crucial script runs *after* the API server is online. Its responsibilities are:
+    *   To wait for both Redis and the API to be fully responsive.
+    *   To check if the vectorization logic has been updated by comparing a version number in the code against the version stored in Redis from the last run.
+    *   If the versions mismatch, it automatically triggers the re-vectorization process via an API call. This ensures the user's vectorized data is always in sync with the latest processing improvements without requiring manual intervention.
+
+6.  **Other Services**: Finally, the `trigger` process and the `frontend` server are started.
+
 
