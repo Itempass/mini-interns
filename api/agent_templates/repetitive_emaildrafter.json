@@ -36,7 +36,7 @@
   },
   "paused": false,
   "model": "google/gemini-2.5-flash-preview-05-20:thinking",
-  "trigger_conditions": "## Rules\nYou can process emails that are:\n- directed directly to the user\n- only if the user is in CC and is directly asked a question\n- Do not process other scenarios.\n\n## User Information\nThe user's email is <<MY_EMAIL>>\n\n## Historic Similar Emails\nBelow, you see the results of a search finding similar emails. This can help you determine if this is a repetitive email. Check if the user has replied to a similar email.\n\n<<TOOLRESULT:IMAP:find_similar_threads>>",
+  "trigger_conditions": "## Goal\nYour goal is to determine if emails like the incoming email are usually replied to.\n- if it is, return {\"should_process\":\"true\"}\n- if it is NOT, return {\"should_process\":\"false\"}\n\nOur user's email is <<MY_EMAIL>>\n\n## What is an email that is usually replied to?\nBelow, you will see a search for similar email threads. If the user (with email arthur@itempass.com) usually responds to messages that are similar, you should return {\"should_process\":\"true\"}.\n\n## Search for Similar Emails\n- First, check if the emails below are similar to our input message\n- Then, check if the user usually replies to similar messages\n\n<<TOOLRESULT:IMAP:find_similar_threads>>\n\n## Recap\n- determine if the incoming email is usually replied to by the user, return {\"should_process\":\"true\"} if this is the case.\n- our user's email is <<MY_EMAIL>>\n- check if the messages (1) are indeed similar (2) the user usually responds to them",
   "filter_rules": {
     "email_blacklist": [],
     "email_whitelist": [],

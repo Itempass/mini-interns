@@ -53,8 +53,15 @@ async def passes_trigger_conditions_check(msg, trigger, thread_context: str, mes
         logger.info("Found find_similar_threads tool tag in trigger conditions. Executing tool...")
         try:
             similar_threads_result = await find_similar_threads.fn(messageId=message_id)
-            # Format the result nicely for the prompt
-            tool_result_str = json.dumps(similar_threads_result, indent=2)
+            
+            # Determine how to format the result based on its type
+            if isinstance(similar_threads_result, str):
+                # If it's a string (like markdown), use it directly.
+                tool_result_str = similar_threads_result
+            else:
+                # Otherwise, assume it's a JSON-serializable object (like a dict or list).
+                tool_result_str = json.dumps(similar_threads_result, indent=2)
+
             processed_conditions = processed_conditions.replace("<<TOOLRESULT:IMAP:find_similar_threads>>", tool_result_str)
             logger.info("Successfully executed find_similar_threads and injected result into prompt.")
         except Exception as e:

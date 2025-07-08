@@ -93,25 +93,26 @@ async def list_most_recent_inbox_emails(count: int = 10) -> List[Dict[str, Any]]
 # They can be moved to a different service/tool file later if needed.
 
 @mcp_builder.tool()
-async def find_similar_threads(messageId: str, top_k: Optional[int] = 5) -> Dict[str, Any]:
+async def find_similar_threads(messageId: str, top_k: Optional[int] = 5) -> str:
     """
-    Finds email threads with similar content to the thread of a given email ID.
+    Finds email threads with similar content to the thread of a given email ID,
+    and returns them as a single markdown formatted string.
     Uses vector search followed by reranking for improved relevance.
     """
     # 1. Get the original message using the client
     original_message = await get_message_by_id(messageId)
     if not original_message:
-        return {"error": f"Could not find email with messageId: {messageId}"}
+        return f"## Error\n\nCould not find email with messageId: {messageId}"
 
     # 2. Get the complete thread using the client
     source_thread = await get_complete_thread(original_message)
     if not source_thread:
-        return {"error": f"Could not retrieve the thread for email ID {messageId} to find similar conversations."}
+        return f"## Error\n\nCould not retrieve the thread for email ID {messageId} to find similar conversations."
 
     # 3. Use the thread's markdown property for embedding - it's already formatted and cleaned
     thread_markdown = source_thread.markdown
     if not thread_markdown.strip():
-        return {"error": f"Could not extract any content from the source thread of email {messageId}."}
+        return f"## Error\n\nCould not extract any content from the source thread of email {messageId}."
     
     source_embedding = get_embedding(f"embed this email thread, focus on the meaning of the conversation: {thread_markdown}")
 
@@ -128,22 +129,22 @@ async def find_similar_threads(messageId: str, top_k: Optional[int] = 5) -> Dict
     )
 
     if not similar_hits:
-        return {"similar_threads": [], "llm_instructions": "No similar threads found."}
+        return "No similar threads found."
 
     # 6. Prepare documents for reranking using thread_markdown from vector search results
     thread_contents = []
     thread_metadata = []
     
     for hit in similar_hits:
-        thread_markdown = hit.get("thread_markdown", "")
+        thread_markdown_content = hit.get("thread_markdown", "")
         
-        if thread_markdown:
-            thread_contents.append(thread_markdown)
+        if thread_markdown_content:
+            thread_contents.append(thread_markdown_content)
             # Store the hit payload as metadata for formatting
             thread_metadata.append(hit)
 
     if not thread_contents:
-        return {"similar_threads": [], "llm_instructions": "No valid thread content found for reranking."}
+        return "No similar threads found."
 
     # 7. Use reranker to improve ordering based on relevance
     try:
@@ -166,11 +167,21 @@ async def find_similar_threads(messageId: str, top_k: Optional[int] = 5) -> Dict
             hit_metadata = thread_metadata[index]
             
             # Use the thread markdown directly since it's already well-formatted
-            thread_markdown = hit_metadata.get("thread_markdown", "")
-            if thread_markdown:
-                similar_threads_formatted.append(thread_markdown)
+            thread_markdown_content = hit_metadata.get("thread_markdown", "")
+            if thread_markdown_content:
+                similar_threads_formatted.append(thread_markdown_content)
 
-    return {
-        "similar_threads": similar_threads_formatted,
-        "llm_instructions": "These are full conversation threads that are semantically similar to the original email's thread, ordered by relevance using AI reranking."
-    }
+    if not similar_threads_formatted:
+        return "No similar threads found."
+
+    # 9. Combine the reranked threads into a single markdown string
+    header = f"Here are {len(similar_threads_formatted)} similar threads, ordered by relevance:"
+    full_markdown_output = header + "\n\n"
+
+    for i, thread_markdown in enumerate(similar_threads_formatted):
+        full_markdown_output += thread_markdown
+        # Add a separator between threads, but not after the last one
+        if i < len(similar_threads_formatted) - 1:
+            full_markdown_output += "\n\n---\n\n"
+
+    return full_markdown_output
