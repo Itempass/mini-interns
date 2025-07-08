@@ -10,6 +10,7 @@ from shared.redis.redis_client import get_redis_client
 from shared.redis.keys import RedisKeys
 from shared.services.embedding_service import get_embedding
 from api.background_tasks.determine_tone_of_voice import determine_user_tone_of_voice
+from shared.config import VECTORIZATION_VERSION
 
 logger = logging.getLogger(__name__)
 
@@ -172,6 +173,7 @@ async def initialize_inbox():
 
         logger.info("Inbox initialization completed successfully.")
         redis_client.set(RedisKeys.INBOX_INITIALIZATION_STATUS, "completed")
+        redis_client.set(RedisKeys.VECTORIZATION_DATA_VERSION, VECTORIZATION_VERSION)
         
         # Trigger the tone of voice analysis as a follow-up task
         logger.info("Kicking off tone of voice analysis in the background.")

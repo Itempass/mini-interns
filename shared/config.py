@@ -26,3 +26,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=(".env", ".env.local"), extra='ignore')
 
 settings = Settings()
+
+# Version for the vectorization process.
+# Increment this when the logic in initialize_inbox.py or related data processing changes.
+VECTORIZATION_VERSION = "1.0"
