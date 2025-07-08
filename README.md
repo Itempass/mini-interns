@@ -1,6 +1,7 @@
-# Mini Interns
+# Brewdock
+*Brewdock, The Agents Factory*
 
-Mini Interns is a framework to manage **trigger-based agentic workflows**. Add triggers (eg. new incoming email), configure your agent (eg. label these emails as X), and improve based on past runs.
+Brewdock is a framework to manage **trigger-based agentic workflows**. Add triggers (eg. new incoming email), configure your agent (eg. label these emails as X), and improve based on past runs.
 
 
 ## Installation
