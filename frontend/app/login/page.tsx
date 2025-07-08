@@ -30,8 +30,9 @@ export default function LoginPage() {
     <div className="flex items-center justify-center min-h-screen bg-gray-50">
       <div className="w-full max-w-md p-8 space-y-8 bg-white rounded-lg shadow-md">
         <div className="text-center">
-          <h1 className="text-3xl font-bold text-gray-900">Mini Interns</h1>
-          <p className="mt-2 text-gray-600">Please enter the password to continue</p>
+          <h1 className="text-3xl font-bold text-gray-900">Brewdock</h1>
+          <p className="mt-2 text-gray-600">The Agents Factory</p>
+          <p className="mt-2 text-gray-600">Please enter your password to continue</p>
         </div>
         <form className="space-y-6" onSubmit={handleSubmit}>
           <div>

@@ -6,8 +6,8 @@ import BackendStatusChecker from "../components/BackendStatusChecker";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Mini Interns",
-  description: "Manage your AI agents",
+  title: "Brewdock",
+  description: "The Agents Factory",
 };
 
 export default function RootLayout({

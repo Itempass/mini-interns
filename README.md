@@ -32,7 +32,7 @@ Only **gmail** (either personal or workspace) is supported. Support for Outlook 
 4. Use `docker-compose up` to start the updated server
 
 ### Securing Your Installation
-By default, your Mini Interns instance is accessible to anyone on your network (or on the public internet if deployed to a VPS). You can secure it with a simple password.
+By default, your Brewdock instance is accessible to anyone on your network (or on the public internet if deployed to a VPS). You can secure it with a simple password.
 
 1. Open your `.env` file.
 2. Find the `AUTH_PASSWORD=` line.
