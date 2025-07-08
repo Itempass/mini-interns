@@ -7,7 +7,6 @@ import AgentSettingsAbstracted from '../components/AgentSettingsAbstracted';
 import { Agent, getAgents } from '../services/api';
 import VersionCheck from '../components/VersionCheck';
 import ConnectionStatusIndicator from '../components/ConnectionStatusIndicator';
-import BackendStatusChecker from '../components/BackendStatusChecker';
 import NoAgentsView from '../components/NoAgentsView';
 
 const HomePage = () => {
@@ -38,7 +37,6 @@ const HomePage = () => {
 
   return (
     <div className="flex flex-col h-screen bg-white">
-      <BackendStatusChecker />
       <VersionCheck />
       <div className="flex flex-col flex-grow overflow-hidden">
         <TopBar />
