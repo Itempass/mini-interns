@@ -80,6 +80,7 @@ class EmailThread(BaseModel):
         """Format the entire thread as markdown"""
         lines = []
         lines.append("# Email Thread")
+        lines.append(f"* **Total messages in thread:** {self.message_count}")
         lines.append("")
         
         for i, message in enumerate(self.messages, 1):
@@ -93,6 +94,7 @@ class EmailThread(BaseModel):
             lines.append(f"* **Message ID:** {message.message_id}")
             lines.append(f"* **Subject:** {message.subject}")
             lines.append("")
+            lines.append(f"* **Body:**")
             lines.append(message.body_markdown)
             lines.append("")
             lines.append("---")

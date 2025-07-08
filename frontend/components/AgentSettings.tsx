@@ -152,17 +152,30 @@ const AgentSettings: React.FC<AgentSettingsProps> = ({ agent, onAgentUpdate }) =
     setSaveStatus('saving');
 
     const agentToolsToSave: { [key: string]: { enabled: boolean; required: boolean; order?: number } } = {};
-    const requiredTools = tools.filter(t => t.required);
+    
+    // Preserve the order of tools as they are in the state
+    const orderedTools = [...tools];
 
-    tools.forEach(tool => {
+    orderedTools.forEach((tool, index) => {
       agentToolsToSave[tool.id] = {
         enabled: tool.enabled,
         required: tool.required,
       };
       if (tool.required) {
-        agentToolsToSave[tool.id].order = requiredTools.findIndex(t => t.id === tool.id);
+        // Find the order from the main list, not a filtered one
+        agentToolsToSave[tool.id].order = tool.order;
       }
     });
+    
+    // This is still needed to correctly set the order for newly required tools,
+    // or when a tool is moved.
+    const requiredTools = tools.filter(t => t.required).sort((a, b) => (a.order ?? Infinity) - (b.order ?? Infinity));
+    requiredTools.forEach((tool, index) => {
+      if (agentToolsToSave[tool.id]) {
+        agentToolsToSave[tool.id].order = index;
+      }
+    });
+
 
     const finalFilterRules: FilterRules = {
       email_blacklist: filterRuleStrings.email_blacklist.split(',').map(item => item.trim()).filter(Boolean),

@@ -24,6 +24,9 @@ class RedisKeys:
     IMAP_PASSWORD = "settings:imap_password"
     EMBEDDING_MODEL = "settings:embedding_model"
 
+    # --- Vectorization ---
+    VECTORIZATION_DATA_VERSION = "vectorization:data_version"
+
     # --- Tone of Voice ---
     TONE_OF_VOICE_PROFILE = "tone_of_voice_profile"
     TONE_OF_VOICE_STATUS = "tone_of_voice_status"

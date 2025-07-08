@@ -2,23 +2,21 @@
 import React, { useState, useEffect } from 'react';
 import { checkBackendHealth } from '../services/api';
 
-const BackendStatusChecker = () => {
+const BackendStatusChecker = ({ children }: { children: React.ReactNode }) => {
   const [isBackendReady, setIsBackendReady] = useState(false);
   const [countdown, setCountdown] = useState(20);
   const [isTimedOut, setIsTimedOut] = useState(false);
 
   useEffect(() => {
-    // Check if the backend was already found to prevent reload loops
-    if (sessionStorage.getItem('backendReady') === 'true') {
-      setIsBackendReady(true);
-      return;
-    }
+    let intervalId: NodeJS.Timeout | null = null;
 
     const checkBackend = async () => {
       const isReady = await checkBackendHealth();
       if (isReady) {
-        sessionStorage.setItem('backendReady', 'true');
-        window.location.reload();
+        setIsBackendReady(true);
+        if (intervalId) {
+          clearInterval(intervalId);
+        }
       }
     };
 
@@ -26,7 +24,7 @@ const BackendStatusChecker = () => {
     checkBackend();
 
     // Polling interval
-    const intervalId = setInterval(() => {
+    intervalId = setInterval(() => {
       checkBackend();
       setCountdown(prev => (prev > 0 ? prev - 1 : 0));
     }, 1000);
@@ -38,13 +36,15 @@ const BackendStatusChecker = () => {
 
     // Cleanup on component unmount
     return () => {
-      clearInterval(intervalId);
+      if (intervalId) {
+        clearInterval(intervalId);
+      }
       clearTimeout(timeoutId);
     };
   }, []);
 
   if (isBackendReady) {
-    return null;
+    return <>{children}</>;
   }
 
   return (
