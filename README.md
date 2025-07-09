@@ -15,8 +15,8 @@ Only **gmail** (either personal or workspace) is supported. Support for Outlook 
 
 ### Installation steps using Terminal
 1. In terminal, navigate to the folder where you'd like to install the project
-2. Clone the project using `git clone https://github.com/Itempass/mini-interns`
-3. Navigate into the directory you just cloned using `cd mini-interns`
+2. Clone the project using `git clone https://github.com/Itempass/brewdock`
+3. Navigate into the directory you just cloned using `cd brewdock`
 4. Rename .env.example to .env (on Mac: `cp .env.example .env` | on Windows: `copy .env.example .env`)
 5. Use `nano .env` to open the .env file
 6. Add your `OPENROUTER_API_KEY`, and your `EMBEDDING_OPENAI_API_KEY` or `EMBEDDING_VOYAGE_API_KEY` (recommended).
@@ -26,7 +26,7 @@ Only **gmail** (either personal or workspace) is supported. Support for Outlook 
 *Note: currently, using EMBEDDING_OPENAI_API_KEY skips the reranking algorithm when retrieving relevant emails. Hence, EMBEDDING_VOYAGE_API_KEY is recommended.*
 
 ### Updating an existing installation
-1. In terminal, navigate to the folder containing the clone you made earlier (eg `cd Documents/mini-interns`)
+1. In terminal, navigate to the folder containing the clone you made earlier (eg `cd Documents/brewdock`)
 2. Use `docker-compose down` to stop the server, or stop it using [Docker for Desktop](https://www.docker.com/products/docker-desktop/)
 3. Use `git pull` to update
 4. Use `docker-compose up` to start the updated server
