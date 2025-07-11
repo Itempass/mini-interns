@@ -124,32 +124,22 @@ async def generate_descriptions_for_agent(agent_uuid: UUID) -> AgentModel | None
 
         logger.info(f"Found {len(available_labels)} labels in inbox: {available_labels}")
         
-        # 2. Get the agent's current labeling rules
-        agent_param_values = agent.param_values or {}
-        labeling_rules = agent_param_values.get("labeling_rules", [])
+        # 2. Overwrite existing labeling_rules and populate from all available inbox labels.
+        # The get_all_labels() function is responsible for filtering out system folders.
+        logger.info(f"Overwriting existing labeling_rules for agent {agent_uuid} with all labels from inbox.")
         
-        # If no rules are defined, create them from the user's inbox labels
-        if not labeling_rules:
-            logger.info(f"Agent {agent_uuid} has no labeling_rules. Populating from inbox labels.")
-            # Exclude common system/unwanted labels
-            excluded_labels = {'INBOX', '[Gmail]'}
-            labels_from_inbox = [lbl for lbl in available_labels if lbl not in excluded_labels and not lbl.startswith('[Gmail]/')]
-            
-            labeling_rules = [
-                {"label_name": label_name, "label_description": ""}
-                for label_name in labels_from_inbox
-            ]
-            # Set this on the agent's param_values to ensure it gets saved later
-            agent.param_values["labeling_rules"] = labeling_rules
-            logger.info(f"Populated with {len(labeling_rules)} rules from inbox.")
+        labeling_rules = [
+            {"label_name": label_name, "label_description": ""}
+            for label_name in available_labels
+        ]
+        
+        # Set this on the agent's param_values to ensure it gets saved later
+        agent.param_values["labeling_rules"] = labeling_rules
+        logger.info(f"Populated with {len(labeling_rules)} rules from inbox.")
 
-
-        configured_labels = {rule.get("label_name") for rule in labeling_rules}
-        logger.info(f"Agent is configured with labels: {configured_labels}")
-
-        # 3. Find intersection of configured labels and available labels
-        labels_to_process = [label for label in available_labels if label in configured_labels]
-        logger.info(f"Will process matching labels: {labels_to_process}")
+        # 3. Process all available labels from the inbox
+        labels_to_process = available_labels
+        logger.info(f"Will process all available labels: {labels_to_process}")
 
         # 4. Create and run description generation tasks in parallel
         tasks = [_process_single_label(label_name) for label_name in labels_to_process]

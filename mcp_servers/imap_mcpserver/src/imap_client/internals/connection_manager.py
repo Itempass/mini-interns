@@ -24,14 +24,26 @@ class FolderResolver:
     Uses RFC 6154 "SPECIAL-USE" attributes and falls back to guessing.
     An instance of this class is tied to a single IMAP connection.
     """
-    SPECIAL_USE_ATTRIBUTES = {'\\All', '\\Drafts', '\\Sent', '\\Junk', '\\Trash'}
+    SPECIAL_USE_ATTRIBUTES = {
+        '\\All', 
+        '\\Drafts', 
+        '\\Sent', 
+        '\\Junk', 
+        '\\Trash',
+        # Gmail-specific special use folders
+        '\\Important', # Important messages
+        '\\Flagged'    # Starred messages
+    }
     FALLBACK_MAP = {
-        '\\Sent': ('Sent', '[Gmail]/Sent Mail', 'Sent Items'),
+        '\\Sent': ('Sent', '[Gmail]/Sent Mail', 'Sent Items', 'Verzonden'),
         '\\Drafts': ('Drafts', '[Gmail]/Drafts'),
         '\\All': ('All Mail', '[Gmail]/All Mail'),
-        '\\Trash': ('Trash', '[Gmail]/Trash', 'Deleted Items'),
+        '\\Trash': ('Trash', '[Gmail]/Trash', 'Deleted Items', 'Prullenbak'),
         '\\Junk': ('Junk', 'Spam'),
-        '\\Inbox': ('INBOX',) # Inbox is a special case
+        '\\Inbox': ('INBOX',), # Inbox is a special case
+        # Fallbacks for Gmail's special folders
+        '\\Important': ('Important', '[Gmail]/Important'),
+        '\\Flagged': ('Starred', '[Gmail]/Starred')
     }
 
     def __init__(self, mail: imaplib.IMAP4_SSL):
