@@ -28,10 +28,13 @@ async function get_session_token(password: string): Promise<string> {
 }
 
 export async function middleware(request: NextRequest) {
+  console.log(`[MIDDLEWARE] Request for: ${request.url}`);
   const { pathname } = request.nextUrl;
+  console.log(`[MIDDLEWARE] Pathname: ${pathname}`);
   
   // Pass-through for API routes and static files
   if (pathname.startsWith('/api') || pathname.startsWith('/_next')) {
+    console.log('[MIDDLEWARE] Passing through for API or _next route.');
     return NextResponse.next();
   }
 
@@ -39,30 +42,45 @@ export async function middleware(request: NextRequest) {
   const isSelfSet = process.env.AUTH_SELFSET_PASSWORD === 'true';
   const legacyPassword = process.env.AUTH_PASSWORD;
   const authCookieName = getAuthCookieName(isSelfSet);
+  console.log(`[MIDDLEWARE] isSelfSet: ${isSelfSet}, authCookieName: ${authCookieName}`);
 
   let authStatus: AuthStatus;
 
   if (isSelfSet) {
+    console.log('[MIDDLEWARE] Self-set mode enabled. Querying backend for status.');
     // In self-set mode, we MUST query the backend to know if a password has been created.
-    // The request to /api/auth/status is excluded by the matcher config and won't loop.
-    const statusUrl = new URL(request.url);
-    statusUrl.pathname = '/api/auth/status';
-    const statusResponse = await fetch(statusUrl.toString());
+    // We construct the full internal URL to avoid SSL issues with reverse proxies.
+    const apiUrl = `http://127.0.0.1:${process.env.CONTAINERPORT_API}`;
+    const statusUrl = `${apiUrl}/api/auth/status`;
+    console.log(`[MIDDLEWARE] Fetching auth status from: ${statusUrl}`);
 
-    if (statusResponse.ok) {
-      const data = await statusResponse.json();
-      authStatus = data.status;
-    } else {
-      // If the backend is down, we can't determine status. 
-      // We can show a generic error or let it fail. For now, we'll treat as unconfigured.
+    try {
+      const statusResponse = await fetch(statusUrl);
+      console.log(`[MIDDLEWARE] Auth status response status: ${statusResponse.status}`);
+
+      if (statusResponse.ok) {
+        const data = await statusResponse.json();
+        authStatus = data.status;
+        console.log(`[MIDDLEWARE] Auth status from backend: ${authStatus}`);
+      } else {
+        authStatus = 'unconfigured';
+        console.log(`[MIDDLEWARE] Backend status check returned non-ok status. Defaulting to "unconfigured".`);
+      }
+    } catch (error) {
+      console.error('[MIDDLEWARE] CRITICAL: fetch to /api/auth/status failed:', error);
+      // If the backend is down, we can't determine status.
+      // We'll treat as unconfigured to avoid locking users out.
       authStatus = 'unconfigured';
+      console.log('[MIDDLEWARE] Backend status check failed catastrophically. Defaulting to "unconfigured".');
     }
   } else {
     authStatus = legacyPassword ? 'legacy_configured' : 'unconfigured';
+    console.log(`[MIDDLEWARE] Legacy mode. Auth status: ${authStatus}`);
   }
   
   const isConfigured = authStatus === 'legacy_configured' || authStatus === 'self_set_configured';
   const needsSetup = authStatus === 'self_set_unconfigured';
+  console.log(`[MIDDLEWARE] isConfigured: ${isConfigured}, needsSetup: ${needsSetup}`);
 
   const sessionCookie = request.cookies.get(authCookieName);
   const loginUrl = new URL('/login', request.url);
@@ -73,13 +91,16 @@ export async function middleware(request: NextRequest) {
   // State 1: Application needs initial password setup
   if (needsSetup) {
     if (pathname !== '/set-password') {
+      console.log('[MIDDLEWARE] Needs setup. Redirecting to /set-password.');
       return NextResponse.redirect(setupUrl);
     }
+    console.log('[MIDDLEWARE] Needs setup. Already on /set-password. Allowing.');
     return NextResponse.next();
   }
 
   // State 2: Application is not configured and not in self-set mode. No protection.
   if (!isConfigured) {
+    console.log('[MIDDLEWARE] Not configured. Allowing access.');
     return NextResponse.next();
   }
 
@@ -89,56 +110,76 @@ export async function middleware(request: NextRequest) {
   // If there's no cookie, redirect to login.
   if (!sessionCookie) {
     if (pathname !== '/login') {
+      console.log('[MIDDLEWARE] No session cookie. Redirecting to /login.');
       return NextResponse.redirect(loginUrl);
     }
+    console.log('[MIDDLEWARE] No session cookie. Already on /login. Allowing.');
     return NextResponse.next();
   }
+  console.log('[MIDDLEWARE] Session cookie found.');
 
   // If there IS a cookie, validate it.
   if (isSelfSet) {
-    // In self-set mode, we MUST ask the backend to verify the token, as only
-    // the backend knows the current password to validate the signature.
-    const verifyUrl = new URL(request.url);
-    verifyUrl.pathname = '/api/auth/verify';
-    const verifyResponse = await fetch(verifyUrl.toString(), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token: sessionCookie.value }),
-    });
+    console.log('[MIDDLEWARE] Self-set mode. Verifying session cookie with backend.');
+    // In self-set mode, we MUST ask the backend to verify the token.
+    const apiUrl = `http://127.0.0.1:${process.env.CONTAINERPORT_API}`;
+    const verifyUrl = `${apiUrl}/api/auth/verify`;
+    console.log(`[MIDDLEWARE] Verifying token at: ${verifyUrl}`);
 
-    if (verifyResponse.ok) {
-        const data = await verifyResponse.json();
-        if (data.valid !== true) {
-            // The cookie is invalid (e.g., password changed). Delete it and redirect to login.
-            const response = NextResponse.redirect(loginUrl);
-            response.cookies.delete(authCookieName);
-            return response;
-        }
-    } else {
-        // If the verify endpoint fails, invalidate the session for security.
-        const response = NextResponse.redirect(loginUrl);
-        response.cookies.delete(authCookieName);
-        return response;
+    try {
+      const verifyResponse = await fetch(verifyUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: sessionCookie.value }),
+      });
+      console.log(`[MIDDLEWARE] Verify response status: ${verifyResponse.status}`);
+
+      if (verifyResponse.ok) {
+          const data = await verifyResponse.json();
+          if (data.valid !== true) {
+              console.log('[MIDDLEWARE] Token invalid. Deleting cookie and redirecting to /login.');
+              const response = NextResponse.redirect(loginUrl);
+              response.cookies.delete(authCookieName);
+              return response;
+          }
+          console.log('[MIDDLEWARE] Token is valid.');
+      } else {
+          console.log('[MIDDLEWARE] Verify endpoint returned non-ok status. Deleting cookie and redirecting to /login.');
+          const response = NextResponse.redirect(loginUrl);
+          response.cookies.delete(authCookieName);
+          return response;
+      }
+    } catch (error) {
+      console.error('[MIDDLEWARE] CRITICAL: fetch to /api/auth/verify failed:', error);
+      // If the verify endpoint fails, invalidate the session for security.
+      const response = NextResponse.redirect(loginUrl);
+      response.cookies.delete(authCookieName);
+      return response;
     }
 
   } else if (password) {
+    console.log('[MIDDLEWARE] Legacy mode. Verifying session cookie in middleware.');
     // For legacy mode, we can validate the token directly in the middleware.
     const expectedToken = await get_session_token(password);
     if (sessionCookie.value !== expectedToken) {
+      console.log('[MIDDLEWARE] Legacy token invalid. Deleting cookie and redirecting to /login.');
       // The cookie is invalid. Redirect to login and delete the bad cookie.
       const response = NextResponse.redirect(loginUrl);
       response.cookies.delete(authCookieName);
       return response;
     }
+    console.log('[MIDDLEWARE] Legacy token valid.');
   }
   
   // The cookie is valid.
   // If the user tries to access login or setup, redirect them to the home page.
   if (pathname === '/login' || pathname === '/set-password') {
+    console.log('[MIDDLEWARE] User is authenticated. Redirecting from login/setup to home.');
     return NextResponse.redirect(homeUrl);
   }
 
   // Otherwise, allow them to proceed.
+  console.log('[MIDDLEWARE] User is authenticated. Allowing access.');
   return NextResponse.next();
 }
 
