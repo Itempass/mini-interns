@@ -60,7 +60,8 @@
       ]
     }
   ],
-  "param_values": {
+  "param_values": {},
+  "param_values_template": {
     "labeling_rules": [
       {
         "label_name": "newsletters",
