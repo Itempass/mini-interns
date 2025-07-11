@@ -49,29 +49,21 @@ export async function middleware(request: NextRequest) {
   if (isSelfSet) {
     console.log('[MIDDLEWARE] Self-set mode enabled. Querying backend for status.');
     // In self-set mode, we MUST query the backend to know if a password has been created.
-    // We construct the full internal URL to avoid SSL issues with reverse proxies.
     const apiUrl = `http://127.0.0.1:${process.env.CONTAINERPORT_API}`;
-    const statusUrl = `${apiUrl}/api/auth/status`;
+    const statusUrl = `${apiUrl}/auth/status`;
     console.log(`[MIDDLEWARE] Fetching auth status from: ${statusUrl}`);
 
-    try {
-      const statusResponse = await fetch(statusUrl);
-      console.log(`[MIDDLEWARE] Auth status response status: ${statusResponse.status}`);
+    const statusResponse = await fetch(statusUrl);
+    console.log(`[MIDDLEWARE] Auth status response status: ${statusResponse.status}`);
 
-      if (statusResponse.ok) {
-        const data = await statusResponse.json();
-        authStatus = data.status;
-        console.log(`[MIDDLEWARE] Auth status from backend: ${authStatus}`);
-      } else {
-        authStatus = 'unconfigured';
-        console.log(`[MIDDLEWARE] Backend status check returned non-ok status. Defaulting to "unconfigured".`);
-      }
-    } catch (error) {
-      console.error('[MIDDLEWARE] CRITICAL: fetch to /api/auth/status failed:', error);
-      // If the backend is down, we can't determine status.
-      // We'll treat as unconfigured to avoid locking users out.
-      authStatus = 'unconfigured';
-      console.log('[MIDDLEWARE] Backend status check failed catastrophically. Defaulting to "unconfigured".');
+    if (statusResponse.ok) {
+      const data = await statusResponse.json();
+      authStatus = data.status;
+      console.log(`[MIDDLEWARE] Auth status from backend: ${authStatus}`);
+    } else {
+      // If the backend is down or returns an error, we can't determine status.
+      // Throwing an error here will prevent access, acting as a "fail closed" mechanism.
+      throw new Error(`Backend status check failed with status: ${statusResponse.status}`);
     }
   } else {
     authStatus = legacyPassword ? 'legacy_configured' : 'unconfigured';
@@ -123,40 +115,31 @@ export async function middleware(request: NextRequest) {
     console.log('[MIDDLEWARE] Self-set mode. Verifying session cookie with backend.');
     // In self-set mode, we MUST ask the backend to verify the token.
     const apiUrl = `http://127.0.0.1:${process.env.CONTAINERPORT_API}`;
-    const verifyUrl = `${apiUrl}/api/auth/verify`;
+    const verifyUrl = `${apiUrl}/auth/verify`;
     console.log(`[MIDDLEWARE] Verifying token at: ${verifyUrl}`);
 
-    try {
-      const verifyResponse = await fetch(verifyUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: sessionCookie.value }),
-      });
-      console.log(`[MIDDLEWARE] Verify response status: ${verifyResponse.status}`);
+    const verifyResponse = await fetch(verifyUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: sessionCookie.value }),
+    });
+    console.log(`[MIDDLEWARE] Verify response status: ${verifyResponse.status}`);
 
-      if (verifyResponse.ok) {
-          const data = await verifyResponse.json();
-          if (data.valid !== true) {
-              console.log('[MIDDLEWARE] Token invalid. Deleting cookie and redirecting to /login.');
-              const response = NextResponse.redirect(loginUrl);
-              response.cookies.delete(authCookieName);
-              return response;
-          }
-          console.log('[MIDDLEWARE] Token is valid.');
-      } else {
-          console.log('[MIDDLEWARE] Verify endpoint returned non-ok status. Deleting cookie and redirecting to /login.');
-          const response = NextResponse.redirect(loginUrl);
-          response.cookies.delete(authCookieName);
-          return response;
-      }
-    } catch (error) {
-      console.error('[MIDDLEWARE] CRITICAL: fetch to /api/auth/verify failed:', error);
-      // If the verify endpoint fails, invalidate the session for security.
-      const response = NextResponse.redirect(loginUrl);
-      response.cookies.delete(authCookieName);
-      return response;
+    if (verifyResponse.ok) {
+        const data = await verifyResponse.json();
+        if (data.valid !== true) {
+            console.log('[MIDDLEWARE] Token invalid. Deleting cookie and redirecting to /login.');
+            const response = NextResponse.redirect(loginUrl);
+            response.cookies.delete(authCookieName);
+            return response;
+        }
+        console.log('[MIDDLEWARE] Token is valid.');
+    } else {
+        console.log('[MIDDLEWARE] Verify endpoint returned non-ok status. Deleting cookie and redirecting to /login.');
+        const response = NextResponse.redirect(loginUrl);
+        response.cookies.delete(authCookieName);
+        return response;
     }
-
   } else if (password) {
     console.log('[MIDDLEWARE] Legacy mode. Verifying session cookie in middleware.');
     // For legacy mode, we can validate the token directly in the middleware.
