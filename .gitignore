@@ -29,3 +29,6 @@ frontend/.next/
 
 # Instance ID
 .instance_id 
+
+.auth_password.key
+.key
