@@ -1,6 +1,6 @@
 'use client';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Agent, updateAgent } from '../services/api';
+import { Agent, updateAgent, generateLabelDescriptions, applyTemplateDefaults } from '../services/api';
 import DynamicFieldRenderer from './DynamicFieldRenderer';
 import { set } from 'lodash';
 
@@ -14,6 +14,7 @@ const AgentSettingsAbstracted: React.FC<AgentSettingsAbstractedProps> = ({ agent
   const [isPaused, setIsPaused] = useState(agent?.paused ?? false);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [isDirty, setIsDirty] = useState(false);
+  const [generationStatus, setGenerationStatus] = useState<'idle' | 'generating' | 'done' | 'error'>('idle');
   const initialState = useRef<{ paramValues: any; isPaused: boolean } | null>(null);
 
   const handleSave = useCallback(async () => {
@@ -32,6 +33,40 @@ const AgentSettingsAbstracted: React.FC<AgentSettingsAbstractedProps> = ({ agent
       setSaveStatus('error');
     }
   }, [agent, onAgentUpdate, paramValues, isPaused]);
+
+  const handleGenerateDescriptions = useCallback(async () => {
+    if (!agent) return;
+
+    setGenerationStatus('generating');
+    try {
+      const updatedAgent = await generateLabelDescriptions(agent.uuid);
+      if (updatedAgent) {
+        onAgentUpdate(); // This will refetch agents and update the UI
+      } else {
+        throw new Error("API did not return an updated agent.");
+      }
+    } catch (error) {
+      console.error('Error during description generation:', error);
+      setGenerationStatus('error');
+    } finally {
+      setGenerationStatus('idle');
+    }
+  }, [agent, onAgentUpdate]);
+
+  const handleAddExampleLabels = useCallback(async () => {
+    if (!agent) return;
+    try {
+      const updatedAgent = await applyTemplateDefaults(agent.uuid);
+      if (updatedAgent) {
+        onAgentUpdate();
+      } else {
+        throw new Error("API did not return an updated agent after applying defaults.");
+      }
+    } catch (error) {
+      console.error('Error applying template defaults:', error);
+      // Optionally set an error state here
+    }
+  }, [agent, onAgentUpdate]);
 
   useEffect(() => {
     const initialParamValues = agent?.param_values;
@@ -80,6 +115,8 @@ const AgentSettingsAbstracted: React.FC<AgentSettingsAbstractedProps> = ({ agent
     return <div className="p-8 text-gray-500">Select an agent to view its settings.</div>;
   }
 
+  const EMAIL_LABELER_TEMPLATE_ID = "2db09718-6bec-44cb-9360-778364ff6e81";
+
   const SaveButton = () => (
     <button
       onClick={handleSave}
@@ -90,7 +127,67 @@ const AgentSettingsAbstracted: React.FC<AgentSettingsAbstractedProps> = ({ agent
     </button>
   );
 
+  const GenerateDescriptionsButton = () => {
+    if (agent?.template_id !== EMAIL_LABELER_TEMPLATE_ID) {
+      return null;
+    }
+    return (
+      <button
+        onClick={handleGenerateDescriptions}
+        className="px-3 py-1 text-sm bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed ml-4"
+        disabled={generationStatus === 'generating'}
+      >
+        {generationStatus === 'generating' ? 'Generating... This can take 30 seconds-ish' : 'Auto-generate Descriptions'}
+      </button>
+    );
+  };
+
+  const AddExampleLabelsButton = () => (
+    <button
+      onClick={handleAddExampleLabels}
+      className="px-3 py-1 text-sm bg-green-600 text-white rounded-md hover:bg-green-700"
+    >
+      Add Example Labels
+    </button>
+  );
+
   const hasListLikeField = agent.param_schema?.some(f => f.type === 'list' || f.type === 'key_value_field_one_line');
+  const isEmailLabeler = agent.template_id === EMAIL_LABELER_TEMPLATE_ID;
+  const hasNoRules = !paramValues?.labeling_rules || paramValues.labeling_rules.length === 0;
+
+  if (isEmailLabeler && hasNoRules) {
+    return (
+      <div className="flex-1 p-8 overflow-y-auto">
+        <div className="max-w-7xl mx-auto">
+          <div className="mb-6 p-4 border rounded-lg bg-gray-50">
+            <h1 className="text-2xl font-bold mb-4 border-b pb-2">{agent.name}</h1>
+            <p className="mt-4 text-sm text-gray-600">{agent.description}</p>
+          </div>
+          <div className="text-center p-8 border-2 border-dashed rounded-lg">
+            <h2 className="text-xl font-semibold mb-4">Choose how to get started</h2>
+            <p className="text-gray-600 mb-6">
+              You can either generate descriptions from the labels already in your email inbox, or start with our pre-defined examples.
+            </p>
+            <div className="flex justify-center items-start space-x-4">
+              <div className="flex flex-col items-center">
+                <GenerateDescriptionsButton />
+                <p className="text-xs text-gray-500 mt-2 max-w-xs">
+                  This will scan the labels in your inbox and use AI to write descriptions.
+                  Make sure you have enough emails with labels for this to work well.
+                </p>
+              </div>
+              <div className="flex flex-col items-center">
+                <AddExampleLabelsButton />
+                <p className="text-xs text-gray-500 mt-2 max-w-xs">
+                  This will add a list of common labels like "invoices" and "newsletters" to get you started.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex-1 p-8 overflow-y-auto">
@@ -114,6 +211,7 @@ const AgentSettingsAbstracted: React.FC<AgentSettingsAbstractedProps> = ({ agent
                 {isPaused ? 'Agent is Paused' : 'Agent is Active'}
               </span>
             </label>
+            <GenerateDescriptionsButton />
           </div>
           <p className="mt-4 text-sm text-gray-600">{agent.description}</p>
         </div>

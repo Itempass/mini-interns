@@ -419,6 +419,32 @@ export const updateAgent = async (agent: Agent): Promise<Agent | null> => {
   }
 };
 
+export const generateLabelDescriptions = async (agentUuid: string): Promise<Agent | null> => {
+  try {
+    const response = await fetch(`${API_URL}/agents/${agentUuid}/generate-descriptions`, {
+      method: 'POST',
+    });
+    if (!response.ok) throw new Error('Failed to start description generation');
+    return await response.json();
+  } catch (error) {
+    console.error(`Error starting description generation for agent ${agentUuid}:`, error);
+    return null;
+  }
+};
+
+export const applyTemplateDefaults = async (agentUuid: string): Promise<Agent | null> => {
+  try {
+    const response = await fetch(`${API_URL}/agents/${agentUuid}/apply-template-defaults`, {
+      method: 'POST',
+    });
+    if (!response.ok) throw new Error('Failed to apply template defaults');
+    return await response.json();
+  } catch (error) {
+    console.error(`Error applying template defaults for agent ${agentUuid}:`, error);
+    return null;
+  }
+};
+
 export const createAgent = async (agentData: CreateAgentRequest): Promise<Agent | null> => {
   try {
     const response = await fetch(`${API_URL}/agents`, {

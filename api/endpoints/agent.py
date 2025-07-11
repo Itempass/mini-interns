@@ -25,6 +25,8 @@ from api.types.api_models.single_agent import (
     TemplateInfo,
     CreateFromTemplateRequest
 )
+from api.background_tasks.label_description_generator import generate_descriptions_for_agent
+
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -299,47 +301,46 @@ async def create_agent_from_template(request: CreateFromTemplateRequest):
             raise HTTPException(status_code=404, detail=f"Template with ID '{request.template_id}' not found.")
 
         # 2. Load and validate the template data
-        with open(template_path, "r") as f:
-            template_data = json.load(f)
-        
-        import_data = AgentImportModel.model_validate(template_data)
-        agent_name = import_data.name
+        with open(template_path, 'r') as f:
+            import_data = json.load(f)
 
-        # 3. Create the agent in the database
+        # For the email labeler template, we want to create it without the default param values.
+        # The user will choose to add them later.
+        if import_data.get("template_id") == "2db09718-6bec-44cb-9360-778364ff6e81":
+            import_data["param_values"] = {}
+
         new_agent = await agent_client.create_agent(
-            name=agent_name,
-            description=import_data.description,
-            system_prompt=import_data.system_prompt,
-            user_instructions=import_data.user_instructions,
-            tools=import_data.tools,
-            model=getattr(import_data, 'model', None),
-            param_schema=import_data.param_schema,
-            param_values=import_data.param_values,
-            use_abstracted_editor=import_data.use_abstracted_editor,
-            paused=import_data.paused,
-            template_id=getattr(import_data, 'template_id', None),
-            template_version=getattr(import_data, 'template_version', None)
+            name=import_data["name"],
+            description=import_data["description"],
+            system_prompt=import_data["system_prompt"],
+            user_instructions=import_data["user_instructions"],
+            tools=import_data["tools"],
+            model=import_data.get("model"),
+            param_schema=import_data["param_schema"],
+            param_values=import_data["param_values"],
+            use_abstracted_editor=import_data["use_abstracted_editor"],
+            paused=import_data["paused"],
+            template_id=import_data.get("template_id"),
+            template_version=import_data.get("template_version")
         )
         
         await agent_client.create_trigger(
             agent_uuid=new_agent.uuid,
-            trigger_conditions=import_data.trigger_conditions,
-            filter_rules=import_data.filter_rules.model_dump(),
-            trigger_bypass=import_data.trigger_bypass,
-            model=getattr(import_data, 'trigger_model', None)
+            trigger_conditions=import_data["trigger_conditions"],
+            filter_rules=import_data["filter_rules"],
+            trigger_bypass=import_data["trigger_bypass"],
+            model=import_data.get("trigger_model")
         )
 
-        created_agent_with_trigger = await get_agent(new_agent.uuid)
-        
-        logger.info(f"POST /agents/from-template - Agent '{new_agent.name}' created successfully with UUID {new_agent.uuid}")
-        return created_agent_with_trigger
-
+        logger.info(f"POST /agents/from_template - Successfully created agent '{new_agent.name}' from template '{request.template_id}'")
+        return await get_agent(new_agent.uuid)
     except Exception as e:
-        logger.error(f"POST /agents/from-template - Error creating agent from template: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Error creating agent from template: {e}")
+        logger.error(f"POST /agents/from_template - Error creating agent from template: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Error creating agent from template.")
+
 
 @router.get("/agents/{agent_uuid}", response_model=AgentWithTriggerSettings)
-async def get_agent(agent_uuid: UUID):
+async def get_agent(agent_uuid: UUID) -> AgentWithTriggerSettings:
     """
     Retrieves a specific agent by its UUID, including its trigger settings.
     """
@@ -430,6 +431,51 @@ async def update_agent(agent_uuid: UUID, agent_update: AgentWithTriggerSettings)
     except Exception as e:
         logger.error(f"PUT /agents/{agent_uuid} - Error updating agent: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Error updating agent.")
+
+@router.post("/agents/{agent_uuid}/generate-descriptions", response_model=AgentWithTriggerSettings)
+async def endpoint_generate_descriptions(agent_uuid: UUID):
+    """
+    Triggers a background task to automatically generate descriptions for an agent's labels.
+    """
+    logger.info(f"POST /agents/{agent_uuid}/generate-descriptions - Received request.")
+    
+    updated_agent = await generate_descriptions_for_agent(agent_uuid)
+    if not updated_agent:
+        raise HTTPException(status_code=500, detail="Failed to generate descriptions.")
+
+    # Refetch the complete agent data to ensure a consistent response
+    return await get_agent(agent_uuid)
+
+@router.post("/agents/{agent_uuid}/apply-template-defaults", response_model=AgentWithTriggerSettings)
+async def apply_template_defaults(agent_uuid: UUID):
+    """
+    Applies the param_values_template from an agent's template to its param_values.
+    """
+    logger.info(f"POST /agents/{agent_uuid}/apply-template-defaults - Received request.")
+    
+    agent = await agent_client.get_agent(agent_uuid)
+    if not agent or not agent.template_id:
+        raise HTTPException(status_code=404, detail="Agent or agent template not found.")
+
+    template_path = AGENT_TEMPLATES_DIR / f"{agent.template_id}.json"
+    if not template_path.exists():
+         template_path = next((p for p in AGENT_TEMPLATES_DIR.glob('*.json') if json.loads(p.read_text()).get('template_id') == agent.template_id), None)
+
+    if not template_path or not template_path.exists():
+        raise HTTPException(status_code=404, detail=f"Template file for ID {agent.template_id} not found.")
+
+    with open(template_path, 'r') as f:
+        template_data = json.load(f)
+
+    if "param_values_template" in template_data:
+        agent.param_values = template_data["param_values_template"]
+        await agent_client.save_agent(agent)
+        logger.info(f"Applied template defaults to agent {agent_uuid}")
+    else:
+        logger.warning(f"No param_values_template found in template for agent {agent_uuid}")
+    
+    return await get_agent(agent_uuid)
+
 
 @router.delete("/agents/{agent_uuid}", status_code=204)
 async def delete_agent(agent_uuid: UUID):
