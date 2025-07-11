@@ -16,6 +16,58 @@ export const login = async (password: string): Promise<boolean> => {
   }
 };
 
+export type AuthStatus = "self_set_configured" | "self_set_unconfigured" | "legacy_configured" | "unconfigured";
+
+export const getAuthStatus = async (): Promise<AuthStatus> => {
+  try {
+    const response = await fetch(`${API_URL}/auth/status`, { cache: 'no-store' });
+    if (!response.ok) {
+      return "unconfigured";
+    }
+    const data = await response.json();
+    return data.status;
+  } catch (error) {
+    console.error('Auth status request failed:', error);
+    return "unconfigured";
+  }
+};
+
+export const setPassword = async (password: string): Promise<{success: boolean, message?: string}> => {
+  try {
+    const response = await fetch(`${API_URL}/auth/set-password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password }),
+    });
+    if (response.ok) {
+      return { success: true };
+    }
+    const errorData = await response.json();
+    return { success: false, message: errorData.detail || 'Failed to set password.' };
+  } catch (error) {
+    console.error('Set password request failed:', error);
+    return { success: false, message: 'An unexpected error occurred.' };
+  }
+};
+
+export const verifyToken = async (token: string): Promise<boolean> => {
+  try {
+    const response = await fetch(`${API_URL}/auth/verify`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token }),
+    });
+    if (!response.ok) {
+      return false;
+    }
+    const data = await response.json();
+    return data.valid === true;
+  } catch (error) {
+    console.error('Token verification request failed:', error);
+    return false;
+  }
+};
+
 // --- End Auth ---
 
 export interface AppSettings {
