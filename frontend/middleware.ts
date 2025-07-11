@@ -45,7 +45,10 @@ export async function middleware(request: NextRequest) {
   if (isSelfSet) {
     // In self-set mode, we MUST query the backend to know if a password has been created.
     // The request to /api/auth/status is excluded by the matcher config and won't loop.
-    const statusResponse = await fetch(new URL('/api/auth/status', request.url));
+    const statusUrl = new URL(request.url);
+    statusUrl.pathname = '/api/auth/status';
+    const statusResponse = await fetch(statusUrl.toString());
+
     if (statusResponse.ok) {
       const data = await statusResponse.json();
       authStatus = data.status;
@@ -95,8 +98,9 @@ export async function middleware(request: NextRequest) {
   if (isSelfSet) {
     // In self-set mode, we MUST ask the backend to verify the token, as only
     // the backend knows the current password to validate the signature.
-    const verifyUrl = new URL('/api/auth/verify', request.url);
-    const verifyResponse = await fetch(verifyUrl, {
+    const verifyUrl = new URL(request.url);
+    verifyUrl.pathname = '/api/auth/verify';
+    const verifyResponse = await fetch(verifyUrl.toString(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ token: sessionCookie.value }),
