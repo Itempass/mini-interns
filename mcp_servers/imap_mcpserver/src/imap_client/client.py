@@ -575,7 +575,7 @@ def _set_label_sync(message_id: str, label: str) -> Dict[str, Any]:
     try:
         with imap_connection() as (mail, resolver):
             # Step 1: Get all available labels and validate
-            all_labels = _get_all_labels_sync(mail)
+            all_labels = _get_all_labels_sync(mail, resolver)
             if label not in all_labels:
                 return {"success": False, "message": f"Label '{label}' does not exist. Available labels are: {all_labels}"}
 
@@ -602,30 +602,50 @@ def _set_label_sync(message_id: str, label: str) -> Dict[str, Any]:
         logger.error(error_msg, exc_info=True)
         return {"success": False, "message": error_msg}
 
-def _get_all_labels_sync(mail: imaplib.IMAP4_SSL) -> List[str]:
-    """Gets all labels (folders) from the IMAP server."""
+def _get_all_labels_sync(mail: imaplib.IMAP4_SSL, resolver: FolderResolver) -> List[str]:
+    """Gets all user-defined labels (folders) from the IMAP server in a language-agnostic way."""
     try:
-        typ, data = mail.list()
-        if typ == 'OK':
-            labels = []
-            for item in data:
-                try:
-                    # The format is typically: (flags) "delimiter" "name"
-                    parts = item.decode().split('"')
-                    if len(parts) >= 3:
-                        label_name = parts[-2]
-                        # We should ignore system labels like '[Gmail]' and other special use folders
-                        # Also filter out folders with attributes like \Noselect
-                        flags = re.match(r'\((.*?)\)', item.decode())
-                        if flags and '\\Noselect' in flags.group(1):
-                            continue
-                        if not label_name.startswith('[Gmail]'):
-                            labels.append(label_name)
-                except Exception as e:
-                    logger.warning(f"Could not parse label from line: {item}. Error: {e}")
-                    continue
-            return labels
-        return []
+        # 1. Get the names of all special-use folders from the resolver
+        special_use_folders = set()
+        # Add inbox, as it's a special case
+        special_use_folders.add(resolver.get_folder_by_attribute('\\Inbox'))
+
+        for attr in resolver.SPECIAL_USE_ATTRIBUTES:
+            try:
+                folder_name = resolver.get_folder_by_attribute(attr)
+                special_use_folders.add(folder_name)
+            except FolderNotFoundError:
+                # It's okay if some special folders don't exist
+                pass
+
+        # 2. Get the full list of folders from the IMAP server
+        all_folders = []
+        status, folder_data = mail.list()
+        if status != 'OK':
+            return []
+        
+        for item in folder_data:
+            line = item.decode()
+            match = re.search(r'\((?P<attributes>.*?)\) "(?P<delimiter>.*)" (?P<name>.*)', line)
+            if not match:
+                continue
+            
+            # 3. Filter the list
+            label_name = match.group('name').strip().strip('"')
+            flags = match.group('attributes')
+
+            # Exclude folders that are not selectable
+            if '\\Noselect' in flags:
+                continue
+            
+            # Exclude special use folders
+            if label_name in special_use_folders:
+                continue
+            
+            all_folders.append(label_name)
+        
+        return all_folders
+
     except Exception as e:
         logger.error(f"Error listing labels: {e}")
         return []
@@ -709,8 +729,8 @@ async def set_label(message_id: str, label: str) -> Dict[str, Any]:
 async def get_all_labels() -> List[str]:
     """Asynchronously gets all labels from the IMAP server."""
     try:
-        with imap_connection() as (mail, _):
-            return await asyncio.to_thread(_get_all_labels_sync, mail)
+        with imap_connection() as (mail, resolver):
+            return await asyncio.to_thread(_get_all_labels_sync, mail, resolver)
     except Exception as e:
         logger.error(f"Error getting all labels: {e}")
         return []
