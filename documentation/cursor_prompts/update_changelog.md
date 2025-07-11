@@ -46,6 +46,10 @@ Perform the following edits to `CHANGELOG.md`:
 - Open the `VERSION` file.
 - Replace the development version (e.g., `0.0.2-dev`) with the new stable version (e.g., `0.0.2`).
 
+## 6. Next steps
+- Explain the user what the next steps are but don't do them yet
+- after the next steps are done, don't forget to update the version file to the next dev version!
+
 ## IMPORTANT
 
 Your final output should be the proposed changes to `VERSION` and `CHANGELOG.md`. **Do not execute the git commands `commit` or `tag`.** 
