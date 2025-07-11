@@ -66,6 +66,12 @@ def main():
     redis_client = get_redis_client()
     
     try:
+        # Before checking the version, ensure the app has been configured at least once.
+        # If there's no IMAP server setting, it's a fresh install.
+        if not redis_client.exists(RedisKeys.IMAP_SERVER):
+            logger.info("IMAP settings not found. Assuming fresh install. Skipping vectorization check.")
+            sys.exit(0)
+
         # The redis-py client decodes responses to utf-8 by default.
         data_version = redis_client.get(RedisKeys.VECTORIZATION_DATA_VERSION)
         
