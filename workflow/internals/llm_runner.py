@@ -2,7 +2,7 @@ import logging
 from typing import Any
 
 from mcp_servers.tone_of_voice_mcpserver.src.services.openrouter_service import (
-    get_openrouter_llm_client,
+    openrouter_service,
 )
 from workflow.models import CustomLLM, CustomLLMInstanceModel, MessageModel
 
@@ -27,10 +27,6 @@ async def run_llm_step(
     """
     logger.info(f"Executing LLM step for instance {instance.uuid}")
 
-    llm_client_instance = get_openrouter_llm_client(
-        model_name=llm_definition.model,
-    )
-
     # The instance messages will be used to build the conversation history.
     # For a simple LLM step, we start with the resolved system prompt.
     instance.messages = [
@@ -38,12 +34,15 @@ async def run_llm_step(
         MessageModel(role="user", content="Proceed as instructed."),
     ]
 
-    response = await llm_client_instance.chat.completions.create(
-        messages=[msg.model_dump() for msg in instance.messages],
+    # Use the OpenRouter service to get the LLM response
+    response_content = await openrouter_service.get_llm_response(
+        prompt="Proceed as instructed.",
+        system_prompt=resolved_system_prompt,
+        model=llm_definition.model,
     )
 
-    response_message = response.choices[0].message
-    instance.messages.append(MessageModel.model_validate(response_message.model_dump()))
+    # Add the response to the messages
+    instance.messages.append(MessageModel(role="assistant", content=response_content))
 
     # Return the final content as the raw output
-    return response_message.content 
+    return response_content 

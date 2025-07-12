@@ -1,5 +1,5 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import model_validator
+from pydantic import model_validator, Field
 from dotenv import load_dotenv
 from typing import Optional, Any, Dict
 
@@ -9,7 +9,19 @@ load_dotenv(override=True)
 
 class Settings(BaseSettings):
     REDIS_URL: str
-    WORKFLOW_DATABASE_URL: str
+    
+    # Database connection details
+    MYSQL_DATABASE: str
+    MYSQL_USER: str
+    MYSQL_PASSWORD: str
+    WORKFLOW_DATABASE_URL: Optional[str] = None
+
+    @model_validator(mode='after')
+    def construct_db_url(self) -> 'Settings':
+        if all([self.MYSQL_DATABASE, self.MYSQL_USER, self.MYSQL_PASSWORD]):
+            self.WORKFLOW_DATABASE_URL = f"mysql+mysqlconnector://{self.MYSQL_USER}:{self.MYSQL_PASSWORD}@db:3306/{self.MYSQL_DATABASE}"
+        return self
+
     AGENTLOGGER_ENABLE_ANONIMIZER: bool = False
     AGENTLOGGER_OPENROUTER_ANONIMIZER_API_KEY: Optional[str] = None
     AGENTLOGGER_OPENROUTER_ANONIMIZER_MODEL: Optional[str] = None

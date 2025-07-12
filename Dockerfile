@@ -39,6 +39,7 @@ COPY agentlogger/ ./agentlogger/
 COPY api/ ./api/
 COPY mcp_servers/ ./mcp_servers/
 COPY triggers/ ./triggers/
+COPY workflow/ ./workflow/
 COPY scripts/ ./scripts/
 COPY promtail-config.yml .
 COPY supervisord.conf .
