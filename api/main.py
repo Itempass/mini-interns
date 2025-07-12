@@ -2,7 +2,7 @@ import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from api.endpoints import app_settings, agent, agentlogger, mcp, connection, auth
+from api.endpoints import app_settings, agent, agentlogger, mcp, connection, auth, workflow
 from shared.config import settings
 from shared.version import __version__, get_latest_version
 import uvicorn
@@ -65,6 +65,7 @@ app.include_router(agent.router, tags=["agent"])
 app.include_router(agentlogger.router, tags=["agentlogger"])
 app.include_router(mcp.router, tags=["mcp"])
 app.include_router(connection.router, tags=["connection"])
+app.include_router(workflow.router, tags=["workflow"])
 
 @app.get("/version")
 def get_app_version():

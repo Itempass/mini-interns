@@ -35,3 +35,4 @@ pytest
 html2text
 filelock
 langdetect
+jsonpath-ng
