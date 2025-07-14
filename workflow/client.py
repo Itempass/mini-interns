@@ -32,7 +32,7 @@ from workflow.internals.database import (
     _remove_step_from_workflow_in_db,
     _update_workflow_in_db,
 )
-from workflow.internals.output_processor import create_output_data
+from workflow.internals.output_processor import create_output_data, generate_summary
 from workflow.models import (
     StepOutputData,
     WorkflowInstanceModel,
@@ -279,7 +279,7 @@ async def create_instance(
     # The initial trigger data is stored as the first "step output"
     trigger_output = await create_output_data(
         raw_data=triggering_data.raw_data,
-        summary="Initial trigger data",
+        summary=await generate_summary(triggering_data.raw_data),
         user_id=user_id,
     )
 

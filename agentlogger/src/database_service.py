@@ -70,7 +70,7 @@ class DatabaseService:
             if not conversation.metadata.timestamp:
                 conversation.metadata.timestamp = datetime.now(timezone.utc).isoformat()
                 
-            conversation_json = json.dumps(conversation.model_dump())
+            conversation_json = conversation.model_dump_json()
             
             with sqlite3.connect(self.db_path) as conn:
                 conn.execute(

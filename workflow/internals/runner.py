@@ -10,7 +10,7 @@ import workflow.checker_client as checker_client
 import workflow.client as workflow_client
 import workflow.internals.database as db
 import workflow.llm_client as llm_client
-from workflow.internals.output_processor import create_output_data
+from workflow.internals.output_processor import create_output_data, generate_summary
 from workflow.models import (
     CustomAgent,
     CustomLLM,
@@ -54,12 +54,15 @@ def _prepare_input(
         def replace_match(match):
             placeholder = match.group(1).strip()  # e.g., "trigger_output" or "step_output.uuid-goes-here"
 
+            logger.info(f"RUNNER_DEBUG: Preparing placeholder '<<{placeholder}>>' for agent prompt.")
+
             parts = placeholder.split('.')
             base_ref_type = parts[0]
             
             data_source: StepOutputData
 
             if base_ref_type == "trigger_output":
+                logger.info(f"RUNNER_DEBUG: Placeholder is trigger_output. Type of trigger_output.raw_data: {type(trigger_output.raw_data)}")
                 if len(parts) > 1:
                     raise ValueError("The <<trigger_output>> placeholder does not support any sub-paths.")
                 data_source = trigger_output
@@ -82,38 +85,19 @@ def _prepare_input(
             # For other step types, just provide the most representative text content.
             if step_definition.type == "custom_agent":
                 
-                # Dynamically build the schema for the container's top-level properties
-                container_schema = {
-                    "type": "object",
-                    "properties": {}
-                }
-                if data_source.raw_data is not None:
-                    # If the raw_data has its own schema, embed it.
-                    if data_source.data_schema:
-                         container_schema["properties"]["raw_data"] = {
-                            "description": "The raw, structured data from the step.",
-                            **data_source.data_schema
-                         }
-                    else: # Otherwise, just describe its type.
-                        container_schema["properties"]["raw_data"] = {
-                            "type": str(type(data_source.raw_data).__name__),
-                            "description": "The raw, unstructured data from the step."
-                        }
-
-                if data_source.markdown_representation is not None:
-                    container_schema["properties"]["markdown_representation"] = {
-                        "type": "string",
-                        "description": "A long-form markdown version of the data, useful for summarization or analysis."
-                    }
-                
-                schema_json_string = json.dumps(container_schema, indent=2)
+                # The data_source object now has a correct, pre-computed schema. We use it directly.
+                if data_source.data_schema:
+                    schema_json_string = json.dumps(data_source.data_schema, indent=2)
+                else:
+                    # Fallback in case the schema is somehow missing
+                    schema_json_string = '{"error": "Schema not available for this data source."}'
 
                 return (
                     f"DATA CONTAINER:\n"
                     f"* summary: {data_source.summary}\n"
                     f"* id: {data_source.uuid}\n"
                     f"* data_schema:\n"
-                    f"  This container provides the following fields. You can access them using a JSONPath "
+                    f"  This container provides the following fields. You can use them in your toolcalls using a JSONPath."
                     f"(e.g., '$.raw_data.messageId' or '$.markdown_representation').\n"
                     f"  ```json\n{schema_json_string}\n  ```"
                 )
@@ -160,9 +144,11 @@ async def run_workflow(workflow_instance_uuid: UUID, user_id: UUID):
     else:
         logger.warning(f"Workflow instance {workflow_instance_uuid} started with no trigger data.")
         # Create a dummy trigger output to avoid errors
+        raw_data={"message": "No trigger data provided."}
         instance.trigger_output = await create_output_data(
-            raw_data={"message": "No trigger data provided."},
-            summary="Empty trigger",
+            raw_data=raw_data,
+            summary=await generate_summary(raw_data),
+            user_id=user_id
         )
 
     # The `workflow.steps` is a list of step UUIDs. We fetch each one before execution.
@@ -174,6 +160,8 @@ async def run_workflow(workflow_instance_uuid: UUID, user_id: UUID):
             await db._update_workflow_instance_in_db(instance, user_id)
             logger.error(f"Workflow instance {workflow_instance_uuid} failed because step {step_uuid} was not found.")
             return
+
+        logger.info(f"Processing step {step_uuid} of type {step_def.type} for workflow {workflow_instance_uuid}")
 
         step_instance = None
         try:
@@ -199,13 +187,18 @@ async def run_workflow(workflow_instance_uuid: UUID, user_id: UUID):
             else:
                 raise ValueError(f"Unknown step type: {step_def.type}")
 
+            logger.debug(f"Created step instance {step_instance.uuid} for step definition {step_def.uuid}")
+
             # 2. Prepare Inputs by resolving placeholders
+            logger.info(f"Preparing inputs for step {step_uuid}")
             prepared_config = _prepare_input(
                 step_def, step_outputs, instance.trigger_output
             )
             step_instance.input_data = prepared_config
+            logger.debug(f"Prepared config for step {step_uuid}: {json.dumps(prepared_config, indent=2, default=str)}")
 
             # 3. Execute Step
+            logger.info(f"Executing step {step_uuid}")
             should_stop = False
             if step_def.type == "custom_llm":
                 step_instance = await llm_client.execute_step(
@@ -228,6 +221,7 @@ async def run_workflow(workflow_instance_uuid: UUID, user_id: UUID):
                     step_outputs=step_outputs
                 )
 
+            logger.info(f"Step {step_uuid} execution finished.")
             # Mark the step as completed and save its state, since execution was successful
             step_instance.status = "completed"
             await db._update_step_instance_in_db(instance=step_instance, user_id=user_id)
@@ -236,6 +230,7 @@ async def run_workflow(workflow_instance_uuid: UUID, user_id: UUID):
             # 4. Process Output
             if step_instance and hasattr(step_instance, 'output') and step_instance.output:
                 step_outputs[step_def.uuid] = step_instance.output
+                logger.debug(f"Stored output for step {step_uuid}: {step_instance.output.model_dump_json(indent=2)}")
 
             if should_stop:
                 logger.info(
@@ -251,18 +246,10 @@ async def run_workflow(workflow_instance_uuid: UUID, user_id: UUID):
             if step_instance:
                 step_instance.status = "failed"
                 step_instance.error_message = str(e)
-                # Ensure the failed step instance is saved
                 await db._update_step_instance_in_db(instance=step_instance, user_id=user_id)
-            
             await db._update_workflow_instance_in_db(instance, user_id)
-            return  # Stop execution on failure
+            return
 
-    # Finalize the workflow instance state
-    if instance.status not in ["failed", "completed"]:  # completed can be set by a checker
-        instance.status = "completed"
-
-    await db._update_workflow_instance_in_db(instance, user_id=user_id)
-    logger.info(
-        f"Finished run for workflow instance {workflow_instance_uuid} with status {instance.status}"
-    )
-    print(f"--- EXITING run_workflow for instance {workflow_instance_uuid} ---")
+    logger.info(f"Workflow instance {workflow_instance_uuid} finished with status: {instance.status}")
+    instance.status = "completed"
+    await db._update_workflow_instance_in_db(instance, user_id)

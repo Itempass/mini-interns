@@ -2,6 +2,7 @@
 import asyncio
 import json
 import logging
+import uuid
 from datetime import datetime
 from typing import Any, Coroutine
 from uuid import UUID
@@ -11,10 +12,16 @@ from fastmcp import Client as MCPClient
 from openai import OpenAI
 from jsonpath_ng import parse
 
+from agentlogger.src.client import save_conversation
+from agentlogger.src.models import (
+    ConversationData,
+    Message as LoggerMessage,
+    Metadata,
+)
 from mcp.types import Tool
 from shared.app_settings import load_app_settings
 from shared.config import settings
-from workflow.internals.output_processor import create_output_data
+from workflow.internals.output_processor import create_output_data, generate_summary
 from workflow.models import CustomAgent, MessageModel, StepOutputData, CustomAgentInstanceModel
 import workflow.client as workflow_client
 
@@ -112,6 +119,8 @@ async def run_agent_step(
         )
         # Proceed with no clients, this will be checked later if tools are required.
 
+    logger.info(f"Discovered {len(mcp_clients)} MCP clients: {list(mcp_clients.keys())}")
+
     all_formatted_tools = []
     available_tool_names = set()
 
@@ -145,12 +154,16 @@ async def run_agent_step(
         except Exception as e:
             logger.error(f"Error communicating with MCP servers: {e}", exc_info=True)
 
+    logger.info(f"Discovered {len(available_tool_names)} total tools from all servers.")
+
     # After attempting to discover all tools, check if any enabled tools are missing.
     enabled_tool_ids = {
         tool_id
         for tool_id, details in agent_definition.tools.items()
         if details.get("enabled")
     }
+
+    logger.debug(f"Agent has {len(enabled_tool_ids)} enabled tools: {enabled_tool_ids}")
 
     if enabled_tool_ids:
         missing_tools = enabled_tool_ids - available_tool_names
@@ -168,6 +181,8 @@ async def run_agent_step(
         for tool in all_formatted_tools
         if tool["function"]["name"] in enabled_tool_ids
     ]
+
+    logger.info(f"Providing {len(tools)} enabled and available tools to the LLM.")
 
     # Add the built-in tool for retrieving step output
     get_output_tool = {
@@ -195,11 +210,13 @@ async def run_agent_step(
         messages_for_run = [MessageModel(role="system", content=resolved_system_prompt)]
         instance.messages.extend(messages_for_run)
 
+        logger.info(f"Starting agent execution loop for instance {instance.uuid}. Max cycles: {max_cycles}")
         for turn in range(max_cycles):
             logger.info(
                 f"Agent Step Instance {instance.uuid}, Turn {turn + 1}/{max_cycles}."
             )
             
+            logger.debug(f"Calling LLM with {len(instance.messages)} messages and {len(tools)} tools.")
             response = await asyncio.to_thread(
                 llm_client.chat.completions.create,
                 model=agent_definition.model,
@@ -222,10 +239,13 @@ async def run_agent_step(
                 logger.info("Agent finished execution loop.")
                 # The final message content is the output
                 final_content = response_message.content or "Agent provided no final answer."
+                markdown_rep = f"## Agent Final Answer\n\n{final_content}"
                 instance.output = await create_output_data(
                     raw_data=final_content,
-                    summary="Agent's final answer.",
-                    markdown_representation=f"## Agent Final Answer\n\n{final_content}",
+                    summary=await generate_summary(
+                        raw_data=final_content, markdown_representation=markdown_rep
+                    ),
+                    markdown_representation=markdown_rep,
                     user_id=user_id,
                 )
                 break
@@ -267,10 +287,14 @@ async def run_agent_step(
             if turn == max_cycles - 1:
                 logger.warning(f"Agent reached max cycles ({max_cycles}). Finishing.")
                 timeout_message = "Agent reached maximum execution cycles and was terminated."
+                markdown_rep = f"## Agent Timed Out\n\n{timeout_message}"
                 instance.output = await create_output_data(
                     raw_data=timeout_message,
-                    summary="Agent timed out.",
-                    markdown_representation=f"## Agent Timed Out\n\n{timeout_message}"
+                    summary=await generate_summary(
+                        raw_data=timeout_message, markdown_representation=markdown_rep
+                    ),
+                    markdown_representation=markdown_rep,
+                    user_id=user_id
                 )
 
     except Exception as e:
@@ -278,12 +302,48 @@ async def run_agent_step(
         instance.status = "failed"
         instance.error_message = str(e)
     finally:
+        # This block ensures that we try to log the conversation even if an error occurs during the run.
+        try:
+            logger.info(f"Saving conversation for agent instance {instance.uuid} to agentlogger.")
+            
+            logger_messages = [
+                LoggerMessage.model_validate(msg.model_dump()) 
+                for msg in instance.messages
+            ]
+            
+            # The agent logger uses its own unique ID for the conversation log.
+            log_conversation_id = str(uuid.uuid4())
+
+            convo_data = ConversationData(
+                conversation_id=log_conversation_id,
+                user_id=str(user_id),
+                agent_id=str(agent_definition.uuid),
+                messages=logger_messages,
+                metadata=Metadata(
+                    conversation_id=log_conversation_id,
+                    start_time=instance.created_at,
+                    end_time=datetime.now(),
+                    status=instance.status,
+                    model=agent_definition.model,
+                    raw_input=resolved_system_prompt, # Using resolved prompt as a stand-in for the initial input
+                ),
+            )
+            await save_conversation(convo_data)
+            logger.info(f"Successfully saved conversation for instance {instance.uuid}.")
+        except Exception as e:
+            logger.error(
+                f"Failed to save conversation for instance {instance.uuid} to agentlogger: {e}",
+                exc_info=True,
+            )
+
+        # Clean up MCP clients
         if mcp_clients:
             await asyncio.gather(
-                *(client.__aexit__(None, None, None) for client in mcp_clients.values())
+                *(client.__aexit__(None, None, None) for client in mcp_clients.values()),
+                return_exceptions=True,  # To prevent one failure from stopping others
             )
-        instance.finished_at = datetime.now()
-        return instance
+    
+    return instance
 
 
 async def _resolve_tool_arguments(tool_calls: list, user_id: str) -> list:
@@ -294,7 +354,9 @@ async def _resolve_tool_arguments(tool_calls: list, user_id: str) -> list:
     for tool_call in tool_calls:
         try:
             arguments = json.loads(tool_call.function.arguments)
+            logger.info(f"ARG_RESOLVER_DEBUG: Original arguments for tool '{tool_call.function.name}': {arguments}")
         except json.JSONDecodeError:
+            logger.warning(f"ARG_RESOLVER_DEBUG: Could not parse arguments for tool '{tool_call.function.name}'. Skipping.")
             continue # If args aren't valid JSON, skip them.
 
         resolved_args = {}
@@ -302,6 +364,7 @@ async def _resolve_tool_arguments(tool_calls: list, user_id: str) -> list:
             if isinstance(value, str) and value.startswith("step_output:"):
                 try:
                     _, step_output_id, path = value.split(":", 2)
+                    logger.info(f"ARG_RESOLVER_DEBUG: Found data pointer '{value}'. Fetching...")
                     
                     # Fetch the data container
                     output_data = await workflow_client.get_output_data(output_id=step_output_id, user_id=user_id)
@@ -320,8 +383,21 @@ async def _resolve_tool_arguments(tool_calls: list, user_id: str) -> list:
                     # Pass the unresolved value to the tool, which will likely fail and provide a signal to the LLM
                     resolved_args[key] = value
             else:
-                resolved_args[key] = value
+                # HOTFIX: The LLM sometimes returns a JSON-encoded string within the JSON object.
+                # We try to decode it, but if it fails, we use the raw value.
+                if isinstance(value, str):
+                    logger.info(f"ARG_RESOLVER_DEBUG: Argument '{key}' is a string. Attempting to JSON decode value: '{value}'")
+                    try:
+                        decoded_value = json.loads(value)
+                        resolved_args[key] = decoded_value
+                        logger.info(f"ARG_RESOLVER_DEBUG: Successfully decoded string argument '{key}'. New value: {decoded_value}")
+                    except json.JSONDecodeError:
+                        resolved_args[key] = value
+                        logger.info(f"ARG_RESOLVER_DEBUG: Failed to decode string argument '{key}'. Using original value: '{value}'")
+                else:
+                    resolved_args[key] = value
         
+        logger.info(f"ARG_RESOLVER_DEBUG: Final resolved arguments for tool '{tool_call.function.name}': {resolved_args}")
         tool_call.function.arguments = json.dumps(resolved_args)
 
     return tool_calls

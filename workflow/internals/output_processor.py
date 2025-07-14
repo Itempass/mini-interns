@@ -1,47 +1,93 @@
 import logging
 from typing import Any, Optional
 from uuid import UUID
+import json
 
 from pydantic import BaseModel
 
 from workflow.internals import database as db
 from workflow.internals.pydantic_utils import generate_simplified_json_schema
 from workflow.models import StepOutputData
+from mcp_servers.tone_of_voice_mcpserver.src.services.openrouter_service import (
+    openrouter_service,
+)
 
 logger = logging.getLogger(__name__)
 
 
-async def _generate_summary_for_output(
-    raw_data: Any, custom_prompt: Optional[str] = None
+async def generate_summary(
+    raw_data: Any, markdown_representation: Optional[str] = None
 ) -> str:
     """
-    Generates a concise summary for the raw output of a step using an LLM.
+    Generates a concise, one-line summary of the given data using an LLM.
     """
-    # In a real implementation, this would make a call to an LLM service.
-    # For now, we'll create a simple string representation.
-    # This avoids a circular dependency on the llm_client.
-    if isinstance(raw_data, (dict, list)):
-        # Simple serialization for structured data
-        summary = f"Structured data with keys: {', '.join(raw_data.keys())}" if isinstance(raw_data, dict) else f"List with {len(raw_data)} items."
-    elif isinstance(raw_data, str):
-        # Truncate long strings
-        summary = (raw_data[:100] + "...") if len(raw_data) > 100 else raw_data
-    else:
-        summary = "Unstructured data output."
+    # Hardcoded instruction for the LLM
+    instruction = (
+        "You are an expert at analyzing data structures and summarizing their content. "
+        "Your task is to provide a concise summary (max 3 lines) "
+        "that describes the data's primary content and purpose. Do not describe the data format (e.g., 'JSON object'); "
+        "instead, describe what the data *is* (e.g., 'User profile information' or 'A list of email drafts')."
+        "Make sure to say start your phrase with \" this data container contains \""
+        "\n\nHere is the data:"
+    )
 
-    logger.info(f"Generated summary: {summary}")
-    return summary
+    # Prepare the data content for the prompt
+    data_content = ""
+    if markdown_representation:
+        data_content += f"\n\n--- Markdown Representation ---\n{markdown_representation[:2000]}" # Limit context
+    
+    # Serialize complex raw_data to JSON, otherwise use string representation
+    if raw_data:
+        try:
+            # Use model_dump_json for Pydantic models
+            if hasattr(raw_data, 'model_dump_json'):
+                raw_data_str = raw_data.model_dump_json(indent=2)
+            else:
+                raw_data_str = json.dumps(raw_data, indent=2, default=str) # default=str for non-serializable types
+        except (TypeError, OverflowError):
+            raw_data_str = str(raw_data) # Fallback for complex, non-serializable objects
+        
+        data_content += f"\n\n--- Raw Data ---\n{raw_data_str[:2000]}" # Limit context
+
+    if not data_content.strip():
+        return "No data provided."
+
+    try:
+        summary = await openrouter_service.get_llm_response(
+            prompt=data_content,
+            system_prompt=instruction,
+            model="google/gemini-flash-1.5",
+        )
+        # Post-process to ensure it's a single line
+        return summary.strip().split('\n')[0]
+    except Exception as e:
+        logger.error(f"Error generating summary with LLM: {e}")
+        # Fallback to a simple, non-LLM summary in case of an error
+        if isinstance(raw_data, dict):
+            return f"Structured data with keys: {', '.join(raw_data.keys())}"
+        elif isinstance(raw_data, list):
+            return f"List with {len(raw_data)} items."
+        elif isinstance(raw_data, str):
+            return (raw_data[:100] + "...") if len(raw_data) > 100 else raw_data
+        else:
+            return "Unstructured data output."
 
 
 async def create_output_data(
     raw_data: Any,
-    summary: str,
     user_id: UUID,
+    summary: str | None = None,
     markdown_representation: str | None = None,
 ) -> StepOutputData:
     """
-    Creates and stores a StepOutputData object, automatically generating its schema.
+    Creates and stores a StepOutputData object, automatically generating its schema and summary if not provided.
     """
+    # If a summary isn't provided, generate one automatically.
+    if summary is None:
+        summary = await generate_summary(
+            raw_data=raw_data, markdown_representation=markdown_representation
+        )
+
     # Create the object first, with a placeholder for the schema.
     # The `data_schema` field in the model is set to `exclude=True` to prevent recursion.
     output = StepOutputData(
@@ -54,7 +100,7 @@ async def create_output_data(
     # Now, generate the schema from the object itself and assign it.
     output.data_schema = generate_simplified_json_schema(output)
 
-    print(f"GENERATED SCHEMA for output {output.uuid}:", output.data_schema)
+    logger.info(f"SCHEMA_DEBUG_PROCESSOR: Final schema assigned to output object {output.uuid}: {json.dumps(output.data_schema, indent=2)}")
 
     # Persist it to the database so it's addressable by its UUID
     await db._create_step_output_data_in_db(output, user_id)

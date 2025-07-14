@@ -33,3 +33,5 @@ frontend/.next/
 
 .auth_password.key
 .key
+# Docker local override
+docker-compose.override.yaml

@@ -1,11 +1,18 @@
 import logging
+import uuid
 from typing import Any
 from datetime import datetime
 
+from agentlogger.src.client import save_conversation
+from agentlogger.src.models import (
+    ConversationData,
+    Message as LoggerMessage,
+    Metadata,
+)
 from mcp_servers.tone_of_voice_mcpserver.src.services.openrouter_service import (
     openrouter_service,
 )
-from workflow.internals.output_processor import create_output_data
+from workflow.internals.output_processor import create_output_data, generate_summary
 from workflow.models import CustomLLM, CustomLLMInstanceModel, MessageModel, StepOutputData
 
 logger = logging.getLogger(__name__)
@@ -29,32 +36,78 @@ async def run_llm_step(
         The updated instance with the output and messages.
     """
     logger.info(f"Executing LLM step for instance {instance.uuid}")
+    
+    try:
+        logger.debug(f"LLM definition: {llm_definition.model_dump_json(indent=2)}")
+        logger.debug(f"Resolved system prompt: {resolved_system_prompt}")
 
-    # The instance messages will be used to build the conversation history.
-    # For a simple LLM step, we start with the resolved system prompt.
-    instance.messages = [
-        MessageModel(role="system", content=resolved_system_prompt),
-        MessageModel(role="user", content="Proceed as instructed."),
-    ]
+        # The instance messages will be used to build the conversation history.
+        # For a simple LLM step, we start with the resolved system prompt.
+        instance.messages = [
+            MessageModel(role="system", content=resolved_system_prompt),
+            MessageModel(role="user", content="Proceed as instructed."),
+        ]
 
-    # Use the OpenRouter service to get the LLM response
-    response_content = await openrouter_service.get_llm_response(
-        prompt="Proceed as instructed.",
-        system_prompt=resolved_system_prompt,
-        model=llm_definition.model,
-    )
+        logger.info(f"Calling OpenRouter for instance {instance.uuid} with model {llm_definition.model}")
+        # Use the OpenRouter service to get the LLM response
+        response_content = await openrouter_service.get_llm_response(
+            prompt="Proceed as instructed.",
+            system_prompt=resolved_system_prompt,
+            model=llm_definition.model,
+        )
+        logger.info(f"Received response from OpenRouter for instance {instance.uuid}")
+        logger.debug(f"Response content: {response_content}")
 
-    # Add the response to the messages
-    instance.messages.append(MessageModel(role="assistant", content=response_content))
+        # Add the response to the messages
+        instance.messages.append(MessageModel(role="assistant", content=response_content))
 
-    # Package the result into a standard StepOutputData object
-    instance.output = await create_output_data(
-        raw_data=response_content,
-        summary=f"LLM generated content: {response_content[:150]}...",
-        user_id=user_id,
-    )
-    instance.status = "completed"
+        # Package the result into a standard StepOutputData object
+        instance.output = await create_output_data(
+            raw_data=response_content,
+            summary=await generate_summary(response_content),
+            user_id=user_id,
+        )
+        instance.status = "completed"
+        logger.info(f"LLM step for instance {instance.uuid} completed successfully.")
+
+    except Exception as e:
+        logger.error(f"Error during LLM step execution for instance {instance.uuid}: {e}", exc_info=True)
+        instance.status = "failed"
+        instance.error_message = str(e)
+    finally:
+        # This block ensures that we try to log the conversation even if an error occurs during the run.
+        try:
+            logger.info(f"Saving LLM conversation for instance {instance.uuid} to agentlogger.")
+            
+            logger_messages = [
+                LoggerMessage.model_validate(msg.model_dump()) 
+                for msg in instance.messages
+            ]
+            
+            log_conversation_id = str(uuid.uuid4())
+
+            convo_data = ConversationData(
+                conversation_id=log_conversation_id,
+                messages=logger_messages,
+                metadata=Metadata(
+                    conversation_id=log_conversation_id,
+                    user_id=str(user_id),
+                    step_id=str(instance.uuid),
+                    start_time=instance.created_at,
+                    end_time=datetime.now(),
+                    status=instance.status,
+                    model=llm_definition.model,
+                    raw_input=resolved_system_prompt,
+                ),
+            )
+            await save_conversation(convo_data)
+            logger.info(f"Successfully saved LLM conversation for instance {instance.uuid}.")
+        except Exception as e:
+            logger.error(
+                f"Failed to save LLM conversation for instance {instance.uuid} to agentlogger: {e}",
+                exc_info=True,
+            )
+
     instance.finished_at = datetime.utcnow()
-
     # Return the final instance
     return instance 
