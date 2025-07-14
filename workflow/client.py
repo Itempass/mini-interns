@@ -13,6 +13,8 @@ consistent API for workflow management.
 import logging
 from typing import Any, Dict, List, Literal, Optional
 from uuid import UUID
+import asyncio
+from workflow.internals import runner
 
 import workflow.agent_client as agent_client
 import workflow.checker_client as checker_client
@@ -37,7 +39,9 @@ from workflow.models import (
     WorkflowModel,
     WorkflowWithDetails,
     WorkflowStep,
+    InitialWorkflowData,
 )
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +60,11 @@ async def create(name: str, description: str, user_id: UUID) -> WorkflowModel:
 async def get(uuid: UUID, user_id: UUID) -> Optional[WorkflowModel]:
     """Retrieves a workflow definition."""
     return await _get_workflow_from_db(uuid=uuid, user_id=user_id)
+
+
+async def save(workflow: WorkflowModel, user_id: UUID) -> WorkflowModel:
+    """Saves/updates a workflow definition."""
+    return await db._update_workflow_in_db(workflow=workflow, user_id=user_id)
 
 
 async def get_with_details(
@@ -264,39 +273,52 @@ async def remove_trigger(workflow_uuid: UUID, user_id: UUID) -> WorkflowModel:
 #
 
 async def create_instance(
-    workflow_uuid: UUID, triggering_data: Any, user_id: UUID
+    workflow_uuid: UUID, triggering_data: InitialWorkflowData, user_id: UUID
 ) -> WorkflowInstanceModel:
-    """Manually starts a run of a workflow."""
-    workflow = await get(uuid=workflow_uuid, user_id=user_id)
-    if not workflow:
-        raise ValueError("Workflow not found to create instance for.")
-
-    initial_output: StepOutputData = await create_output_data(
-        raw_data=triggering_data,
-        summary_prompt="Summarize the initial trigger data.",
+    """Creates a new instance of a workflow, ready to be run."""
+    # The initial trigger data is stored as the first "step output"
+    trigger_output = await create_output_data(
+        raw_data=triggering_data.raw_data,
+        summary="Initial trigger data",
+        user_id=user_id,
     )
 
     instance = WorkflowInstanceModel(
         user_id=user_id,
         workflow_definition_uuid=workflow_uuid,
-        status="running",
-        trigger_output=initial_output,
+        status="running",  # Start in running state
+        trigger_output=trigger_output,
     )
     await db._create_workflow_instance_in_db(instance=instance, user_id=user_id)
-    # TODO: Kick off the actual execution in a background task
+    logger.info(f"Successfully created workflow instance {instance.uuid} in the database.")
+
     return instance
 
 
 async def get_instance(
     instance_uuid: UUID, user_id: UUID
 ) -> Optional[WorkflowInstanceModel]:
-    """Retrieves the status and results of a workflow run."""
-    return await _get_workflow_instance_from_db(uuid=instance_uuid, user_id=user_id)
+    """
+    Retrieves the status and results of a workflow run, including all
+    of its executed step instances.
+    """
+    instance = await _get_workflow_instance_from_db(uuid=instance_uuid, user_id=user_id)
+    if not instance:
+        return None
+    
+    # Hydrate the instance with its executed steps
+    step_instances = await db._list_step_instances_for_workflow_instance_from_db(
+        workflow_instance_uuid=instance_uuid, user_id=user_id
+    )
+    instance.step_instances = step_instances
+    
+    return instance
 
 
-async def get_output_data(output_id: UUID, user_id: UUID) -> Optional[StepOutputData]:
-    """Retrieves a StepOutputData object using its unique ID."""
-    return await _get_step_output_data_from_db(output_id=output_id, user_id=user_id)
+async def get_output_data(output_id: str, user_id: UUID) -> Optional[StepOutputData]:
+    """Retrieves a single StepOutputData object from the database by its UUID."""
+    # This is a direct passthrough to the internal database function.
+    return await db._get_step_output_data_from_db(output_id=UUID(output_id), user_id=user_id)
 
 
 async def list_instances(

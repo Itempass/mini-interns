@@ -710,44 +710,46 @@ async def _update_workflow_instance_in_db(
                 raise
 
 async def _create_step_instance_in_db(instance: WorkflowStepInstance, user_id: UUID) -> WorkflowStepInstance:
-    """Creates a new workflow step instance record in the database."""
+    """
+    Creates a new workflow step instance record in the database.
+    This function handles all step instance types.
+    """
     async with get_db_connection() as conn:
-        async with conn.cursor(DictCursor) as cursor:
-            # Prepare data for insertion
-            output_json = instance.output.model_dump_json() if hasattr(instance, "output") and instance.output else None
-            output_id_bytes = instance.output.uuid.bytes if hasattr(instance, "output") and instance.output else None
-            
-            # Consolidate remaining fields into the 'details' JSON blob
-            details = {
-                "messages": [msg.model_dump() for msg in instance.messages] if hasattr(instance, "messages") else [],
-                "input_data": instance.input_data if hasattr(instance, "input_data") else None,
-                "error_message": instance.error_message if hasattr(instance, "error_message") else None,
-            }
-            details_json = json.dumps(details, default=str)
-            
-            # Get the correct definition UUID based on the instance type
-            step_definition_uuid = getattr(instance, 'llm_definition_uuid', 
-                                    getattr(instance, 'agent_definition_uuid', 
-                                    getattr(instance, 'checker_definition_uuid')))
-
+        async with conn.cursor() as cursor:
             try:
+                # Determine the correct definition UUID attribute based on the instance type
+                step_definition_uuid_attr = ""
+                if isinstance(instance, CustomLLMInstanceModel):
+                    step_definition_uuid_attr = "llm_definition_uuid"
+                elif isinstance(instance, CustomAgentInstanceModel):
+                    step_definition_uuid_attr = "agent_definition_uuid"
+                elif isinstance(instance, StopWorkflowCheckerInstanceModel):
+                    step_definition_uuid_attr = "checker_definition_uuid"
+                else:
+                    raise TypeError(f"Unknown step instance type: {type(instance)}")
+
                 await cursor.execute(
                     """
-                    INSERT INTO workflow_step_instances 
-                    (uuid, user_id, workflow_instance_uuid, step_definition_uuid, status, started_at, finished_at, output_id, output, details, created_at)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    INSERT INTO workflow_step_instances (
+                        uuid, user_id, workflow_instance_uuid, step_definition_uuid,
+                        status, started_at, finished_at, output, details, created_at
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """,
                     (
                         instance.uuid.bytes,
                         user_id.bytes,
                         instance.workflow_instance_uuid.bytes,
-                        step_definition_uuid.bytes,
+                        getattr(instance, step_definition_uuid_attr).bytes,
                         instance.status,
                         instance.started_at,
                         instance.finished_at,
-                        output_id_bytes,
-                        output_json,
-                        details_json,
+                        instance.output.model_dump_json() if instance.output else None,
+                        json.dumps({
+                            "messages": [msg.model_dump() for msg in instance.messages],
+                            "error_message": instance.error_message,
+                            "input_data": instance.input_data,
+                        }),
                         instance.created_at,
                     ),
                 )
@@ -829,15 +831,20 @@ async def _list_step_instances_for_workflow_instance_from_db(workflow_instance_u
             # Join with workflow_steps to get the type for instantiation
             await cursor.execute(
                 """
-                SELECT si.uuid, si.workflow_instance_uuid, si.step_definition_uuid, si.status, si.started_at, si.finished_at, si.output, si.details, ws.type as step_definition_type
+                SELECT
+                    si.uuid, si.user_id, si.workflow_instance_uuid, si.step_definition_uuid,
+                    si.status, si.started_at, si.finished_at, si.output, si.details,
+                    ws.type as step_definition_type,
+                    si.created_at
                 FROM workflow_step_instances si
                 JOIN workflow_steps ws ON si.step_definition_uuid = ws.uuid
                 WHERE si.workflow_instance_uuid = %s AND si.user_id = %s
+                ORDER BY si.created_at ASC
                 """,
                 (workflow_instance_uuid.bytes, user_id.bytes),
             )
             rows = await cursor.fetchall()
-            await conn.commit()
+            await conn.commit() # Release transaction state
 
             for row in rows:
                 instance = _instantiate_step_instance_from_row(row, row['step_definition_type'], user_id)
@@ -888,23 +895,63 @@ async def _update_step_instance_in_db(instance: WorkflowStepInstance, user_id: U
                 raise
 
 
+async def _create_step_output_data_in_db(output: StepOutputData, user_id: UUID) -> StepOutputData:
+    """Saves a StepOutputData object to the new 'step_outputs' table."""
+    async with get_db_connection() as conn:
+        async with conn.cursor() as cursor:
+            try:
+                # Convert Pydantic models or other complex types to JSON-serializable format
+                raw_data_json = json.dumps(output.raw_data, default=str)
+
+                await cursor.execute(
+                    """
+                    INSERT INTO step_outputs (uuid, user_id, raw_data, summary, markdown_representation, data_schema, created_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    (
+                        output.uuid.bytes,
+                        user_id.bytes,
+                        raw_data_json,
+                        output.summary,
+                        output.markdown_representation,
+                        json.dumps(output.data_schema) if output.data_schema else None,
+                        output.created_at,
+                    ),
+                )
+                await conn.commit()
+                logger.info(f"Successfully created step output data {output.uuid} in the database.")
+                return output
+            except Exception as e:
+                await conn.rollback()
+                logger.error(f"Failed to create step output data {output.uuid}: {e}")
+                raise
+
+
 async def _get_step_output_data_from_db(output_id: UUID, user_id: UUID) -> Optional[StepOutputData]:
-    """
-    Retrieves a StepOutputData object directly from the workflow_step_instances
-    table using its unique output_id.
-    """
+    """Retrieves a StepOutputData object from the 'step_outputs' table."""
     async with get_db_connection() as conn:
         async with conn.cursor(DictCursor) as cursor:
             await cursor.execute(
-                "SELECT output FROM workflow_step_instances WHERE output_id = %s AND user_id = %s",
+                "SELECT uuid, user_id, raw_data, summary, markdown_representation, data_schema, created_at FROM step_outputs WHERE uuid = %s AND user_id = %s",
                 (output_id.bytes, user_id.bytes),
             )
             row = await cursor.fetchone()
+            
+            # Release connection
             await conn.commit()
 
-            if not row or not row.get("output"):
+            if not row:
                 return None
+
+            # Convert binary UUIDs back to UUID objects
+            row["uuid"] = UUID(bytes=row["uuid"])
+            row["user_id"] = UUID(bytes=row["user_id"])
             
-            output_data = json.loads(row["output"])
-            return StepOutputData(**output_data)
+            # Deserialize JSON fields
+            if row.get("raw_data"):
+                row["raw_data"] = json.loads(row["raw_data"])
+            if row.get("data_schema"):
+                row["data_schema"] = json.loads(row["data_schema"])
+
+            return StepOutputData(**row)
 

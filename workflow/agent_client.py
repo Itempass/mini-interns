@@ -74,7 +74,9 @@ async def discover_mcp_tools() -> List[Dict[str, Any]]:
 #
 # Definition Management
 #
-async def create(name: str, model: str, system_prompt: str, user_id: UUID) -> CustomAgent:
+async def create(
+    name: str, model: str, system_prompt: str, user_id: UUID, tools: Optional[Dict[str, Any]] = None
+) -> CustomAgent:
     """
     Creates a new, standalone CustomAgent step definition.
 
@@ -85,12 +87,17 @@ async def create(name: str, model: str, system_prompt: str, user_id: UUID) -> Cu
         model: The identifier of the language model to be used.
         system_prompt: The system prompt to guide the agent's behavior.
         user_id: The ID of the user creating the step.
+        tools: A dictionary defining the tools available to the agent.
 
     Returns:
         The created CustomAgent object.
     """
     agent_step = CustomAgent(
-        user_id=user_id, name=name, model=model, system_prompt=system_prompt
+        user_id=user_id,
+        name=name,
+        model=model,
+        system_prompt=system_prompt,
+        tools=tools or {},
     )
     await _create_step_in_db(step=agent_step, user_id=user_id)
     return agent_step
@@ -149,6 +156,7 @@ async def execute_step(
     instance: CustomAgentInstanceModel,
     agent_definition: CustomAgent,
     resolved_system_prompt: str,
+    user_id: UUID,
 ) -> CustomAgentInstanceModel:
     """
     Executes a CustomAgent step by invoking the specialized agent runner.
@@ -157,6 +165,7 @@ async def execute_step(
         instance: The specific instance of the agent step to run.
         agent_definition: The definition of the agent.
         resolved_system_prompt: The fully resolved system prompt with data from previous steps.
+        user_id: The ID of the user running the workflow.
 
     Returns:
         The updated instance after the execution is complete.
@@ -165,6 +174,7 @@ async def execute_step(
         instance=instance,
         agent_definition=agent_definition,
         resolved_system_prompt=resolved_system_prompt,
+        user_id=user_id,
     )
 
 

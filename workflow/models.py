@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional, Union
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 # 4.1. Workflow and Step Definitions
@@ -92,6 +92,16 @@ class TriggerModel(BaseModel):
 
 
 # 4.2. Instance and Execution Models
+class InitialWorkflowData(BaseModel):
+    """
+    A model to define the explicit structure of the data that triggers a workflow.
+    This provides a clear, type-safe contract for what `workflow_client.create_instance` expects.
+    """
+    raw_data: Any
+    summary: Optional[str] = None
+    markdown_representation: Optional[str] = None
+    data_schema: Optional[Dict[str, Any]] = None
+
 class MessageModel(BaseModel):
     """Individual message in a conversation, used for logging and debugging."""
 
@@ -102,12 +112,16 @@ class MessageModel(BaseModel):
 
 
 class StepOutputData(BaseModel):
-    """A standard, self-contained, and addressable unit of data produced by a workflow step."""
-
-    uuid: UUID = Field(default_factory=uuid4)  # A globally unique ID for this specific piece of data.
+    """
+    A container for the output of a single workflow step.
+    """
+    uuid: UUID = Field(default_factory=uuid4)
+    user_id: UUID
     raw_data: Any
-    summary: Optional[str] = None
+    summary: str
     markdown_representation: Optional[str] = None
+    data_schema: Optional[Dict[str, Any]] = Field(default=None)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
 class CustomLLMInstanceModel(BaseModel):
@@ -174,6 +188,7 @@ class WorkflowInstanceModel(BaseModel):
     step_instances: List[WorkflowStepInstance] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
+    error_message: Optional[str] = None
 
 
 # 4.3. API Response Models

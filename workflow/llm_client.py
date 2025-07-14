@@ -106,6 +106,7 @@ async def execute_step(
     instance: CustomLLMInstanceModel,
     llm_definition: CustomLLM,
     resolved_system_prompt: str,
+    user_id: UUID,
 ) -> Any:
     """
     Executes a CustomLLM step by invoking the specialized LLM runner.
@@ -122,6 +123,7 @@ async def execute_step(
         instance=instance,
         llm_definition=llm_definition,
         resolved_system_prompt=resolved_system_prompt,
+        user_id=user_id,
     )
 
 
@@ -166,4 +168,4 @@ async def save_instance(
         The updated CustomLLMInstanceModel object.
     """
     await _update_step_instance_in_db(instance=instance, user_id=user_id)
-    return instance 
+    return instance

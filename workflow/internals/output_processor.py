@@ -1,6 +1,11 @@
 import logging
 from typing import Any, Optional
+from uuid import UUID
 
+from pydantic import BaseModel
+
+from workflow.internals import database as db
+from workflow.internals.pydantic_utils import generate_simplified_json_schema
 from workflow.models import StepOutputData
 
 logger = logging.getLogger(__name__)
@@ -29,32 +34,30 @@ async def _generate_summary_for_output(
 
 
 async def create_output_data(
-    raw_data: Any, summary_prompt: Optional[str] = None
+    raw_data: Any,
+    summary: str,
+    user_id: UUID,
+    markdown_representation: str | None = None,
 ) -> StepOutputData:
     """
-    Creates a StepOutputData object from raw data, including a generated summary.
-
-    Args:
-        raw_data: The raw output from a step execution.
-        summary_prompt: An optional prompt to guide the summary generation.
-
-    Returns:
-        A fully populated StepOutputData object.
+    Creates and stores a StepOutputData object, automatically generating its schema.
     """
-    summary = await _generate_summary_for_output(
-        raw_data=raw_data, custom_prompt=summary_prompt
-    )
-
-    # The markdown representation could be generated here in the future
-    # For now, we'll leave it empty.
-    markdown_representation = f"## Step Output\n\n**Summary:** {summary}\n\n```json\n{raw_data}\n```"
-
+    # Create the object first, with a placeholder for the schema.
+    # The `data_schema` field in the model is set to `exclude=True` to prevent recursion.
     output = StepOutputData(
+        user_id=user_id,
         raw_data=raw_data,
         summary=summary,
         markdown_representation=markdown_representation,
     )
-    logger.info(f"Created StepOutputData object {output.uuid} with summary.")
+
+    # Now, generate the schema from the object itself and assign it.
+    output.data_schema = generate_simplified_json_schema(output)
+
+    print(f"GENERATED SCHEMA for output {output.uuid}:", output.data_schema)
+
+    # Persist it to the database so it's addressable by its UUID
+    await db._create_step_output_data_in_db(output, user_id)
     return output
 
 

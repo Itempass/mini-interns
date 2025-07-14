@@ -4,15 +4,20 @@ import json
 import logging
 from datetime import datetime
 from typing import Any, Coroutine
+from uuid import UUID
 
 import httpx
 from fastmcp import Client as MCPClient
 from openai import OpenAI
+from jsonpath_ng import parse
 
 from mcp.types import Tool
 from shared.app_settings import load_app_settings
 from shared.config import settings
+from workflow.internals.output_processor import create_output_data
 from workflow.models import CustomAgent, MessageModel, StepOutputData, CustomAgentInstanceModel
+import workflow.client as workflow_client
+
 
 logger = logging.getLogger(__name__)
 
@@ -34,12 +39,26 @@ def _format_mcp_tools_for_openai(
     formatted_tools = []
     for tool in tools:
         full_tool_name = f"{server_name}-{tool.name}"
+        
+        # Deep copy the schema to avoid modifying the original
+        parameter_schema = json.loads(json.dumps(tool.inputSchema))
+        
+        # Add our custom description to any primitive property type
+        if "properties" in parameter_schema:
+            for prop, details in parameter_schema["properties"].items():
+                if details.get("type") in ["string", "number", "integer", "boolean"]:
+                    details["description"] = (
+                        f"Provide the value directly. Alternatively, to get this value from a previous step's output, "
+                        f"provide a data pointer string in the format: "
+                        f"'step_output:<step_output_id>:<JSONPath>' (e.g., 'step_output:uuid-goes-here:$.raw_data.some_field')."
+                    )
+
         formatted_tool = {
             "type": "function",
             "function": {
                 "name": full_tool_name,
                 "description": tool.description,
-                "parameters": tool.inputSchema,
+                "parameters": parameter_schema,
             },
         }
         formatted_tools.append(formatted_tool)
@@ -50,6 +69,7 @@ async def run_agent_step(
     instance: CustomAgentInstanceModel,
     agent_definition: CustomAgent,
     resolved_system_prompt: str,
+    user_id: UUID,
 ) -> CustomAgentInstanceModel:
     logger.info(
         f"Starting execution for agent step instance {instance.uuid} of agent {agent_definition.uuid}"
@@ -72,101 +92,104 @@ async def run_agent_step(
     )
 
     mcp_clients: dict[str, MCPClient] = {}
+    servers_info = []
     try:
         api_url = f"http://localhost:{settings.CONTAINERPORT_API}/mcp/servers"
         async with httpx.AsyncClient() as http_client:
             response = await http_client.get(api_url)
             response.raise_for_status()
             servers_info = response.json()
-            if not servers_info:
-                instance.messages.append(
-                    MessageModel(role="system", content="Error: No MCP servers available.")
-                )
-                return instance
 
-            for server_info in servers_info:
-                server_name = server_info.get("name")
-                server_url = server_info.get("url")
-                if server_name and server_url:
-                    mcp_clients[server_name] = MCPClient(server_url)
+            if servers_info:
+                for server_info in servers_info:
+                    server_name = server_info.get("name")
+                    server_url = server_info.get("url")
+                    if server_name and server_url:
+                        mcp_clients[server_name] = MCPClient(server_url)
     except Exception as e:
-        logger.error(f"Failed to discover or initialize MCP clients: {e}", exc_info=True)
-        instance.messages.append(
-            MessageModel(
-                role="system", content=f"Error: Could not discover MCP servers. {e}"
-            )
+        logger.warning(
+            f"Could not discover MCP servers: {e}. This is okay if no tools are used."
         )
-        return instance
+        # Proceed with no clients, this will be checked later if tools are required.
 
     all_formatted_tools = []
     available_tool_names = set()
 
-    try:
-        await asyncio.gather(*(client.__aenter__() for client in mcp_clients.values()))
-
-        tool_listing_tasks = [
-            client.list_tools() for client in mcp_clients.values()
-        ]
-        server_tool_results = await asyncio.gather(
-            *tool_listing_tasks, return_exceptions=True
-        )
-
-        for (server_name, _), tools_result in zip(
-            mcp_clients.items(), server_tool_results
-        ):
-            if isinstance(tools_result, Exception):
-                logger.error(
-                    f"Failed to list tools from server '{server_name}': {tools_result}"
-                )
-                continue
-
-            for tool in tools_result:
-                available_tool_names.add(f"{server_name}-{tool.name}")
-            all_formatted_tools.extend(
-                _format_mcp_tools_for_openai(tools_result, server_name)
+    if mcp_clients:
+        try:
+            await asyncio.gather(
+                *(client.__aenter__() for client in mcp_clients.values())
             )
 
-        enabled_tool_ids = {
-            tool_id
-            for tool_id, details in agent_definition.tools.items()
-            if details.get("enabled")
-        }
-        tools = [
-            tool
-            for tool in all_formatted_tools
-            if tool["function"]["name"] in enabled_tool_ids
-        ]
+            tool_listing_tasks = [
+                client.list_tools() for client in mcp_clients.values()
+            ]
+            server_tool_results = await asyncio.gather(
+                *tool_listing_tasks, return_exceptions=True
+            )
 
-        if not tools:
-            logger.warning("Agent step has no enabled tools.")
-            # This is not a failure, just a simple LLM call.
-            pass
+            for (server_name, _), tools_result in zip(
+                mcp_clients.items(), server_tool_results
+            ):
+                if isinstance(tools_result, Exception):
+                    logger.error(
+                        f"Failed to list tools from server '{server_name}': {tools_result}"
+                    )
+                    continue
 
-        # Add a tool to get output from a previous step
-        get_output_tool = {
-            "type": "function",
-            "function": {
-                "name": "get_step_output",
-                "description": "Retrieves the full, raw output data from a previous step in the workflow using its unique output ID.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "output_id": {
-                            "type": "string",
-                            "description": "The UUID of the output data to retrieve. This is found in the compressed JSON reference provided in the prompt.",
-                        }
-                    },
-                    "required": ["output_id"],
+                for tool in tools_result:
+                    available_tool_names.add(f"{server_name}-{tool.name}")
+                all_formatted_tools.extend(
+                    _format_mcp_tools_for_openai(tools_result, server_name)
+                )
+        except Exception as e:
+            logger.error(f"Error communicating with MCP servers: {e}", exc_info=True)
+
+    # After attempting to discover all tools, check if any enabled tools are missing.
+    enabled_tool_ids = {
+        tool_id
+        for tool_id, details in agent_definition.tools.items()
+        if details.get("enabled")
+    }
+
+    if enabled_tool_ids:
+        missing_tools = enabled_tool_ids - available_tool_names
+        if missing_tools:
+            error_msg = f"Agent step failed because required tools are unavailable: {', '.join(missing_tools)}"
+            logger.error(error_msg)
+            instance.status = "failed"
+            instance.error_message = error_msg
+            instance.messages.append(MessageModel(role="system", content=error_msg))
+            return instance
+
+    # Filter the tools to only those that are enabled for this agent.
+    tools = [
+        tool
+        for tool in all_formatted_tools
+        if tool["function"]["name"] in enabled_tool_ids
+    ]
+
+    # Add the built-in tool for retrieving step output
+    get_output_tool = {
+        "type": "function",
+        "function": {
+            "name": "get_step_output",
+            "description": "Retrieves the full, raw output data from a previous step in the workflow using its unique output ID.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "output_id": {
+                        "type": "string",
+                        "description": "The UUID of the output data to retrieve. This is found in the compressed JSON reference provided in the prompt.",
+                    }
                 },
+                "required": ["output_id"],
             },
-        }
-        tools.append(get_output_tool)
-
-        # The 'stop_workflow' tool is implicit now. The agent finishes by just responding.
-        
-        # NOTE: Required tools logic is removed for now to simplify.
-        # It can be added back if needed for specific agent behaviors.
-
+        },
+    }
+    tools.append(get_output_tool)
+    
+    try:
         max_cycles = 10  # A reasonable limit for agent execution cycles
         
         messages_for_run = [MessageModel(role="system", content=resolved_system_prompt)]
@@ -198,9 +221,12 @@ async def run_agent_step(
             if not response_message.tool_calls:
                 logger.info("Agent finished execution loop.")
                 # The final message content is the output
+                final_content = response_message.content or "Agent provided no final answer."
                 instance.output = await create_output_data(
-                    raw_data=response_message.content,
-                    summary_prompt="Summarize the agent's final answer."
+                    raw_data=final_content,
+                    summary="Agent's final answer.",
+                    markdown_representation=f"## Agent Final Answer\n\n{final_content}",
+                    user_id=user_id,
                 )
                 break
 
@@ -208,7 +234,11 @@ async def run_agent_step(
             tool_results_coroutines: list[Coroutine] = []
             tool_call_details_map: dict[int, Any] = {}
 
-            for i, tool_call in enumerate(tool_calls):
+            # --- Argument Resolution Step ---
+            # Before calling the tools, resolve any "magic string" data pointers.
+            resolved_tool_calls = await _resolve_tool_arguments(tool_calls, instance.user_id)
+
+            for i, tool_call in enumerate(resolved_tool_calls):
                 tool_call_details_map[i] = tool_call
                 function_name = tool_call.function.name
                 
@@ -236,9 +266,11 @@ async def run_agent_step(
 
             if turn == max_cycles - 1:
                 logger.warning(f"Agent reached max cycles ({max_cycles}). Finishing.")
+                timeout_message = "Agent reached maximum execution cycles and was terminated."
                 instance.output = await create_output_data(
-                    raw_data="Agent reached maximum execution cycles.",
-                    summary_prompt="Summarize the agent's final answer."
+                    raw_data=timeout_message,
+                    summary="Agent timed out.",
+                    markdown_representation=f"## Agent Timed Out\n\n{timeout_message}"
                 )
 
     except Exception as e:
@@ -246,24 +278,65 @@ async def run_agent_step(
         instance.status = "failed"
         instance.error_message = str(e)
     finally:
-        await asyncio.gather(
-            *(client.__aexit__(None, None, None) for client in mcp_clients.values())
-        )
+        if mcp_clients:
+            await asyncio.gather(
+                *(client.__aexit__(None, None, None) for client in mcp_clients.values())
+            )
+        instance.finished_at = datetime.now()
+        return instance
 
-    logger.info(f"Finished execution for agent instance {instance.uuid}.")
-    return instance
+
+async def _resolve_tool_arguments(tool_calls: list, user_id: str) -> list:
+    """
+    Inspects tool call arguments and resolves any "magic string" data pointers.
+    Format: 'step_output:<step_output_id>:<JSONPath>'
+    """
+    for tool_call in tool_calls:
+        try:
+            arguments = json.loads(tool_call.function.arguments)
+        except json.JSONDecodeError:
+            continue # If args aren't valid JSON, skip them.
+
+        resolved_args = {}
+        for key, value in arguments.items():
+            if isinstance(value, str) and value.startswith("step_output:"):
+                try:
+                    _, step_output_id, path = value.split(":", 2)
+                    
+                    # Fetch the data container
+                    output_data = await workflow_client.get_output_data(output_id=step_output_id, user_id=user_id)
+                    if not output_data:
+                        raise ValueError(f"Could not find output data with ID {step_output_id}")
+
+                    # Use JSONPath to extract the specific value
+                    jsonpath_expr = parse(path)
+                    matches = jsonpath_expr.find(output_data.model_dump())
+                    if not matches:
+                        raise ValueError(f"Path '{path}' not found in data from step output {step_output_id}")
+                    
+                    resolved_args[key] = matches[0].value
+                except Exception as e:
+                    logger.error(f"Failed to resolve data pointer '{value}': {e}", exc_info=True)
+                    # Pass the unresolved value to the tool, which will likely fail and provide a signal to the LLM
+                    resolved_args[key] = value
+            else:
+                resolved_args[key] = value
+        
+        tool_call.function.arguments = json.dumps(resolved_args)
+
+    return tool_calls
 
 async def _handle_get_step_output(tool_call, user_id) -> str:
-    """Handles the special 'get_step_output' tool call."""
-    from workflow.client import get_output_data # Avoid circular import
-
+    """
+    Handles the built-in 'get_step_output' tool call.
+    """
     try:
         args = json.loads(tool_call.function.arguments)
         output_id = args.get("output_id")
         if not output_id:
             return "Error: `output_id` is required."
         
-        output_data = await get_output_data(output_id, user_id)
+        output_data = await workflow_client.get_output_data(output_id, user_id)
         if not output_data:
             return f"Error: No output data found for ID {output_id}."
         

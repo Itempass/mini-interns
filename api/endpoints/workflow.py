@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Optional
 from uuid import UUID
 import json
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 
 import workflow.client as workflow_client
 import workflow.internals.runner as runner
@@ -308,19 +308,41 @@ async def remove_workflow_step(
 async def run_workflow_endpoint(
     workflow_uuid: UUID,
     triggering_data: Dict[str, Any],
-    background_tasks: BackgroundTasks,
     user_id: UUID = Depends(get_current_user_id),
 ):
     """
-    Creates a new workflow instance and starts its execution in the background.
-    """
-    instance = await workflow_client.create_instance(
-        workflow_uuid=workflow_uuid, triggering_data=triggering_data, user_id=user_id
-    )
-    # This adds the long-running task to FastAPI's background runner
-    background_tasks.add_task(runner.run_workflow, instance.uuid, user_id)
+    Creates and executes a new instance of a workflow.
 
-    return {"message": "Workflow run started.", "instance_id": instance.uuid}
+    This endpoint accepts initial data (e.g., from a form or webhook)
+    and uses it to kick off a new workflow run. The instance is created
+    and its execution is scheduled to run in the background.
+    """
+    logger.info(f"POST /workflows/{workflow_uuid}/run - Kicking off workflow")
+    try:
+        # The client now handles both creating the instance and scheduling it.
+        # We wrap the dict in a simple object to match StepOutputData structure.
+        class TriggerData:
+            def __init__(self, data):
+                self.raw_data = data.get("raw_data")
+                self.summary = data.get("summary")
+                self.markdown_representation = data.get("markdown_representation")
+
+        instance = await workflow_client.create_instance(
+            workflow_uuid=workflow_uuid,
+            triggering_data=TriggerData(triggering_data),
+            user_id=user_id,
+        )
+        return instance
+    except ValueError as e:
+        logger.error(f"Error creating workflow instance: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(e)
+        )
+    except Exception as e:
+        logger.error(f"An unexpected error occurred while running workflow {workflow_uuid}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500, detail="An unexpected error occurred."
+        )
 
 
 @router.get(
