@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import TopBar from '../../components/TopBar';
 import WorkflowSidebar from '../../components/WorkflowSidebar';
 import WorkflowSettings from '../../components/WorkflowSettings';
-import { Workflow, getWorkflows } from '../../services/workflows_api';
+import { Workflow, WorkflowWithDetails, getWorkflows } from '../../services/workflows_api';
 import VersionCheck from '../../components/VersionCheck';
 import ConnectionStatusIndicator from '../../components/ConnectionStatusIndicator';
 import NoWorkflowsView from '../../components/NoWorkflowsView';
@@ -17,13 +17,25 @@ const WorkflowsPage = () => {
     setWorkflows(freshWorkflows);
 
     if (selectedWorkflow) {
-      const updatedSelectedWorkflow = freshWorkflows.find(workflow => workflow.uuid === selectedWorkflow.uuid);
+      const updatedSelectedWorkflow = freshWorkflows.find(w => w.uuid === selectedWorkflow.uuid);
       setSelectedWorkflow(updatedSelectedWorkflow || (freshWorkflows.length > 0 ? freshWorkflows[0] : null));
     } else if (freshWorkflows.length > 0) {
       setSelectedWorkflow(freshWorkflows[0]);
     } else {
       setSelectedWorkflow(null);
     }
+  };
+  
+  const handleWorkflowUpdate = (updatedWorkflow: WorkflowWithDetails) => {
+    // This function is now only responsible for updating the list in the sidebar,
+    // as the WorkflowSettings component manages its own detailed state.
+    setWorkflows(currentWorkflows => 
+      currentWorkflows.map(w => 
+        w.uuid === updatedWorkflow.uuid 
+        ? { ...w, name: updatedWorkflow.name, description: updatedWorkflow.description, is_active: updatedWorkflow.is_active } 
+        : w
+      )
+    );
   };
 
   useEffect(() => {
@@ -52,8 +64,12 @@ const WorkflowsPage = () => {
             <ConnectionStatusIndicator />
           </div>
           <main className="flex-1 overflow-y-auto bg-gray-100">
-            {workflows.length > 0 && selectedWorkflow ? (
-                <WorkflowSettings key={selectedWorkflow.uuid} workflow={selectedWorkflow} onWorkflowUpdate={fetchWorkflows} />
+            {selectedWorkflow ? (
+                <WorkflowSettings 
+                  key={selectedWorkflow.uuid} 
+                  workflow={selectedWorkflow} 
+                  onWorkflowUpdate={handleWorkflowUpdate} 
+                />
             ) : (
               <NoWorkflowsView />
             )}

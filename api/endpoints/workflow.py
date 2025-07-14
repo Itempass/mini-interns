@@ -1,6 +1,8 @@
 import logging
+import os
 from typing import Any, Dict, List, Optional
 from uuid import UUID
+import json
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 
@@ -11,17 +13,50 @@ from workflow.models import (
     WorkflowInstanceModel,
     WorkflowModel,
     WorkflowWithDetails,
+    WorkflowStep,
 )
 
 from ..types.api_models.workflow import (
+    AddStepRequest,
     CreateWorkflowRequest,
     SetTriggerRequest,
     TriggerTypeResponse,
+    UpdateStepRequest,
 )
 from .auth import get_current_user_id
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/workflows", tags=["Workflows"])
+
+# A simple cache for the LLM models to avoid reading the file on every request
+llm_models_cache = None
+
+@router.get("/available-llm-models", response_model=List[Dict[str, Any]])
+async def get_available_llm_models():
+    """
+    Returns a list of available LLM models from the configuration file.
+    """
+    global llm_models_cache
+    if llm_models_cache is None:
+        try:
+            with open("shared/llm_models.json", "r") as f:
+                llm_models_cache = json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError) as e:
+            logger.error(f"Could not load or parse llm_models.json: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail="Could not load available LLM models.")
+    return llm_models_cache
+
+@router.get("/available-tools", response_model=List[Dict[str, Any]])
+async def get_available_tools():
+    """
+    Discovers and returns a list of all available tools from connected MCP servers.
+    """
+    try:
+        tools = await workflow_client.discover_mcp_tools()
+        return tools
+    except Exception as e:
+        logger.error(f"Could not discover MCP tools: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Could not discover available tools.")
 
 
 #
@@ -116,6 +151,7 @@ async def get_workflow_details(
     Retrieves a single, "hydrated" workflow object with all its step
     and trigger objects fully populated.
     """
+    logger.info(f"[Worker: {os.getpid()}] GET /workflows/{workflow_uuid}")
     workflow = await workflow_client.get_with_details(
         workflow_uuid=workflow_uuid, user_id=user_id
     )
@@ -155,6 +191,110 @@ async def delete_workflow(
     except Exception as e:
         logger.error(f"DELETE /workflows/{workflow_uuid} - Error deleting workflow: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Error deleting workflow.")
+
+
+#
+# Step Management Endpoints
+#
+@router.put(
+    "/steps/{step_uuid}",
+    response_model=WorkflowStep,
+    summary="Update a workflow step",
+)
+async def update_workflow_step(
+    step_uuid: UUID,
+    request: UpdateStepRequest,
+    user_id: UUID = Depends(get_current_user_id),
+):
+    """
+    Updates the definition of a specific workflow step.
+    The step is identified by its UUID, and the entire updated step object
+    is passed in the request body.
+    """
+    logger.info(f"PUT /workflows/steps/{step_uuid}")
+    
+    # The UUID in the path takes precedence over the one in the body.
+    if step_uuid != request.uuid:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="The UUID in the URL path does not match the UUID in the request body.",
+        )
+
+    try:
+        updated_step = await workflow_client.update_step(
+            step=request, user_id=user_id
+        )
+        if not updated_step:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Step not found"
+            )
+        return updated_step
+    except Exception as e:
+        logger.error(f"Error updating step {step_uuid}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Error updating workflow step.")
+
+
+@router.post(
+    "/{workflow_uuid}/steps",
+    response_model=WorkflowWithDetails,
+    summary="Add a new step to a workflow",
+)
+async def add_workflow_step(
+    workflow_uuid: UUID,
+    request: AddStepRequest,
+    user_id: UUID = Depends(get_current_user_id),
+):
+    """Adds a new step definition to the end of a workflow."""
+    logger.info(f"[Worker: {os.getpid()}] POST /workflows/{workflow_uuid}/steps - Type: {request.step_type}, Name: {request.name}")
+    try:
+        await workflow_client.add_new_step(
+            workflow_uuid=workflow_uuid,
+            step_type=request.step_type,
+            name=request.name,
+            user_id=user_id,
+        )
+        # Return the full, updated workflow object
+        logger.info(f"[Worker: {os.getpid()}] Step added, fetching details for {workflow_uuid}")
+        return await workflow_client.get_with_details(
+            workflow_uuid=workflow_uuid, user_id=user_id
+        )
+    except Exception as e:
+        logger.error(f"Error adding step to workflow {workflow_uuid}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Error adding step to workflow.")
+
+
+@router.delete(
+    "/{workflow_uuid}/steps/{step_uuid}",
+    response_model=WorkflowWithDetails,
+    summary="Remove a step from a workflow",
+)
+async def remove_workflow_step(
+    workflow_uuid: UUID,
+    step_uuid: UUID,
+    user_id: UUID = Depends(get_current_user_id),
+):
+    """
+    Removes a step from a workflow and deletes the step definition.
+    Returns the updated workflow.
+    """
+    logger.info(f"DELETE /workflows/{workflow_uuid}/steps/{step_uuid}")
+    try:
+        # The client function handles both removing the reference
+        # and deleting the step definition.
+        await workflow_client.delete_step(
+            workflow_uuid=workflow_uuid,
+            step_uuid=step_uuid,
+            user_id=user_id,
+        )
+
+        # Return the full, updated workflow object
+        logger.info(f"Step {step_uuid} removed, fetching updated details for {workflow_uuid}")
+        return await workflow_client.get_with_details(
+            workflow_uuid=workflow_uuid, user_id=user_id
+        )
+    except Exception as e:
+        logger.error(f"Error removing step {step_uuid} from workflow {workflow_uuid}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Error removing step from workflow.")
 
 
 #
@@ -256,57 +396,43 @@ async def get_available_trigger_types() -> List[TriggerTypeResponse]:
         )
 
 
+#
+# Trigger Management
+#
 @router.post(
     "/{workflow_uuid}/trigger",
-    response_model=WorkflowModel,
+    response_model=WorkflowWithDetails,
     summary="Set trigger for a workflow",
 )
 async def set_workflow_trigger(
     workflow_uuid: UUID,
     request: SetTriggerRequest,
-    user_id: UUID = Depends(get_current_user_id)
+    user_id: UUID = Depends(get_current_user_id),
 ):
     """
-    Creates and attaches a trigger to the workflow.
+    Creates and attaches a new trigger to the workflow. If a trigger already
+    exists, it will be replaced.
     """
-    logger.info(f"POST /workflows/{workflow_uuid}/trigger - Setting trigger")
-    try:
-        workflow = await workflow_client.set_trigger(
-            workflow_uuid=workflow_uuid,
-            trigger_type_id=request.trigger_type_id,
-            user_id=user_id
-        )
-        logger.info(f"POST /workflows/{workflow_uuid}/trigger - Trigger set successfully")
-        return workflow
-
-    except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-    except Exception as e:
-        logger.error(f"POST /workflows/{workflow_uuid}/trigger - Error setting trigger: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Error setting workflow trigger.")
+    await workflow_client.set_trigger(
+        workflow_uuid=workflow_uuid,
+        trigger_type_id=request.trigger_type_id,
+        user_id=user_id,
+    )
+    return await workflow_client.get_with_details(
+        workflow_uuid=workflow_uuid, user_id=user_id
+    )
 
 
 @router.delete(
     "/{workflow_uuid}/trigger",
-    response_model=WorkflowModel,
+    response_model=WorkflowWithDetails,
     summary="Remove trigger from a workflow",
 )
 async def remove_workflow_trigger(
-    workflow_uuid: UUID,
-    user_id: UUID = Depends(get_current_user_id)
+    workflow_uuid: UUID, user_id: UUID = Depends(get_current_user_id)
 ):
-    """
-    Removes the trigger from the workflow.
-    """
-    logger.info(f"DELETE /workflows/{workflow_uuid}/trigger - Removing trigger")
-    try:
-        workflow = await workflow_client.remove_trigger(
-            workflow_uuid=workflow_uuid,
-            user_id=user_id
-        )
-        logger.info(f"DELETE /workflows/{workflow_uuid}/trigger - Trigger removed successfully")
-        return workflow
-
-    except Exception as e:
-        logger.error(f"DELETE /workflows/{workflow_uuid}/trigger - Error removing trigger: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Error removing workflow trigger.") 
+    """Detaches and deletes the trigger associated with the workflow."""
+    await workflow_client.remove_trigger(workflow_uuid=workflow_uuid, user_id=user_id)
+    return await workflow_client.get_with_details(
+        workflow_uuid=workflow_uuid, user_id=user_id
+    ) 

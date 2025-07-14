@@ -20,6 +20,7 @@ from workflow.internals.database import (
     _update_step_instance_in_db,
 )
 from workflow.internals.llm_runner import run_llm_step
+from workflow.internals.output_processor import generate_step_summary_from_prompt
 from workflow.models import CustomLLM, CustomLLMInstanceModel
 
 logger = logging.getLogger(__name__)
@@ -68,9 +69,10 @@ async def get(uuid: UUID, user_id: UUID) -> Optional[CustomLLM]:
     return None
 
 
-async def save(llm_model: CustomLLM, user_id: UUID) -> CustomLLM:
+async def update(llm_model: CustomLLM, user_id: UUID) -> CustomLLM:
     """
     Saves the state of a CustomLLM step definition to the database.
+    This also regenerates the summary from the system prompt.
 
     Args:
         llm_model: The CustomLLM object to save.
@@ -79,6 +81,7 @@ async def save(llm_model: CustomLLM, user_id: UUID) -> CustomLLM:
     Returns:
         The updated CustomLLM object.
     """
+    llm_model.generated_summary = generate_step_summary_from_prompt(llm_model.system_prompt)
     await _update_step_in_db(step=llm_model, user_id=user_id)
     return llm_model
 

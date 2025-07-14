@@ -55,4 +55,16 @@ async def create_output_data(
         markdown_representation=markdown_representation,
     )
     logger.info(f"Created StepOutputData object {output.uuid} with summary.")
-    return output 
+    return output
+
+
+def generate_step_summary_from_prompt(system_prompt: str) -> str:
+    """
+    Generates a simple, single-line summary from a step's system prompt.
+    """
+    if not system_prompt or not system_prompt.strip():
+        return "No summary available."
+    
+    # Take the first non-empty line as the summary.
+    first_line = system_prompt.strip().splitlines()[0]
+    return (first_line[:150] + '...') if len(first_line) > 150 else first_line 

@@ -26,6 +26,8 @@ class CustomLLM(BaseModel):
     model: str
     system_prompt: str
     generated_summary: Optional[str] = None  # For UI display, auto-generated
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
 
 
 class CustomAgent(BaseModel):
@@ -40,6 +42,8 @@ class CustomAgent(BaseModel):
     system_prompt: str
     tools: Dict[str, Any] = Field(default_factory=dict)  # tool_id -> { enabled: bool, ... }
     generated_summary: Optional[str] = None  # For UI display, auto-generated
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
 
 
 class StopWorkflowChecker(BaseModel):
@@ -51,6 +55,8 @@ class StopWorkflowChecker(BaseModel):
     description: str = Field(default="", description="A description of what this step does.")
     type: Literal["stop_checker"] = "stop_checker"
     stop_conditions: List[StopWorkflowCondition] = Field(...)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
     # This step does not produce output for other steps to consume.
 
 

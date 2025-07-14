@@ -23,6 +23,7 @@ from workflow.internals.database import (
     _update_step_instance_in_db,
 )
 from workflow.internals.agent_runner import run_agent_step
+from workflow.internals.output_processor import generate_step_summary_from_prompt
 from workflow.models import CustomAgent, CustomAgentInstanceModel
 
 logger = logging.getLogger(__name__)
@@ -113,9 +114,10 @@ async def get(uuid: UUID, user_id: UUID) -> Optional[CustomAgent]:
     return None
 
 
-async def save(agent_model: CustomAgent, user_id: UUID) -> CustomAgent:
+async def update(agent_model: CustomAgent, user_id: UUID) -> CustomAgent:
     """
     Saves the state of a CustomAgent step definition to the database.
+    This also regenerates the summary from the system prompt.
 
     Args:
         agent_model: The CustomAgent object to save.
@@ -124,6 +126,7 @@ async def save(agent_model: CustomAgent, user_id: UUID) -> CustomAgent:
     Returns:
         The updated CustomAgent object.
     """
+    agent_model.generated_summary = generate_step_summary_from_prompt(agent_model.system_prompt)
     await _update_step_in_db(step=agent_model, user_id=user_id)
     return agent_model
 

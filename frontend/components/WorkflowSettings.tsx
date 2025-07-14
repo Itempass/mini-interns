@@ -1,18 +1,46 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Workflow, TriggerType, getAvailableTriggerTypes, setWorkflowTrigger, removeWorkflowTrigger } from '../services/workflows_api';
+import { 
+  Workflow, 
+  WorkflowWithDetails,
+  TriggerType, 
+  getAvailableTriggerTypes, 
+  setWorkflowTrigger, 
+  removeWorkflowTrigger,
+  getWorkflowDetails,
+  removeWorkflowStep,
+  updateWorkflowStep,
+  WorkflowStep,
+} from '../services/workflows_api';
+import CreateStepModal from './CreateStepModal';
+import StepEditor from './workflow/StepEditor';
 
 interface WorkflowSettingsProps {
   workflow: Workflow;
-  onWorkflowUpdate: () => void;
+  onWorkflowUpdate: (updatedWorkflow: WorkflowWithDetails) => void;
 }
 
 const WorkflowSettings: React.FC<WorkflowSettingsProps> = ({ workflow, onWorkflowUpdate }) => {
+  const [detailedWorkflow, setDetailedWorkflow] = useState<WorkflowWithDetails | null>(null);
   const [triggerTypes, setTriggerTypes] = useState<TriggerType[]>([]);
   const [selectedTriggerType, setSelectedTriggerType] = useState<string>('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isFetchingDetails, setIsFetchingDetails] = useState(true);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [isAddStepModalOpen, setIsAddStepModalOpen] = useState(false);
+  const [editingStep, setEditingStep] = useState<WorkflowStep | null>(null);
+
+  const fetchDetails = async () => {
+    if (workflow) {
+      console.log(`[WorkflowSettings] Fetching details for workflow: ${workflow.uuid}`);
+      setIsFetchingDetails(true);
+      const details = await getWorkflowDetails(workflow.uuid);
+      console.log(`[WorkflowSettings] Received details for workflow: ${workflow.uuid}`, details);
+      setDetailedWorkflow(details);
+      setIsFetchingDetails(false);
+    }
+  };
 
   useEffect(() => {
     const fetchTriggerTypes = async () => {
@@ -22,6 +50,10 @@ const WorkflowSettings: React.FC<WorkflowSettingsProps> = ({ workflow, onWorkflo
     fetchTriggerTypes();
   }, []);
 
+  useEffect(() => {
+    fetchDetails();
+  }, [workflow]);
+
   const handleSetTrigger = async () => {
     if (!selectedTriggerType) return;
     
@@ -29,10 +61,12 @@ const WorkflowSettings: React.FC<WorkflowSettingsProps> = ({ workflow, onWorkflo
     setSaveStatus('saving');
     
     try {
-      const result = await setWorkflowTrigger(workflow.uuid, selectedTriggerType);
-      if (result) {
+      const updatedWorkflow = await setWorkflowTrigger(workflow.uuid, selectedTriggerType);
+      console.log('[WorkflowSettings] Received updated workflow after setting trigger:', updatedWorkflow);
+      if (updatedWorkflow) {
         setSaveStatus('saved');
-        onWorkflowUpdate();
+        setDetailedWorkflow(updatedWorkflow);
+        onWorkflowUpdate(updatedWorkflow);
         setTimeout(() => setSaveStatus('idle'), 2000);
       } else {
         setSaveStatus('error');
@@ -46,16 +80,18 @@ const WorkflowSettings: React.FC<WorkflowSettingsProps> = ({ workflow, onWorkflo
   };
 
   const handleRemoveTrigger = async () => {
-    if (!workflow.trigger_uuid) return;
+    if (!detailedWorkflow?.trigger?.uuid) return;
     
     setIsLoading(true);
     setSaveStatus('saving');
     
     try {
-      const result = await removeWorkflowTrigger(workflow.uuid);
-      if (result) {
+      const updatedWorkflow = await removeWorkflowTrigger(workflow.uuid);
+      console.log('[WorkflowSettings] Received updated workflow after removing trigger:', updatedWorkflow);
+      if (updatedWorkflow) {
         setSaveStatus('saved');
-        onWorkflowUpdate();
+        setDetailedWorkflow(updatedWorkflow);
+        onWorkflowUpdate(updatedWorkflow);
         setSelectedTriggerType('');
         setTimeout(() => setSaveStatus('idle'), 2000);
       } else {
@@ -69,16 +105,41 @@ const WorkflowSettings: React.FC<WorkflowSettingsProps> = ({ workflow, onWorkflo
     }
   };
 
-  if (!workflow) {
-    return <div>Select a workflow to see details.</div>;
+  const handleDeleteStep = async (stepId: string) => {
+    if (!detailedWorkflow) return;
+
+    const isSuccess = await removeWorkflowStep(detailedWorkflow.uuid, stepId);
+    if (isSuccess) {
+      fetchDetails(); // Refetch details to update the UI
+    } else {
+      alert('Failed to delete step.'); // Simple error handling
+    }
+  };
+
+  const handleUpdateStep = async (stepToUpdate: WorkflowStep) => {
+    const updatedStep = await updateWorkflowStep(stepToUpdate);
+    if (updatedStep) {
+      setEditingStep(null);
+      fetchDetails(); // Refetch to show updated data
+    } else {
+      alert('Failed to update step.');
+    }
+  };
+
+  if (isFetchingDetails) {
+    return <div className="p-6">Loading workflow details...</div>;
   }
 
-  const hasTrigger = Boolean(workflow.trigger_uuid);
+  if (!detailedWorkflow) {
+    return <div className="p-6 text-red-500">Could not load workflow details.</div>;
+  }
+
+  const hasTrigger = Boolean(detailedWorkflow.trigger);
 
   return (
     <div className="p-6">
-      <h2 className="text-2xl font-bold mb-4">{workflow.name}</h2>
-      <p className="text-gray-600 mb-6">{workflow.description}</p>
+      <h2 className="text-2xl font-bold mb-4">{detailedWorkflow.name}</h2>
+      <p className="text-gray-600 mb-6">{detailedWorkflow.description}</p>
       
       <div className="bg-white border rounded-lg p-6 mb-6">
         <h3 className="text-lg font-semibold mb-4">Trigger Configuration</h3>
@@ -172,11 +233,70 @@ const WorkflowSettings: React.FC<WorkflowSettingsProps> = ({ workflow, onWorkflo
       </div>
       
       <div className="bg-white border rounded-lg p-6">
-        <h3 className="text-lg font-semibold mb-4">Workflow Steps</h3>
-        <p className="text-gray-600 text-sm">
-          Workflow steps configuration will be available here in a future update.
-        </p>
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="text-lg font-semibold">Workflow Steps</h3>
+          <button
+            onClick={() => setIsAddStepModalOpen(true)}
+            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-400"
+          >
+            Add Step
+          </button>
+        </div>
+        
+        {editingStep ? (
+          <StepEditor
+            key={editingStep.uuid}
+            step={editingStep}
+            workflowSteps={detailedWorkflow.steps}
+            onSave={handleUpdateStep}
+            onCancel={() => setEditingStep(null)}
+          />
+        ) : detailedWorkflow.steps.length > 0 ? (
+          <ol className="space-y-4">
+            {detailedWorkflow.steps.map((step, index) => (
+              <li key={step.uuid} className="p-4 border rounded-md bg-gray-50 flex items-center justify-between">
+                <div className="flex items-center">
+                  <span className="text-gray-500 font-bold text-lg mr-4">{index + 1}</span>
+                  <div>
+                    <p className="font-semibold">{step.name}</p>
+                    <p className="text-sm text-gray-500">{step.type}</p>
+                  </div>
+                </div>
+                <div>
+                  <button 
+                    onClick={() => setEditingStep(step)}
+                    className="text-sm text-blue-600 hover:underline mr-4"
+                  >
+                    Edit
+                  </button>
+                  <button
+                    onClick={() => handleDeleteStep(step.uuid)}
+                    className="text-sm text-red-600 hover:underline"
+                  >
+                    Delete
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ol>
+        ) : (
+          <div className="text-center py-8 px-4 border-2 border-dashed rounded-lg">
+            <p className="text-gray-500">This workflow has no steps.</p>
+            <p className="text-sm text-gray-400 mt-1">Click "Add Step" to get started.</p>
+          </div>
+        )}
       </div>
+
+      <CreateStepModal
+        workflowId={detailedWorkflow.uuid}
+        isOpen={isAddStepModalOpen}
+        onClose={() => setIsAddStepModalOpen(false)}
+        onStepCreated={(updatedWorkflow) => {
+          console.log('[WorkflowSettings] Received updated workflow from CreateStepModal:', updatedWorkflow);
+          setDetailedWorkflow(updatedWorkflow);
+          onWorkflowUpdate(updatedWorkflow);
+        }}
+      />
     </div>
   );
 };

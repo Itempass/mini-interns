@@ -103,6 +103,11 @@ async def _get_workflow_from_db(uuid: UUID, user_id: UUID) -> WorkflowModel | No
                 (uuid.bytes, user_id.bytes),
             )
             row = await cursor.fetchone()
+            
+            # This is a read-only transaction, but we commit to release the
+            # connection's transaction state back to the pool cleanly.
+            await conn.commit()
+
             if not row:
                 return None
 
@@ -132,6 +137,11 @@ async def _list_workflows_from_db(user_id: UUID) -> list[WorkflowModel]:
                 (user_id.bytes,),
             )
             rows = await cursor.fetchall()
+
+            # This is a read-only transaction, but we commit to release the
+            # connection's transaction state back to the pool cleanly.
+            await conn.commit()
+
             for row in rows:
                 # Deserialize JSON fields
                 if row.get("steps"):
@@ -181,6 +191,75 @@ async def _update_workflow_in_db(workflow: WorkflowModel, user_id: UUID) -> Work
                 raise
 
 
+async def _append_step_to_workflow_in_db(workflow_uuid: UUID, step_uuid: UUID, user_id: UUID) -> None:
+    """Atomically appends a step UUID to a workflow's steps list."""
+    async with get_db_connection() as conn:
+        async with conn.cursor() as cursor:
+            try:
+                await cursor.execute(
+                    """
+                    UPDATE workflows
+                    SET steps = JSON_ARRAY_APPEND(steps, '$', %s)
+                    WHERE uuid = %s AND user_id = %s
+                    """,
+                    (
+                        step_uuid.hex,
+                        workflow_uuid.bytes,
+                        user_id.bytes,
+                    ),
+                )
+                await conn.commit()
+                logger.info(f"Successfully appended step {step_uuid} to workflow {workflow_uuid}.")
+            except Exception as e:
+                await conn.rollback()
+                logger.error(f"Failed to append step {step_uuid} to workflow {workflow_uuid}: {e}")
+                raise
+
+
+async def _remove_step_from_workflow_in_db(workflow_uuid: UUID, step_uuid: UUID, user_id: UUID) -> None:
+    """
+    Atomically removes a step's UUID from a workflow's `steps` JSON array.
+    
+    This function uses a combination of JSON_SEARCH and JSON_REMOVE to safely
+    remove an element from the array without race conditions.
+    """
+    async with get_db_connection() as conn:
+        async with conn.cursor() as cursor:
+            try:
+                # This query finds the path to the step_uuid and removes it.
+                # The WHERE clause ensures we only run the update if the step
+                # is actually present in the array.
+                await cursor.execute(
+                    """
+                    UPDATE workflows
+                    SET 
+                        steps = JSON_REMOVE(
+                            steps,
+                            JSON_UNQUOTE(JSON_SEARCH(steps, 'one', %s))
+                        ),
+                        updated_at = NOW()
+                    WHERE 
+                        uuid = %s AND user_id = %s
+                        AND JSON_SEARCH(steps, 'one', %s) IS NOT NULL
+                    """,
+                    (
+                        step_uuid.hex,
+                        workflow_uuid.bytes,
+                        user_id.bytes,
+                        step_uuid.hex,
+                    ),
+                )
+                await conn.commit()
+                if cursor.rowcount > 0:
+                    logger.info(f"Successfully removed step {step_uuid} from workflow {workflow_uuid}.")
+                else:
+                    logger.warning(f"Attempted to remove step {step_uuid} from workflow {workflow_uuid}, but it was not found in the steps list.")
+            except Exception as e:
+                await conn.rollback()
+                logger.error(f"Failed to remove step {step_uuid} from workflow {workflow_uuid}: {e}")
+                raise
+
+
 async def _delete_workflow_in_db(uuid: UUID, user_id: UUID) -> None:
     """Deletes a workflow from the database."""
     async with get_db_connection() as conn:
@@ -197,7 +276,6 @@ async def _delete_workflow_in_db(uuid: UUID, user_id: UUID) -> None:
                 logger.error(f"Failed to delete workflow {uuid}: {e}")
                 raise
 
-
 #
 # Workflow Step CRUD
 #
@@ -206,13 +284,14 @@ async def _create_step_in_db(step: WorkflowStep, user_id: UUID) -> WorkflowStep:
     """Creates a new workflow step record in the database."""
     async with get_db_connection() as conn:
         async with conn.cursor(DictCursor) as cursor:
-            # The 'details' field will store the full Pydantic model dict
-            details_json = step.model_dump_json()
+            # Exclude top-level fields that have their own columns
+            details = step.model_dump(exclude={"uuid", "user_id", "name", "type", "created_at", "updated_at"})
+            details_json = json.dumps(details)
             try:
                 await cursor.execute(
                     """
-                    INSERT INTO workflow_steps (uuid, user_id, name, type, details)
-                    VALUES (%s, %s, %s, %s, %s)
+                    INSERT INTO workflow_steps (uuid, user_id, name, type, details, created_at, updated_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
                     """,
                     (
                         step.uuid.bytes,
@@ -220,6 +299,8 @@ async def _create_step_in_db(step: WorkflowStep, user_id: UUID) -> WorkflowStep:
                         step.name,
                         step.type,
                         details_json,
+                        step.created_at,
+                        step.updated_at,
                     ),
                 )
                 await conn.commit()
@@ -242,15 +323,24 @@ def _instantiate_step_from_row(row: dict, user_id: UUID) -> WorkflowStep | None:
         logger.error(f"Missing type or details in step data: {row}")
         return None
 
-    details = json.loads(details_json)
-    details["user_id"] = user_id # Ensure user_id is present for validation
+    # Start with the JSON data, then overwrite with the explicit column values
+    # to ensure they take precedence and are correctly typed.
+    data = json.loads(details_json)
+    data.update({
+        "uuid": UUID(bytes=row["uuid"]),
+        "user_id": user_id,
+        "name": row["name"],
+        "type": row["type"],
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
+    })
 
     if step_type == "custom_llm":
-        return CustomLLM(**details)
+        return CustomLLM(**data)
     elif step_type == "custom_agent":
-        return CustomAgent(**details)
+        return CustomAgent(**data)
     elif step_type == "stop_checker":
-        return StopWorkflowChecker(**details)
+        return StopWorkflowChecker(**data)
     else:
         logger.warning(f"Unknown step type '{step_type}' encountered.")
         return None
@@ -261,10 +351,11 @@ async def _get_step_from_db(uuid: UUID, user_id: UUID) -> WorkflowStep | None:
     async with get_db_connection() as conn:
         async with conn.cursor(DictCursor) as cursor:
             await cursor.execute(
-                "SELECT type, details FROM workflow_steps WHERE uuid = %s AND user_id = %s",
+                "SELECT uuid, name, type, details, created_at, updated_at FROM workflow_steps WHERE uuid = %s AND user_id = %s",
                 (uuid.bytes, user_id.bytes),
             )
             row = await cursor.fetchone()
+            await conn.commit()
             return _instantiate_step_from_row(row, user_id)
 
 
@@ -272,7 +363,9 @@ async def _update_step_in_db(step: WorkflowStep, user_id: UUID) -> WorkflowStep:
     """Updates an existing workflow step in the database."""
     async with get_db_connection() as conn:
         async with conn.cursor(DictCursor) as cursor:
-            details_json = step.model_dump_json()
+            # Exclude top-level fields that have their own columns
+            details = step.model_dump(exclude={"uuid", "user_id", "name", "type", "created_at", "updated_at"})
+            details_json = json.dumps(details)
             try:
                 await cursor.execute(
                     """
@@ -360,6 +453,8 @@ async def _get_trigger_from_db(uuid: UUID, user_id: UUID) -> TriggerModel | None
                 (uuid.bytes, user_id.bytes),
             )
             row = await cursor.fetchone()
+            await conn.commit()
+
             if not row:
                 return None
 
@@ -385,6 +480,7 @@ async def _list_triggers_from_db(user_id: UUID) -> list[TriggerModel]:
                 (user_id.bytes,),
             )
             rows = await cursor.fetchall()
+            await conn.commit()
             for row in rows:
                 details = json.loads(row["details"])
                 triggers.append(
@@ -414,6 +510,8 @@ async def _get_trigger_for_workflow_from_db(
                 (workflow_uuid.bytes, user_id.bytes),
             )
             row = await cursor.fetchone()
+            await conn.commit()
+
             if not row:
                 return None
 
@@ -518,6 +616,8 @@ async def _get_workflow_instance_from_db(
                 (uuid.bytes, user_id.bytes),
             )
             row = await cursor.fetchone()
+            await conn.commit()
+
             if not row:
                 return None
 
@@ -559,6 +659,7 @@ async def _list_workflow_instances_from_db(
                 (workflow_uuid.bytes, user_id.bytes),
             )
             rows = await cursor.fetchall()
+            await conn.commit()
             for row in rows:
                 # Add user_id before instantiation
                 row["user_id"] = user_id
@@ -698,43 +799,48 @@ def _instantiate_step_instance_from_row(row: dict, step_definition_type: str, us
 
 async def _get_step_instance_from_db(uuid: UUID, user_id: UUID) -> WorkflowStepInstance | None:
     """Retrieves a single workflow step instance from the database."""
+    # This function requires a bit more logic, as we first need to know the
+    # type of the step definition to correctly instantiate the instance.
     async with get_db_connection() as conn:
         async with conn.cursor(DictCursor) as cursor:
-            # We need to join with workflow_steps to get the 'type' of the definition
+            # First, get the instance data along with its definition UUID
             await cursor.execute(
                 """
-                SELECT si.*, sd.type as step_definition_type
+                SELECT si.uuid, si.workflow_instance_uuid, si.step_definition_uuid, si.status, si.started_at, si.finished_at, si.output, si.details, ws.type as step_definition_type
                 FROM workflow_step_instances si
-                JOIN workflow_steps sd ON si.step_definition_uuid = sd.uuid
+                JOIN workflow_steps ws ON si.step_definition_uuid = ws.uuid
                 WHERE si.uuid = %s AND si.user_id = %s
                 """,
                 (uuid.bytes, user_id.bytes),
             )
             row = await cursor.fetchone()
+            await conn.commit()
             if not row:
                 return None
-            return _instantiate_step_instance_from_row(row, row["step_definition_type"], user_id)
+            
+            return _instantiate_step_instance_from_row(row, row['step_definition_type'], user_id)
 
 
 async def _list_step_instances_for_workflow_instance_from_db(workflow_instance_uuid: UUID, user_id: UUID) -> list[WorkflowStepInstance]:
-    """Retrieves all step instances for a specific workflow instance from the database."""
+    """Retrieves all step instances for a given workflow instance."""
     instances = []
     async with get_db_connection() as conn:
         async with conn.cursor(DictCursor) as cursor:
-            # We need to join with workflow_steps to get the 'type' of the definition
+            # Join with workflow_steps to get the type for instantiation
             await cursor.execute(
                 """
-                SELECT si.*, sd.type as step_definition_type
+                SELECT si.uuid, si.workflow_instance_uuid, si.step_definition_uuid, si.status, si.started_at, si.finished_at, si.output, si.details, ws.type as step_definition_type
                 FROM workflow_step_instances si
-                JOIN workflow_steps sd ON si.step_definition_uuid = sd.uuid
+                JOIN workflow_steps ws ON si.step_definition_uuid = ws.uuid
                 WHERE si.workflow_instance_uuid = %s AND si.user_id = %s
-                ORDER BY si.created_at ASC
                 """,
                 (workflow_instance_uuid.bytes, user_id.bytes),
             )
             rows = await cursor.fetchall()
+            await conn.commit()
+
             for row in rows:
-                instance = _instantiate_step_instance_from_row(row, row["step_definition_type"], user_id)
+                instance = _instantiate_step_instance_from_row(row, row['step_definition_type'], user_id)
                 if instance:
                     instances.append(instance)
     return instances
@@ -783,23 +889,22 @@ async def _update_step_instance_in_db(instance: WorkflowStepInstance, user_id: U
 
 
 async def _get_step_output_data_from_db(output_id: UUID, user_id: UUID) -> Optional[StepOutputData]:
-    """Retries a step's output data object from the database using its unique ID."""
+    """
+    Retrieves a StepOutputData object directly from the workflow_step_instances
+    table using its unique output_id.
+    """
     async with get_db_connection() as conn:
         async with conn.cursor(DictCursor) as cursor:
-            # The output is stored on the step instance, so we query that table.
-            # We also index by output_id for efficient lookup.
             await cursor.execute(
-                """
-                SELECT output FROM workflow_step_instances
-                WHERE output_id = %s AND user_id = %s
-                """,
+                "SELECT output FROM workflow_step_instances WHERE output_id = %s AND user_id = %s",
                 (output_id.bytes, user_id.bytes),
             )
             row = await cursor.fetchone()
+            await conn.commit()
+
             if not row or not row.get("output"):
                 return None
             
-            # The 'output' column is a JSON blob, so we load it.
             output_data = json.loads(row["output"])
             return StepOutputData(**output_data)
 

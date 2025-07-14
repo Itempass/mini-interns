@@ -1,4 +1,5 @@
 from pydantic import BaseModel
+from workflow.models import CustomAgent, CustomLLM, StopWorkflowChecker
 
 
 class CreateWorkflowRequest(BaseModel):
@@ -20,4 +21,12 @@ class TriggerTypeResponse(BaseModel):
 class SetTriggerRequest(BaseModel):
     """Request model for setting a trigger on a workflow."""
 
-    trigger_type_id: str 
+    trigger_type_id: str
+
+
+class AddStepRequest(BaseModel):
+    step_type: str
+    name: str
+
+
+UpdateStepRequest = CustomLLM | CustomAgent | StopWorkflowChecker 

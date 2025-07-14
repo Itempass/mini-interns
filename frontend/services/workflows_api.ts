@@ -14,6 +14,71 @@ export interface Workflow {
     updated_at: string;
 }
 
+export interface TriggerModel {
+    uuid: string;
+    user_id: string;
+    workflow_uuid: string;
+    filter_rules: any;
+    initial_data_description: string;
+    created_at: string;
+    updated_at: string;
+}
+
+export interface CustomLLMStep {
+    uuid: string;
+    user_id: string;
+    name: string;
+    description: string;
+    type: 'custom_llm';
+    model: string;
+    system_prompt: string;
+    generated_summary?: string;
+}
+
+export interface CustomAgentStep {
+    uuid: string;
+    user_id: string;
+    name: string;
+    description: string;
+    type: 'custom_agent';
+    model: string;
+    system_prompt: string;
+    tools: Record<string, any>;
+    generated_summary?: string;
+}
+
+export interface StopWorkflowCondition {
+    step_definition_uuid: string;
+    extraction_json_path: string;
+    operator: 'equals' | 'not_equals' | 'contains' | 'greater_than' | 'less_than';
+    target_value: any;
+}
+
+export interface StopWorkflowCheckerStep {
+    uuid: string;
+    user_id: string;
+    name: string;
+    description: string;
+    type: 'stop_checker';
+    stop_conditions: StopWorkflowCondition[];
+}
+
+export type WorkflowStep = CustomLLMStep | CustomAgentStep | StopWorkflowCheckerStep;
+
+export interface WorkflowWithDetails {
+    uuid: string;
+    user_id: string;
+    name: string;
+    description: string;
+    is_active: boolean;
+    trigger: TriggerModel | null;
+    steps: WorkflowStep[];
+    template_id: string | null;
+    template_version: string | null;
+    created_at: string;
+    updated_at: string;
+}
+
 export const getWorkflows = async (): Promise<Workflow[]> => {
     try {
         const response = await fetch(`${API_URL}/workflows`);
@@ -26,6 +91,21 @@ export const getWorkflows = async (): Promise<Workflow[]> => {
     } catch (error) {
         console.error('An error occurred while fetching workflows:', error);
         return [];
+    }
+};
+
+export const getWorkflowDetails = async (workflowId: string): Promise<WorkflowWithDetails | null> => {
+    try {
+        const response = await fetch(`${API_URL}/workflows/${workflowId}`);
+        if (!response.ok) {
+            console.error('Failed to fetch workflow details. Status:', response.status);
+            throw new Error('Failed to fetch workflow details');
+        }
+        const data = await response.json();
+        return data;
+    } catch (error) {
+        console.error('An error occurred while fetching workflow details:', error);
+        return null;
     }
 };
 
@@ -77,6 +157,25 @@ export interface TriggerType {
     initial_data_description: string;
 }
 
+export interface LLMModel {
+    id: string;
+    name: string;
+}
+
+export interface Tool {
+    id: string;
+    name: string;
+    description: string;
+    server: string;
+    input_schema: any;
+}
+
+export interface StepType {
+    type: string;
+    name: string;
+    description: string;
+}
+
 export const getAvailableTriggerTypes = async (): Promise<TriggerType[]> => {
     try {
         const response = await fetch(`${API_URL}/workflows/available-trigger-types`);
@@ -91,7 +190,119 @@ export const getAvailableTriggerTypes = async (): Promise<TriggerType[]> => {
     }
 };
 
-export const setWorkflowTrigger = async (workflowId: string, triggerTypeId: string): Promise<Workflow | null> => {
+export const getAvailableLLMModels = async (): Promise<LLMModel[]> => {
+    try {
+        const response = await fetch(`${API_URL}/workflows/available-llm-models`);
+        if (!response.ok) {
+            console.error('Failed to fetch LLM models. Status:', response.status);
+            return [];
+        }
+        return await response.json();
+    } catch (error) {
+        console.error('An error occurred while fetching LLM models:', error);
+        return [];
+    }
+};
+
+export const getAvailableTools = async (): Promise<Tool[]> => {
+    try {
+        const response = await fetch(`${API_URL}/workflows/available-tools`);
+        if (!response.ok) {
+            console.error('Failed to fetch tools. Status:', response.status);
+            return [];
+        }
+        return await response.json();
+    } catch (error) {
+        console.error('An error occurred while fetching tools:', error);
+        return [];
+    }
+};
+
+export const getAvailableStepTypes = async (): Promise<StepType[]> => {
+    try {
+        const response = await fetch(`${API_URL}/workflows/available-step-types`);
+        if (!response.ok) {
+            console.error('Failed to fetch step types. Status:', response.status);
+            return [];
+        }
+        return await response.json();
+    } catch (error) {
+        console.error('An error occurred while fetching step types:', error);
+        return [];
+    }
+};
+
+export const addWorkflowStep = async (workflowId: string, stepType: string, name: string): Promise<WorkflowWithDetails | null> => {
+    try {
+        const response = await fetch(`${API_URL}/workflows/${workflowId}/steps`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ step_type: stepType, name }),
+        });
+        if (!response.ok) {
+            console.error('Failed to add workflow step. Status:', response.status);
+            return null;
+        }
+        return await response.json();
+    } catch (error) {
+        console.error('An error occurred while adding workflow step:', error);
+        return null;
+    }
+}
+
+export const updateWorkflowStep = async (step: WorkflowStep): Promise<WorkflowStep | null> => {
+    try {
+        const response = await fetch(`${API_URL}/workflows/steps/${step.uuid}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(step),
+        });
+        if (!response.ok) {
+            console.error('Failed to update workflow step. Status:', response.status);
+            return null;
+        }
+        return await response.json();
+    } catch (error) {
+        console.error('An error occurred while updating the workflow step:', error);
+        return null;
+    }
+};
+
+export const removeWorkflowStep = async (workflowId: string, stepId: string): Promise<boolean> => {
+    try {
+        const response = await fetch(`${API_URL}/workflows/${workflowId}/steps/${stepId}`, {
+            method: 'DELETE',
+        });
+        return response.ok;
+    } catch (error) {
+        console.error('An error occurred while removing workflow step:', error);
+        return false;
+    }
+}
+
+export const reorderWorkflowSteps = async (workflowId: string, ordered_step_uuids: string[]): Promise<WorkflowWithDetails | null> => {
+    try {
+        const response = await fetch(`${API_URL}/workflows/${workflowId}/steps/reorder`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ordered_step_uuids }),
+        });
+        if (!response.ok) {
+            console.error('Failed to reorder workflow steps. Status:', response.status);
+            return null;
+        }
+        return await response.json();
+    } catch (error) {
+        console.error('An error occurred while reordering workflow steps:', error);
+        return null;
+    }
+};
+
+export const setWorkflowTrigger = async (workflowId: string, triggerTypeId: string): Promise<WorkflowWithDetails | null> => {
     try {
         const response = await fetch(`${API_URL}/workflows/${workflowId}/trigger`, {
             method: 'POST',
@@ -111,7 +322,7 @@ export const setWorkflowTrigger = async (workflowId: string, triggerTypeId: stri
     }
 };
 
-export const removeWorkflowTrigger = async (workflowId: string): Promise<Workflow | null> => {
+export const removeWorkflowTrigger = async (workflowId: string): Promise<WorkflowWithDetails | null> => {
     try {
         const response = await fetch(`${API_URL}/workflows/${workflowId}/trigger`, {
             method: 'DELETE',

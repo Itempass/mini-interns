@@ -10,6 +10,7 @@ The client orchestrates calls to more specialized clients (for steps and
 triggers) and the underlying database layer to present a unified and
 consistent API for workflow management.
 """
+import logging
 from typing import Any, Dict, List, Literal, Optional
 from uuid import UUID
 
@@ -19,12 +20,14 @@ import workflow.internals.database as db
 import workflow.llm_client as llm_client
 import workflow.trigger_client as trigger_client
 from workflow.internals.database import (
+    _append_step_to_workflow_in_db,
     _get_step_from_db,
     _get_step_output_data_from_db,
     _get_workflow_from_db,
     _get_workflow_instance_from_db,
     _list_workflow_instances_from_db,
     _list_workflows_from_db,
+    _remove_step_from_workflow_in_db,
     _update_workflow_in_db,
 )
 from workflow.internals.output_processor import create_output_data
@@ -33,7 +36,11 @@ from workflow.models import (
     WorkflowInstanceModel,
     WorkflowModel,
     WorkflowWithDetails,
+    WorkflowStep,
 )
+
+logger = logging.getLogger(__name__)
+
 
 #
 # Definition Management
@@ -134,12 +141,17 @@ async def add_new_step(
 ) -> WorkflowModel:
     """
     Creates a new step definition and adds its reference to the workflow.
+    This operation is now atomic at the database level.
     """
-    workflow = await _get_workflow_from_db(uuid=workflow_uuid, user_id=user_id)
-    if not workflow:
-        raise ValueError("Workflow not found.")
+    # Position is ignored for now as we only support appending.
+    # To support insertion at a specific position, a more complex atomic
+    # operation (like a stored procedure or a different JSON function) would be needed.
+    if position != -1:
+        # This would be a more complex operation, for now we raise an error
+        # or simply ignore it and append. Let's log a warning.
+        logger.warning(f"Positional insertion of steps is not yet supported. Appending to the end.")
 
-    # Create the new step
+    # Create the new step first
     if step_type == "custom_llm":
         new_step = await llm_client.create(name=name, user_id=user_id, model="gpt-4-turbo", system_prompt="")
     elif step_type == "custom_agent":
@@ -149,32 +161,49 @@ async def add_new_step(
     else:
         raise ValueError(f"Unknown step type: {step_type}")
 
-    # Add step to workflow
-    if position == -1:
-        workflow.steps.append(new_step.uuid)
-    else:
-        workflow.steps.insert(position, new_step.uuid)
+    # Atomically append the new step's UUID to the workflow's steps list
+    await _append_step_to_workflow_in_db(
+        workflow_uuid=workflow_uuid, step_uuid=new_step.uuid, user_id=user_id
+    )
 
-    await _update_workflow_in_db(workflow=workflow, user_id=user_id)
-    return workflow
+    # Return the updated workflow
+    # Note: get_with_details is called in the API layer, not here.
+    return await _get_workflow_from_db(uuid=workflow_uuid, user_id=user_id)
+
+
+async def update_step(step: WorkflowStep, user_id: UUID) -> Optional[WorkflowStep]:
+    """
+    Updates a workflow step by calling the appropriate client.
+    """
+    logger.info(f"Updating step {step.uuid} of type {step.type}")
+    if step.type == "custom_llm":
+        return await llm_client.update(step, user_id=user_id)
+    elif step.type == "custom_agent":
+        return await agent_client.update(step, user_id=user_id)
+    elif step.type == "stop_checker":
+        return await checker_client.update(step, user_id=user_id)
+    else:
+        logger.error(f"Attempted to update a step with an unknown type: {step.type}")
+        return None
 
 
 async def delete_step(workflow_uuid: UUID, step_uuid: UUID, user_id: UUID) -> None:
     """
     Removes a step from a workflow's list and deletes the step definition.
+    This operation is now atomic at the database level.
     """
-    workflow = await _get_workflow_from_db(uuid=workflow_uuid, user_id=user_id)
+    # First, get the step definition so we know its type for deletion later.
     step_to_delete = await _get_step_from_db(uuid=step_uuid, user_id=user_id)
-
-    if not workflow or not step_to_delete:
+    if not step_to_delete:
+        logger.warning(f"Attempted to delete step {step_uuid}, but it was not found.")
         return
 
-    # Remove from workflow's step list
-    if step_uuid in workflow.steps:
-        workflow.steps.remove(step_uuid)
-        await _update_workflow_in_db(workflow=workflow, user_id=user_id)
+    # Atomically remove the step's reference from the workflow's `steps` array.
+    await _remove_step_from_workflow_in_db(
+        workflow_uuid=workflow_uuid, step_uuid=step_uuid, user_id=user_id
+    )
 
-    # Delete the step definition itself
+    # After successfully removing the reference, delete the step definition itself.
     if step_to_delete.type == "custom_llm":
         await llm_client.delete(uuid=step_uuid, user_id=user_id)
     elif step_to_delete.type == "custom_agent":

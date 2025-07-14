@@ -69,7 +69,7 @@ async def get(uuid: UUID, user_id: UUID) -> Optional[StopWorkflowChecker]:
     return None
 
 
-async def save(
+async def update(
     checker_model: StopWorkflowChecker, user_id: UUID
 ) -> StopWorkflowChecker:
     """
