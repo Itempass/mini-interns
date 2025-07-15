@@ -1,4 +1,6 @@
 import logging
+import os
+import sys
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -6,6 +8,11 @@ from api.endpoints import app_settings, agent, agentlogger, mcp, connection, aut
 from shared.config import settings
 from shared.version import __version__, get_latest_version
 import uvicorn
+
+# Add project root to the Python path to allow for absolute imports
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')

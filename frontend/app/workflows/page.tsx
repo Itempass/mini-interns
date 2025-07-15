@@ -7,6 +7,7 @@ import { Workflow, WorkflowWithDetails, getWorkflows } from '../../services/work
 import VersionCheck from '../../components/VersionCheck';
 import ConnectionStatusIndicator from '../../components/ConnectionStatusIndicator';
 import NoWorkflowsView from '../../components/NoWorkflowsView';
+import WorkflowChat from '../../components/WorkflowChat';
 
 const WorkflowsPage = () => {
   const [selectedWorkflow, setSelectedWorkflow] = useState<Workflow | null>(null);
@@ -29,13 +30,8 @@ const WorkflowsPage = () => {
   const handleWorkflowUpdate = (updatedWorkflow: WorkflowWithDetails) => {
     // This function is now only responsible for updating the list in the sidebar,
     // as the WorkflowSettings component manages its own detailed state.
-    setWorkflows(currentWorkflows => 
-      currentWorkflows.map(w => 
-        w.uuid === updatedWorkflow.uuid 
-        ? { ...w, name: updatedWorkflow.name, description: updatedWorkflow.description, is_active: updatedWorkflow.is_active } 
-        : w
-      )
-    );
+    // We will now just refetch everything to ensure consistency.
+    fetchWorkflows();
   };
 
   useEffect(() => {
@@ -63,15 +59,27 @@ const WorkflowsPage = () => {
             </div>
             <ConnectionStatusIndicator />
           </div>
-          <main className="flex-1 overflow-y-auto bg-gray-100">
+          <main className="flex-1 flex flex-row gap-4 p-4 bg-gray-100 overflow-hidden">
             {selectedWorkflow ? (
-                <WorkflowSettings 
-                  key={selectedWorkflow.uuid} 
-                  workflow={selectedWorkflow} 
-                  onWorkflowUpdate={handleWorkflowUpdate} 
-                />
+              <>
+                <div className="flex-1 overflow-y-auto bg-white border border-gray-200 rounded-lg">
+                  <WorkflowSettings
+                    key={selectedWorkflow.uuid}
+                    workflow={selectedWorkflow}
+                    onWorkflowUpdate={fetchWorkflows}
+                  />
+                </div>
+                <div className="flex-1">
+                  <WorkflowChat
+                    workflowId={selectedWorkflow.uuid}
+                    onWorkflowUpdate={fetchWorkflows}
+                  />
+                </div>
+              </>
             ) : (
-              <NoWorkflowsView />
+              <div className="w-full">
+                <NoWorkflowsView />
+              </div>
             )}
           </main>
         </div>

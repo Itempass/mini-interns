@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 import workflow.client as workflow_client
 import workflow.trigger_client as trigger_client
 import workflow.internals.runner as runner
+from workflow_agent.client import client as workflow_agent_client
 from workflow.models import (
     StepOutputData,
     WorkflowInstanceModel,
@@ -25,6 +26,7 @@ from ..types.api_models.workflow import (
     UpdateStepRequest,
     UpdateTriggerRequest,
 )
+from workflow_agent.client.models import ChatRequest, ChatStepResponse
 from .auth import get_current_user_id
 
 logger = logging.getLogger(__name__)
@@ -499,3 +501,35 @@ async def update_workflow_trigger(
     return await workflow_client.get_with_details(
         workflow_uuid=workflow_uuid, user_id=user_id
     ) 
+
+#
+# Workflow Agent Chat Endpoints
+#
+@router.post(
+    "/{workflow_uuid}/chat/step",
+    response_model=ChatStepResponse,
+    summary="Execute a single step in a workflow agent chat",
+)
+async def workflow_agent_chat_step(
+    workflow_uuid: UUID,
+    request: ChatRequest,
+    user_id: UUID = Depends(get_current_user_id),
+):
+    """
+    Executes a single turn in the conversation with the workflow agent.
+
+    This endpoint is designed to be called repeatedly by the frontend to
+    simulate a real-time chat. It performs one "unit" of work per call:
+    - If the user just sent a message, it calls the LLM.
+    - If the LLM just decided to use a tool, it executes the tool.
+
+    The `is_complete` flag in the response tells the frontend whether the
+    agent's turn is over or if another call is needed immediately.
+    """
+    try:
+        return await workflow_agent_client.run_chat_step(
+            request=request, user_id=user_id, workflow_uuid=workflow_uuid
+        )
+    except Exception as e:
+        logger.error(f"Error during agent chat step for workflow {workflow_uuid}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="An error occurred during the agent chat turn.") 

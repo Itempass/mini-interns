@@ -20,6 +20,7 @@
     "react-markdown": "^10.1.0",
     "react-tooltip": "^5.29.1",
     "remark-gfm": "^4.0.1",
+    "uuid": "^11.1.0",
     "zod": "^3.25.67"
   },
   "devDependencies": {
@@ -29,6 +30,7 @@
     "@types/react": "^18",
     "@types/react-beautiful-dnd": "^13.1.8",
     "@types/react-dom": "^18",
+    "@types/uuid": "^10.0.0",
     "autoprefixer": "^10.4.21",
     "eslint": "^8",
     "eslint-config-next": "14.2.3",

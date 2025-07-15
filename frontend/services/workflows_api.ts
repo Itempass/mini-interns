@@ -176,6 +176,24 @@ export interface StepType {
     description: string;
 }
 
+export interface ChatMessage {
+    role: 'user' | 'assistant' | 'tool';
+    content: string;
+    tool_calls?: any[];
+    tool_call_id?: string;
+}
+
+export interface ChatRequest {
+    conversation_id: string;
+    messages: ChatMessage[];
+}
+
+export interface ChatStepResponse {
+    conversation_id: string;
+    messages: ChatMessage[];
+    is_complete: boolean;
+}
+
 export const getAvailableTriggerTypes = async (): Promise<TriggerType[]> => {
     try {
         const response = await fetch(`${API_URL}/workflows/available-trigger-types`);
@@ -251,6 +269,28 @@ export const addWorkflowStep = async (workflowId: string, stepType: string, name
         return null;
     }
 }
+
+export const runWorkflowAgentChatStep = async (workflowId: string, request: ChatRequest): Promise<ChatStepResponse | null> => {
+    try {
+        const response = await fetch(`${API_URL}/workflows/${workflowId}/chat/step`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(request),
+        });
+        if (!response.ok) {
+            console.error('Failed to run chat step. Status:', response.status);
+            const errorBody = await response.json();
+            console.error('Error details:', errorBody);
+            throw new Error(`Failed to run chat step: ${errorBody.detail}`);
+        }
+        return await response.json();
+    } catch (error) {
+        console.error('An error occurred during the chat step:', error);
+        return null;
+    }
+};
 
 export const updateWorkflowStep = async (step: WorkflowStep): Promise<WorkflowStep | null> => {
     try {
