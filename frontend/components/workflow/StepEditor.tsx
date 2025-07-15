@@ -8,11 +8,10 @@ interface StepEditorProps {
   step: WorkflowStep;
   workflowSteps: WorkflowStep[];
   onSave: (step: WorkflowStep) => void;
-  onCancel: () => void;
   hasTrigger?: boolean;
 }
 
-const StepEditor: React.FC<StepEditorProps> = ({ step, workflowSteps, onSave, onCancel, hasTrigger = false }) => {
+const StepEditor: React.FC<StepEditorProps> = ({ step, workflowSteps, onSave, hasTrigger = false }) => {
   // Find the current step's position in the workflow
   const currentStepIndex = workflowSteps.findIndex(s => s.uuid === step.uuid);
   const precedingSteps = workflowSteps.slice(0, currentStepIndex);
@@ -23,7 +22,7 @@ const StepEditor: React.FC<StepEditorProps> = ({ step, workflowSteps, onSave, on
         <EditCustomLLMStep 
           step={step as CustomLLMStep} 
           onSave={onSave} 
-          onCancel={onCancel} 
+          onCancel={() => {}}
           hasTrigger={hasTrigger}
           precedingSteps={precedingSteps}
         />
@@ -33,7 +32,7 @@ const StepEditor: React.FC<StepEditorProps> = ({ step, workflowSteps, onSave, on
         <EditCustomAgentStep 
           step={step as CustomAgentStep} 
           onSave={onSave} 
-          onCancel={onCancel} 
+          onCancel={() => {}}
           hasTrigger={hasTrigger}
           precedingSteps={precedingSteps}
         />
@@ -44,7 +43,7 @@ const StepEditor: React.FC<StepEditorProps> = ({ step, workflowSteps, onSave, on
           step={step as StopWorkflowCheckerStep}
           precedingSteps={precedingSteps}
           onSave={onSave}
-          onCancel={onCancel}
+          onCancel={() => {}}
         />
       );
     }
@@ -54,7 +53,7 @@ const StepEditor: React.FC<StepEditorProps> = ({ step, workflowSteps, onSave, on
           Error: Unsupported step type `{(step as any).type}`.
           <div className="mt-4">
             <button
-                onClick={onCancel}
+                onClick={() => {}}
                 className="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300"
               >
                 Close

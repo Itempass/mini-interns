@@ -4,11 +4,10 @@ import { TriggerModel } from '../../../services/workflows_api';
 interface EditNewEmailTriggerProps {
   trigger: TriggerModel;
   onSave: (triggerData: any) => void;
-  onCancel: () => void;
   isLoading?: boolean;
 }
 
-const EditNewEmailTrigger: React.FC<EditNewEmailTriggerProps> = ({ trigger, onSave, onCancel, isLoading = false }) => {
+const EditNewEmailTrigger: React.FC<EditNewEmailTriggerProps> = ({ trigger, onSave, isLoading = false }) => {
   const [filterRuleStrings, setFilterRuleStrings] = useState({
     email_blacklist: '',
     email_whitelist: '',
@@ -95,17 +94,7 @@ const EditNewEmailTrigger: React.FC<EditNewEmailTriggerProps> = ({ trigger, onSa
   };
 
   return (
-    <div className="mt-4 p-6 bg-white border border-gray-300 rounded-lg">
-      <div className="flex justify-between items-center mb-4">
-        <h4 className="text-lg font-semibold">Email Trigger Settings</h4>
-        <button
-          onClick={onCancel}
-          className="text-gray-400 hover:text-gray-600 w-6 h-6 flex items-center justify-center"
-        >
-          ×
-        </button>
-      </div>
-      
+    <div className="p-6">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
           <label className="block text-sm font-medium text-gray-700">Email Blacklist (comma-separated)</label>
@@ -161,19 +150,15 @@ const EditNewEmailTrigger: React.FC<EditNewEmailTriggerProps> = ({ trigger, onSa
       </div>
       
       <div className="flex justify-end space-x-3 mt-6">
-        <button
-          onClick={onCancel}
-          className="px-4 py-2 text-gray-600 bg-gray-100 rounded-md hover:bg-gray-200"
-        >
-          Cancel
-        </button>
-        <button
-          onClick={handleSave}
-          disabled={isLoading || !isDirty}
-          className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
-        >
-          {isLoading ? 'Saving...' : 'Save Settings'}
-        </button>
+        {isDirty && (
+          <button
+            onClick={handleSave}
+            disabled={isLoading}
+            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+          >
+            {isLoading ? 'Saving...' : 'Save Settings'}
+          </button>
+        )}
       </div>
     </div>
   );

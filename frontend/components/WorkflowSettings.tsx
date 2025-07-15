@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Workflow, 
   WorkflowWithDetails,
@@ -19,7 +19,7 @@ import CreateStepModal from './CreateStepModal';
 import StepEditor from './workflow/StepEditor';
 import TriggerSettings from './workflow/TriggerSettings';
 import StepTypeHelp from './help/StepTypeHelp';
-import { HelpCircle, Workflow as WorkflowIcon } from 'lucide-react';
+import { HelpCircle, Workflow as WorkflowIcon, Brain } from 'lucide-react';
 
 interface WorkflowSettingsProps {
   workflow: Workflow;
@@ -38,6 +38,8 @@ const WorkflowSettings: React.FC<WorkflowSettingsProps> = ({ workflow, onWorkflo
   const [showTriggerSelector, setShowTriggerSelector] = useState(false);
   const [showStepSelector, setShowStepSelector] = useState(false);
   const [isHelpPanelOpen, setIsHelpPanelOpen] = useState(false);
+  const editingStepRef = useRef<HTMLDivElement>(null);
+  const editingTriggerRef = useRef<HTMLDivElement>(null);
 
   // Trigger settings editing state
   const [editingTrigger, setEditingTrigger] = useState<any>(null);
@@ -66,6 +68,87 @@ const WorkflowSettings: React.FC<WorkflowSettingsProps> = ({ workflow, onWorkflo
   }, [workflow]);
 
   useEffect(() => {
+    if (!editingTrigger) return;
+
+    const handleClickOutside = (event: MouseEvent) => {
+      if (editingTriggerRef.current && !editingTriggerRef.current.contains(event.target as Node)) {
+        setEditingTrigger(null);
+      }
+    };
+
+    const handleEscapeKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setEditingTrigger(null);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleEscapeKey);
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleEscapeKey);
+    };
+  }, [editingTrigger]);
+
+  const handleStepClick = (clickedStep: WorkflowStep) => {
+    if (editingTrigger) {
+      setEditingTrigger(null);
+    }
+    setEditingStep(prev => (prev?.uuid === clickedStep.uuid ? null : clickedStep));
+  };
+
+  const handleTriggerClick = () => {
+    if (editingStep) {
+      setEditingStep(null);
+    }
+    if (detailedWorkflow?.trigger) {
+      setEditingTrigger(prev => (prev ? null : detailedWorkflow?.trigger));
+    } else {
+      setShowTriggerSelector(true);
+    }
+  };
+
+  const handleToggleStatus = async () => {
+    if (!detailedWorkflow) return;
+
+    setIsLoading(true);
+    const newStatus = !detailedWorkflow.is_active;
+    const updatedWorkflow = await updateWorkflowStatus(detailedWorkflow.uuid, newStatus);
+    
+    if (updatedWorkflow) {
+      onWorkflowUpdate(updatedWorkflow as any); // Refreshes parent state
+    } else {
+      console.error("Failed to update workflow status");
+    }
+    setIsLoading(false);
+  };
+
+  useEffect(() => {
+    if (!editingStep) return;
+
+    const handleClickOutside = (event: MouseEvent) => {
+      if (editingStepRef.current && !editingStepRef.current.contains(event.target as Node)) {
+        setEditingStep(null);
+      }
+    };
+
+    const handleEscapeKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setEditingStep(null);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleEscapeKey);
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleEscapeKey);
+    };
+  }, [editingStep]);
+
+  useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (showStepSelector && !(event.target as Element).closest('.step-selector')) {
         setShowStepSelector(false);
@@ -90,7 +173,6 @@ const WorkflowSettings: React.FC<WorkflowSettingsProps> = ({ workflow, onWorkflo
       if (updatedWorkflow) {
         setSaveStatus('saved');
         setDetailedWorkflow(updatedWorkflow);
-        onWorkflowUpdate(updatedWorkflow);
         setShowTriggerSelector(false);
         setSelectedTriggerType('');
         setTimeout(() => setSaveStatus('idle'), 2000);
@@ -143,10 +225,17 @@ const WorkflowSettings: React.FC<WorkflowSettingsProps> = ({ workflow, onWorkflo
   };
 
   const handleUpdateStep = async (stepToUpdate: WorkflowStep) => {
-    const updatedStep = await updateWorkflowStep(stepToUpdate);
-    if (updatedStep) {
-      setEditingStep(null);
-      fetchDetails(); // Refetch to show updated data
+    const updatedStepResponse = await updateWorkflowStep(stepToUpdate);
+    if (updatedStepResponse) {
+      const details = await getWorkflowDetails(workflow.uuid);
+      setDetailedWorkflow(details);
+
+      if (details) {
+        const newVersionOfEditingStep = details.steps.find(s => s.uuid === editingStep?.uuid);
+        if (newVersionOfEditingStep) {
+          setEditingStep(newVersionOfEditingStep);
+        }
+      }
     } else {
       alert('Failed to update step.');
     }
@@ -168,8 +257,7 @@ const WorkflowSettings: React.FC<WorkflowSettingsProps> = ({ workflow, onWorkflo
       if (updatedWorkflow) {
         setSaveStatus('saved');
         setDetailedWorkflow(updatedWorkflow);
-        onWorkflowUpdate(updatedWorkflow);
-        setEditingTrigger(null);
+        setEditingTrigger(updatedWorkflow.trigger);
         setTimeout(() => setSaveStatus('idle'), 2000);
       } else {
         setSaveStatus('error');
@@ -181,30 +269,6 @@ const WorkflowSettings: React.FC<WorkflowSettingsProps> = ({ workflow, onWorkflo
     } finally {
       setIsLoading(false);
     }
-  };
-
-  const handleTriggerClick = () => {
-    if (!detailedWorkflow?.trigger) {
-      setShowTriggerSelector(true);
-    } else {
-      // Open trigger settings when clicking on existing trigger
-      setEditingTrigger(detailedWorkflow.trigger);
-    }
-  };
-
-  const handleToggleStatus = async () => {
-    if (!detailedWorkflow) return;
-
-    setIsLoading(true);
-    const newStatus = !detailedWorkflow.is_active;
-    const updatedWorkflow = await updateWorkflowStatus(detailedWorkflow.uuid, newStatus);
-    
-    if (updatedWorkflow) {
-      onWorkflowUpdate(updatedWorkflow as any); // Refreshes parent state
-    } else {
-      console.error("Failed to update workflow status");
-    }
-    setIsLoading(false);
   };
 
   const handleTriggerSelectorCancel = () => {
@@ -252,54 +316,72 @@ const WorkflowSettings: React.FC<WorkflowSettingsProps> = ({ workflow, onWorkflo
       </div>
       <div className="p-6">
         
-      <div className="mb-6">
+      <div className="mb-4">
         {hasTrigger ? (
-          <div>
+          <div
+            ref={editingTrigger ? editingTriggerRef : null}
+            className="border border-gray-300 rounded-lg bg-white transition-all duration-300"
+          >
             <div 
-              className="border border-gray-300 rounded-lg p-8 bg-white hover:bg-gray-50 transition-colors relative cursor-pointer"
-              onClick={handleTriggerClick}
+              className="p-6 hover:bg-gray-50 transition-colors relative cursor-pointer"
+              onMouseDown={handleTriggerClick}
             >
               <button
                 onClick={(e) => {
                   e.stopPropagation();
-                  handleRemoveTrigger();
+                  if (editingTrigger) {
+                    setEditingTrigger(null);
+                  } else {
+                    handleRemoveTrigger();
+                  }
                 }}
                 disabled={isLoading}
                 className="absolute top-2 right-2 text-gray-400 hover:text-red-600 w-6 h-6 flex items-center justify-center disabled:opacity-50"
               >
                 ×
               </button>
-              <div className="text-center">
-                <h3 className="text-lg font-semibold text-gray-800 mb-2">
-                  {(() => {
-                    const triggerType = triggerTypes.find(t => t.initial_data_description === detailedWorkflow.trigger?.initial_data_description);
-                    return triggerType ? triggerType.name : 'Trigger Active';
-                  })()}
-                </h3>
-                <p className="text-sm text-gray-600">
-                  {(() => {
-                    const triggerType = triggerTypes.find(t => t.initial_data_description === detailedWorkflow.trigger?.initial_data_description);
-                    return triggerType ? triggerType.description : 'This workflow has a trigger configured.';
-                  })()}
-                </p>
+              <div className="flex items-center">
+                <span className="text-gray-500 font-bold text-lg mr-4">1</span>
+                <div>
+                  <p className="font-semibold">
+                    {(() => {
+                      const triggerType = triggerTypes.find(t => t.initial_data_description === detailedWorkflow.trigger?.initial_data_description);
+                      return triggerType ? triggerType.name : 'Trigger Active';
+                    })()}
+                  </p>
+                  <p className="text-sm text-gray-500">
+                    {(() => {
+                      const triggerType = triggerTypes.find(t => t.initial_data_description === detailedWorkflow.trigger?.initial_data_description);
+                      return triggerType ? triggerType.description : 'This workflow has a trigger configured.';
+                    })()}
+                  </p>
+                </div>
               </div>
+              {!editingTrigger && (
+                <div className="absolute bottom-2 right-2 flex items-center space-x-2">
+                  <span className="px-2 py-1 bg-gray-100 text-gray-600 text-xs rounded-full">
+                    trigger
+                  </span>
+                </div>
+              )}
             </div>
             
             {/* Trigger Settings */}
             {editingTrigger && (
-              <TriggerSettings
-                trigger={editingTrigger}
-                onSave={handleSaveTriggerSettings}
-                onCancel={() => setEditingTrigger(null)}
-                isLoading={isLoading}
-              />
+              <div className="border-t border-gray-200">
+                <TriggerSettings
+                  trigger={editingTrigger}
+                  onSave={handleSaveTriggerSettings}
+                  isLoading={isLoading}
+                />
+              </div>
             )}
           </div>
         ) : (
           <div>
             <div 
               className="border-2 border-dashed border-gray-300 rounded-lg p-8 bg-white cursor-pointer hover:bg-gray-50 transition-colors"
-              onClick={handleTriggerClick}
+              onMouseDown={handleTriggerClick}
             >
               <div className="text-center">
                 <p className="text-gray-500 text-lg">Create Trigger</p>
@@ -380,7 +462,7 @@ const WorkflowSettings: React.FC<WorkflowSettingsProps> = ({ workflow, onWorkflo
       
       {/* Add Step Button - Show after trigger if no steps, or after last step if steps exist */}
       {hasTrigger && detailedWorkflow.steps.length === 0 && (
-        <div className="mb-6">
+        <div className="mb-4">
           <div className="flex justify-center">
             <div className="relative step-selector">
               <button
@@ -437,62 +519,71 @@ const WorkflowSettings: React.FC<WorkflowSettingsProps> = ({ workflow, onWorkflo
         </div>
       )}
       
-      {/* Step Editor */}
-      {editingStep && (
-        <div className="mb-6">
-          <StepEditor
-            key={editingStep.uuid}
-            step={editingStep}
-            workflowSteps={detailedWorkflow.steps}
-            onSave={handleUpdateStep}
-            onCancel={() => setEditingStep(null)}
-            hasTrigger={hasTrigger}
-          />
-        </div>
-      )}
-      
-      {/* Existing Steps */}
-      {detailedWorkflow.steps.length > 0 && !editingStep && (
+      {/* Steps */}
+      {detailedWorkflow.steps.length > 0 && (
         <div className="space-y-4">
           {detailedWorkflow.steps.map((step, index) => (
             <div 
               key={step.uuid} 
-              className="bg-white border rounded-lg p-6 cursor-pointer hover:bg-gray-50 transition-colors relative"
-              onClick={() => setEditingStep(step)}
+              ref={editingStep?.uuid === step.uuid ? editingStepRef : null}
+              className="bg-white border rounded-lg relative transition-all duration-300"
             >
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleDeleteStep(step.uuid);
-                }}
-                className="absolute top-2 right-2 text-gray-400 hover:text-red-600 w-6 h-6 flex items-center justify-center"
+              <div 
+                className="p-6 cursor-pointer hover:bg-gray-50 transition-colors"
+                onMouseDown={() => handleStepClick(step)}
               >
-                ×
-              </button>
-              <div className="flex items-center">
-                <span className="text-gray-500 font-bold text-lg mr-4">{index + 1}</span>
-                <div>
-                  <p className="font-semibold">{step.name}</p>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (editingStep?.uuid === step.uuid) {
+                      setEditingStep(null);
+                    } else {
+                      handleDeleteStep(step.uuid);
+                    }
+                  }}
+                  className="absolute top-2 right-2 text-gray-400 hover:text-red-600 w-6 h-6 flex items-center justify-center z-10"
+                >
+                  ×
+                </button>
+                <div className="flex items-center">
+                  <span className="text-gray-500 font-bold text-lg mr-4">{index + 2}</span>
+                  <div>
+                    <p className="font-semibold">{step.name}</p>
+                  </div>
                 </div>
-              </div>
-              <div className="absolute bottom-2 right-2 flex items-center space-x-2">
-                <span className="px-2 py-1 bg-gray-100 text-gray-600 text-xs rounded-full">
-                  {step.type.replace('_', ' ')}
-                </span>
-                {('model' in step) && (
-                  <span className="px-2 py-1 bg-blue-100 text-blue-600 text-xs rounded-full">
-                    {step.model.split('/').pop()?.split(':')[0] || step.model}
-                  </span>
+                {editingStep?.uuid !== step.uuid && (
+                  <div className="absolute bottom-2 right-2 flex items-center space-x-2">
+                    <span className="px-2 py-1 bg-gray-100 text-gray-600 text-xs rounded-full">
+                      {step.type.replace('_', ' ')}
+                    </span>
+                    {('model' in step) && (
+                      <span className="flex items-center px-2 py-1 bg-blue-100 text-blue-600 text-xs rounded-full">
+                        <Brain size={12} className="mr-1" />
+                        {step.model.split('/').pop()?.split(':')[0] || step.model}
+                      </span>
+                    )}
+                  </div>
                 )}
               </div>
+
+              {editingStep?.uuid === step.uuid && (
+                <div className="border-t border-gray-200">
+                  <StepEditor
+                    step={editingStep}
+                    workflowSteps={detailedWorkflow.steps}
+                    onSave={handleUpdateStep}
+                    hasTrigger={hasTrigger}
+                  />
+                </div>
+              )}
             </div>
           ))}
         </div>
       )}
 
       {/* Add Step Button - Show after steps when steps exist */}
-      {hasTrigger && detailedWorkflow.steps.length > 0 && !editingStep && (
-        <div className="mt-6">
+      {hasTrigger && detailedWorkflow.steps.length > 0 && (
+        <div className="mt-4">
           <div className="flex justify-center">
             <div className="relative step-selector">
               <button
