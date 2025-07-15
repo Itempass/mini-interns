@@ -102,7 +102,8 @@ async def main():
                             if not message_id_tuple:
                                 logger.warning(f"Skipping an email because it has no Message-ID.")
                                 continue
-                            message_id = message_id_tuple[0].strip('<>')
+
+                            message_id = message_id_tuple[0].strip().strip('<>')
                             logger.info(f"Processing message: {message_id}")
                             await process_message(msg, message_id)
 
@@ -156,10 +157,14 @@ async def process_message(msg, message_id: str):
                 thread_context = f"# Email Thread\n\n## Message 1:\n\n* **From:** {email_message.from_}\n* **To:** {email_message.to}\n* **CC:** {email_message.cc}\n* **Date:** {email_message.date}\n* **Message ID:** {email_message.message_id}\n* **Subject:** {email_message.subject}\n\n{email_message.body_markdown}\n\n---\n\n"
         else:
             logger.warning(f"Could not find message with Message-ID: {message_id}. Cannot get thread context.")
+            #return
 
     except Exception as e:
         logger.error(f"Failed to fetch thread context for {message_id}: {e}. Using single message for trigger.", exc_info=True)
         thread_context = f"SINGLE MESSAGE (No thread context available):\n\nFrom: {msg.from_}\nTo: {msg.to}\nSubject: {msg.subject}\n\n{body}"
+        #return
+
+  
 
     # 4. Iterate through each workflow
     workflows_triggered = 0
