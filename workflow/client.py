@@ -149,6 +149,28 @@ async def delete(uuid: UUID, user_id: UUID) -> None:
     # Delete the workflow itself
     await db._delete_workflow_in_db(uuid=uuid, user_id=user_id)
 
+async def update_workflow_details(
+    workflow_uuid: UUID,
+    name: Optional[str],
+    description: Optional[str],
+    user_id: UUID,
+) -> Optional[WorkflowModel]:
+    """Updates the name and/or description of a workflow."""
+    workflow = await get(uuid=workflow_uuid, user_id=user_id)
+    if not workflow:
+        return None
+
+    if name is not None:
+        workflow.name = name
+    if description is not None:
+        workflow.description = description
+
+    # Only update if something changed to avoid unnecessary writes
+    if name is not None or description is not None:
+        return await save(workflow=workflow, user_id=user_id)
+    
+    return workflow
+
 #
 # Structure Management
 #

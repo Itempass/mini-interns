@@ -14,6 +14,7 @@ import {
   updateWorkflowStep,
   WorkflowStep,
   updateWorkflowStatus,
+  updateWorkflowDetails,
 } from '../services/workflows_api';
 import CreateStepModal from './CreateStepModal';
 import StepEditor from './workflow/StepEditor';
@@ -40,6 +41,9 @@ const WorkflowSettings: React.FC<WorkflowSettingsProps> = ({ workflow, onWorkflo
   const [isHelpPanelOpen, setIsHelpPanelOpen] = useState(false);
   const editingStepRef = useRef<HTMLDivElement>(null);
   const editingTriggerRef = useRef<HTMLDivElement>(null);
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [workflowName, setWorkflowName] = useState('');
+  const nameInputRef = useRef<HTMLInputElement>(null);
 
   // Trigger settings editing state
   const [editingTrigger, setEditingTrigger] = useState<any>(null);
@@ -62,6 +66,43 @@ const WorkflowSettings: React.FC<WorkflowSettingsProps> = ({ workflow, onWorkflo
     };
     fetchTriggerTypes();
   }, []);
+
+  useEffect(() => {
+    if (detailedWorkflow) {
+      setWorkflowName(detailedWorkflow.name);
+    }
+  }, [detailedWorkflow]);
+
+  useEffect(() => {
+    if (isEditingName && nameInputRef.current) {
+      nameInputRef.current.focus();
+      nameInputRef.current.select();
+    }
+  }, [isEditingName]);
+
+  useEffect(() => {
+    if (!isEditingName) return;
+
+    const handleClickOutside = (event: MouseEvent) => {
+      if (nameInputRef.current && !nameInputRef.current.contains(event.target as Node)) {
+        setIsEditingName(false);
+      }
+    };
+
+    const handleEscapeKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsEditingName(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleEscapeKey);
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleEscapeKey);
+    };
+  }, [isEditingName]);
 
   useEffect(() => {
     fetchDetails();
@@ -271,6 +312,25 @@ const WorkflowSettings: React.FC<WorkflowSettingsProps> = ({ workflow, onWorkflo
     }
   };
 
+  const handleNameSave = async () => {
+    if (!detailedWorkflow || workflowName === detailedWorkflow.name) {
+      setIsEditingName(false);
+      return;
+    }
+
+    const updated = await updateWorkflowDetails(workflow.uuid, { name: workflowName });
+
+    if (updated) {
+      onWorkflowUpdate(updated as any);
+      // The parent will refetch, which will trigger our own `fetchDetails`
+      // and update the component state, including the `detailedWorkflow`.
+    } else {
+      // Revert if save fails
+      setWorkflowName(detailedWorkflow.name);
+    }
+    setIsEditingName(false);
+  };
+
   const handleTriggerSelectorCancel = () => {
     setShowTriggerSelector(false);
     setSelectedTriggerType('');
@@ -293,10 +353,24 @@ const WorkflowSettings: React.FC<WorkflowSettingsProps> = ({ workflow, onWorkflo
   return (
     <>
       <div className="p-4 border-b border-gray-200 flex items-center justify-between">
-        <h2 className="text-lg font-semibold flex items-center">
-          <WorkflowIcon className="w-5 h-5 mr-2" />
-          {detailedWorkflow.name}
-        </h2>
+        {isEditingName ? (
+          <div className="relative">
+            <input
+              ref={nameInputRef}
+              type="text"
+              value={workflowName}
+              onChange={(e) => setWorkflowName(e.target.value)}
+              onBlur={handleNameSave}
+              onKeyDown={(e) => e.key === 'Enter' && handleNameSave()}
+              className="text-lg font-semibold border rounded-md px-2 py-1"
+            />
+          </div>
+        ) : (
+          <h2 className="text-lg font-semibold flex items-center cursor-pointer" onClick={() => setIsEditingName(true)}>
+            <WorkflowIcon className="w-5 h-5 mr-2" />
+            {detailedWorkflow.name}
+          </h2>
+        )}
 
         <div className="flex items-center space-x-3">
           <span className={`text-sm font-medium ${detailedWorkflow.is_active ? 'text-green-600' : 'text-gray-500'}`}>

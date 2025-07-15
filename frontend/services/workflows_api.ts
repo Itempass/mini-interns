@@ -150,6 +150,29 @@ export const deleteWorkflow = async (workflowId: string): Promise<boolean> => {
     }
 };
 
+export const updateWorkflowDetails = async (
+  workflowId: string,
+  data: { name?: string; description?: string }
+): Promise<Workflow | null> => {
+  try {
+    const response = await fetch(`${API_URL}/workflows/${workflowId}`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(data),
+    });
+    if (!response.ok) {
+      console.error('Failed to update workflow details. Status:', response.status);
+      return null;
+    }
+    return await response.json();
+  } catch (error) {
+    console.error('An error occurred while updating workflow details:', error);
+    return null;
+  }
+};
+
 export interface TriggerType {
     id: string;
     name: string;

@@ -36,6 +36,10 @@ router = APIRouter(prefix="/workflows", tags=["Workflows"])
 class UpdateWorkflowStatusRequest(BaseModel):
     is_active: bool
 
+class UpdateWorkflowDetailsRequest(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+
 # A simple cache for the LLM models to avoid reading the file on every request
 llm_models_cache = None
 
@@ -168,6 +172,26 @@ async def get_workflow_details(
             status_code=status.HTTP_404_NOT_FOUND, detail="Workflow not found"
         )
     return workflow
+
+
+@router.patch("/{workflow_uuid}", response_model=WorkflowModel, summary="Update workflow details")
+async def update_workflow_details(
+    workflow_uuid: UUID,
+    request: UpdateWorkflowDetailsRequest,
+    user_id: UUID = Depends(get_current_user_id),
+):
+    """Updates a workflow's details, such as its name or description."""
+    updated_workflow = await workflow_client.update_workflow_details(
+        workflow_uuid=workflow_uuid,
+        name=request.name,
+        description=request.description,
+        user_id=user_id,
+    )
+    if not updated_workflow:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Workflow not found"
+        )
+    return updated_workflow
 
 
 @router.delete(
