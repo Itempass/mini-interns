@@ -118,7 +118,7 @@ const EditCustomLLMStep: React.FC<EditCustomLLMStepProps> = ({ step, onSave, onC
                   onClick={() => insertPlaceholder(`<<step_output.${precedingStep.uuid}>>`)}
                   className="px-3 py-1 bg-blue-100 text-blue-800 text-sm rounded-full hover:bg-blue-200 transition-colors"
                 >
-                  step {index + 1} output
+                  step {index + 2} output
                 </button>
               ))}
             </div>
