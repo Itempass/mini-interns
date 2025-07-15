@@ -16,11 +16,13 @@ const WorkflowsPage = () => {
   const [isLogsExpanded, setIsLogsExpanded] = useState(false);
   const [isAgentBusy, setIsAgentBusy] = useState(false);
 
-  const fetchWorkflows = async () => {
+  const fetchWorkflows = async (newlyCreated?: Workflow) => {
     const freshWorkflows = await getWorkflows();
     setWorkflows(freshWorkflows);
 
-    if (selectedWorkflow) {
+    if (newlyCreated) {
+      setSelectedWorkflow(newlyCreated);
+    } else if (selectedWorkflow) {
       const updatedSelectedWorkflow = freshWorkflows.find(w => w.uuid === selectedWorkflow.uuid);
       setSelectedWorkflow(updatedSelectedWorkflow || (freshWorkflows.length > 0 ? freshWorkflows[0] : null));
     } else if (freshWorkflows.length > 0) {
@@ -30,10 +32,7 @@ const WorkflowsPage = () => {
     }
   };
   
-  const handleWorkflowUpdate = (updatedWorkflow: WorkflowWithDetails) => {
-    // This function is now only responsible for updating the list in the sidebar,
-    // as the WorkflowSettings component manages its own detailed state.
-    // We will now just refetch everything to ensure consistency.
+  const handleWorkflowUpdate = () => {
     fetchWorkflows();
   };
 
@@ -70,13 +69,13 @@ const WorkflowsPage = () => {
                       <WorkflowSettings
                         key={selectedWorkflow.uuid}
                         workflow={selectedWorkflow}
-                        onWorkflowUpdate={fetchWorkflows}
+                        onWorkflowUpdate={handleWorkflowUpdate}
                       />
                     </div>
                     <div className="flex-1 flex flex-col">
                       <WorkflowChat
                         workflowId={selectedWorkflow.uuid}
-                        onWorkflowUpdate={fetchWorkflows}
+                        onWorkflowUpdate={handleWorkflowUpdate}
                         onBusyStatusChange={setIsAgentBusy}
                       />
                     </div>

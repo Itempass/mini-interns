@@ -133,7 +133,7 @@ async def _list_workflows_from_db(user_id: UUID) -> list[WorkflowModel]:
     async with get_db_connection() as conn:
         async with conn.cursor(DictCursor) as cursor:
             await cursor.execute(
-                "SELECT uuid, name, description, is_active, trigger_uuid, steps, created_at, updated_at FROM workflows WHERE user_id = %s ORDER BY updated_at DESC",
+                "SELECT uuid, name, description, is_active, trigger_uuid, steps, created_at, updated_at FROM workflows WHERE user_id = %s ORDER BY created_at DESC",
                 (user_id.bytes,),
             )
             rows = await cursor.fetchall()

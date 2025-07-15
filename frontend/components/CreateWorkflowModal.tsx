@@ -1,30 +1,32 @@
 'use client';
 import React, { useState } from 'react';
-import { createWorkflow, CreateWorkflowRequest } from '../services/workflows_api';
+import { createWorkflow, Workflow } from '../services/workflows_api';
 
 interface CreateWorkflowModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onWorkflowCreated: () => void;
+  onWorkflowCreated: (newWorkflow: Workflow) => void;
 }
 
 const CreateWorkflowModal: React.FC<CreateWorkflowModalProps> = ({ isOpen, onClose, onWorkflowCreated }) => {
-  const [name, setName] = useState('');
+  const [workflowName, setWorkflowName] = useState('');
   const [description, setDescription] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
 
-    const workflowData: CreateWorkflowRequest = { name, description };
-    const newWorkflow = await createWorkflow(workflowData);
+    const newWorkflow = await createWorkflow({ name: workflowName, description: '' });
+
+    setIsLoading(false);
 
     if (newWorkflow) {
-      onWorkflowCreated();
+      onWorkflowCreated(newWorkflow);
       onClose();
     } else {
-      setError('Failed to create workflow. Please try again.');
+      setError('Failed to create the workflow. Please try again.');
     }
   };
 
@@ -42,8 +44,8 @@ const CreateWorkflowModal: React.FC<CreateWorkflowModalProps> = ({ isOpen, onClo
             <input
               type="text"
               id="name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
+              value={workflowName}
+              onChange={(e) => setWorkflowName(e.target.value)}
               className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
               required
             />
