@@ -1,5 +1,5 @@
 from typing import Any, Dict, List, Optional
-from uuid import UUID
+from uuid import UUID, uuid4
 import json
 from pathlib import Path
 
@@ -9,6 +9,7 @@ import workflow.llm_client as llm_client
 import workflow.trigger_client as trigger_client
 from workflow_agent.mcp.dependencies import get_context_from_headers
 from workflow_agent.mcp.mcp_builder import mcp_builder
+from workflow_agent.mcp.prompt_validator import validate_prompt_references
 
 
 def get_valid_llm_model_ids() -> List[str]:
@@ -106,6 +107,14 @@ async def add_step(
     context = get_context_from_headers()
     user_uuid = context.user_id
     workflow_uuid = context.workflow_uuid
+
+    if system_prompt:
+        workflow = await workflow_client.get_with_details(workflow_uuid, user_uuid)
+        if not workflow:
+            raise ValueError("Workflow not found")
+        validate_prompt_references(system_prompt, workflow, uuid4())
+
+
     workflow = await workflow_client.add_new_step(
         workflow_uuid=workflow_uuid,
         step_type=step_type,
@@ -182,6 +191,8 @@ async def update_system_prompt_for_step(
     step_to_update = next((s for s in workflow.steps if str(s.uuid) == step_uuid), None)
     if not step_to_update:
         raise ValueError("Step not found in workflow")
+    
+    validate_prompt_references(system_prompt, workflow, step_to_update.uuid)
 
     if not hasattr(step_to_update, "system_prompt"):
         raise TypeError(
