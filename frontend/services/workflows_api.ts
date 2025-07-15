@@ -270,7 +270,11 @@ export const addWorkflowStep = async (workflowId: string, stepType: string, name
     }
 }
 
-export const runWorkflowAgentChatStep = async (workflowId: string, request: ChatRequest): Promise<ChatStepResponse | null> => {
+export const runWorkflowAgentChatStep = async (
+    workflowId: string, 
+    request: ChatRequest,
+    signal?: AbortSignal
+): Promise<ChatStepResponse | 'aborted' | null> => {
     try {
         const response = await fetch(`${API_URL}/workflows/${workflowId}/chat/step`, {
             method: 'POST',
@@ -278,6 +282,7 @@ export const runWorkflowAgentChatStep = async (workflowId: string, request: Chat
                 'Content-Type': 'application/json',
             },
             body: JSON.stringify(request),
+            signal, // Pass the abort signal to fetch
         });
         if (!response.ok) {
             console.error('Failed to run chat step. Status:', response.status);
@@ -287,6 +292,10 @@ export const runWorkflowAgentChatStep = async (workflowId: string, request: Chat
         }
         return await response.json();
     } catch (error) {
+        if (error.name === 'AbortError') {
+            console.log('Fetch aborted by user.');
+            return 'aborted';
+        }
         console.error('An error occurred during the chat step:', error);
         return null;
     }
@@ -338,6 +347,29 @@ export const reorderWorkflowSteps = async (workflowId: string, ordered_step_uuid
         return await response.json();
     } catch (error) {
         console.error('An error occurred while reordering workflow steps:', error);
+        return null;
+    }
+};
+
+export const updateWorkflowStatus = async (
+    workflowId: string, 
+    isActive: boolean
+): Promise<Workflow | null> => {
+    try {
+        const response = await fetch(`${API_URL}/workflows/${workflowId}/status`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ is_active: isActive }),
+        });
+        if (!response.ok) {
+            console.error('Failed to update workflow status. Status:', response.status);
+            return null;
+        }
+        return await response.json();
+    } catch (error) {
+        console.error('An error occurred while updating workflow status:', error);
         return null;
     }
 };

@@ -13,12 +13,13 @@ import {
   removeWorkflowStep,
   updateWorkflowStep,
   WorkflowStep,
+  updateWorkflowStatus,
 } from '../services/workflows_api';
 import CreateStepModal from './CreateStepModal';
 import StepEditor from './workflow/StepEditor';
 import TriggerSettings from './workflow/TriggerSettings';
 import StepTypeHelp from './help/StepTypeHelp';
-import { HelpCircle } from 'lucide-react';
+import { HelpCircle, Workflow as WorkflowIcon } from 'lucide-react';
 
 interface WorkflowSettingsProps {
   workflow: Workflow;
@@ -191,6 +192,21 @@ const WorkflowSettings: React.FC<WorkflowSettingsProps> = ({ workflow, onWorkflo
     }
   };
 
+  const handleToggleStatus = async () => {
+    if (!detailedWorkflow) return;
+
+    setIsLoading(true);
+    const newStatus = !detailedWorkflow.is_active;
+    const updatedWorkflow = await updateWorkflowStatus(detailedWorkflow.uuid, newStatus);
+    
+    if (updatedWorkflow) {
+      onWorkflowUpdate(updatedWorkflow as any); // Refreshes parent state
+    } else {
+      console.error("Failed to update workflow status");
+    }
+    setIsLoading(false);
+  };
+
   const handleTriggerSelectorCancel = () => {
     setShowTriggerSelector(false);
     setSelectedTriggerType('');
@@ -212,10 +228,30 @@ const WorkflowSettings: React.FC<WorkflowSettingsProps> = ({ workflow, onWorkflo
 
   return (
     <>
+      <div className="p-4 border-b border-gray-200 flex items-center justify-between">
+        <h2 className="text-lg font-semibold flex items-center">
+          <WorkflowIcon className="w-5 h-5 mr-2" />
+          {detailedWorkflow.name}
+        </h2>
+
+        <div className="flex items-center space-x-3">
+          <span className={`text-sm font-medium ${detailedWorkflow.is_active ? 'text-green-600' : 'text-gray-500'}`}>
+            {detailedWorkflow.is_active ? 'Active' : 'Paused'}
+          </span>
+          <label className="relative inline-flex items-center cursor-pointer">
+            <input 
+              type="checkbox" 
+              className="sr-only peer" 
+              checked={detailedWorkflow.is_active}
+              onChange={handleToggleStatus}
+              disabled={isLoading}
+            />
+            <div className="w-11 h-6 bg-gray-200 rounded-full peer peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-600"></div>
+          </label>
+        </div>
+      </div>
       <div className="p-6">
-        <h2 className="text-2xl font-bold mb-4">{detailedWorkflow.name}</h2>
-        <p className="text-gray-600 mb-6">{detailedWorkflow.description}</p>
-      
+        
       <div className="mb-6">
         {hasTrigger ? (
           <div>

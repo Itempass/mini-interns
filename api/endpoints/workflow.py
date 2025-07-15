@@ -5,6 +5,7 @@ from uuid import UUID
 import json
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel
 
 import workflow.client as workflow_client
 import workflow.trigger_client as trigger_client
@@ -31,6 +32,9 @@ from .auth import get_current_user_id
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/workflows", tags=["Workflows"])
+
+class UpdateWorkflowStatusRequest(BaseModel):
+    is_active: bool
 
 # A simple cache for the LLM models to avoid reading the file on every request
 llm_models_cache = None
@@ -195,6 +199,29 @@ async def delete_workflow(
     except Exception as e:
         logger.error(f"DELETE /workflows/{workflow_uuid} - Error deleting workflow: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Error deleting workflow.")
+
+
+@router.put(
+    "/{workflow_uuid}/status",
+    response_model=WorkflowModel,
+    summary="Update the status of a workflow",
+)
+async def update_workflow_status(
+    workflow_uuid: UUID,
+    request: UpdateWorkflowStatusRequest,
+    user_id: UUID = Depends(get_current_user_id),
+):
+    """
+    Updates the active status of a workflow (e.g., to pause or resume it).
+    """
+    updated_workflow = await workflow_client.set_active_status(
+        workflow_uuid=workflow_uuid, is_active=request.is_active, user_id=user_id
+    )
+    if not updated_workflow:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Workflow not found"
+        )
+    return updated_workflow
 
 
 #

@@ -1,5 +1,7 @@
 from typing import Any, Dict, List, Optional
 from uuid import UUID
+import json
+from pathlib import Path
 
 import workflow.agent_client as agent_client
 import workflow.client as workflow_client
@@ -7,6 +9,19 @@ import workflow.llm_client as llm_client
 import workflow.trigger_client as trigger_client
 from workflow_agent.mcp.dependencies import get_context_from_headers
 from workflow_agent.mcp.mcp_builder import mcp_builder
+
+
+def get_valid_llm_model_ids() -> List[str]:
+    """Helper to load valid LLM model IDs from the JSON file."""
+    models_path = Path(__file__).parent.parent.parent / "shared/llm_models.json"
+    try:
+        with open(models_path, "r") as f:
+            models = json.load(f)
+        return [model["id"] for model in models]
+    except (FileNotFoundError, json.JSONDecodeError, KeyError):
+        return []
+
+VALID_LLM_MODELS = get_valid_llm_model_ids()
 
 
 @mcp_builder.tool()
@@ -77,12 +92,17 @@ async def add_step(
     step_type: str,
     name: str,
     system_prompt: Optional[str] = None,
+    model: Optional[str] = None,
 ) -> dict:
     """
-    Adds a new step to the end of a specified workflow, optionally setting its system prompt.
+    Adds a new step to the end of a specified workflow, optionally setting its system prompt and model.
     Use 'list_available_step_types' to see valid options for 'step_type'.
+    The 'model' is only applicable for 'custom_llm' and 'custom_agent' step types.
     You can use <<trigger_output>> or <<step_output.[step uuid]>> to reference the trigger output or the output of a previous step.
     """
+    if model and model not in VALID_LLM_MODELS:
+        raise ValueError(f"Invalid model ID: '{model}'. Must be one of {VALID_LLM_MODELS}")
+
     context = get_context_from_headers()
     user_uuid = context.user_id
     workflow_uuid = context.workflow_uuid
@@ -91,6 +111,7 @@ async def add_step(
         step_type=step_type,
         name=name,
         user_id=user_uuid,
+        model=model,
     )
 
     if system_prompt and step_type in ["custom_llm", "custom_agent"]:
@@ -168,6 +189,37 @@ async def update_system_prompt_for_step(
         )
 
     step_to_update.system_prompt = system_prompt
+    updated_step = await workflow_client.update_step(step_to_update, user_uuid)
+    return updated_step.model_dump()
+
+
+@mcp_builder.tool()
+async def update_step_model(
+    step_uuid: str,
+    model: str,
+) -> dict:
+    """
+    Updates the model for a specific workflow step. This works for steps of type 'custom_llm' or 'custom_agent'.
+    """
+    if model not in VALID_LLM_MODELS:
+        raise ValueError(f"Invalid model ID: '{model}'. Must be one of {VALID_LLM_MODELS}")
+
+    context = get_context_from_headers()
+    user_uuid = context.user_id
+    workflow = await workflow_client.get_with_details(context.workflow_uuid, user_uuid)
+    if not workflow:
+        raise ValueError("Workflow not found")
+
+    step_to_update = next((s for s in workflow.steps if str(s.uuid) == step_uuid), None)
+    if not step_to_update:
+        raise ValueError("Step not found in workflow")
+
+    if not hasattr(step_to_update, "model"):
+        raise TypeError(
+            f"Step of type {step_to_update.type} does not have a model attribute."
+        )
+
+    step_to_update.model = model
     updated_step = await workflow_client.update_step(step_to_update, user_uuid)
     return updated_step.model_dump()
 

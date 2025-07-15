@@ -3,19 +3,25 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { ChatMessage, runWorkflowAgentChatStep } from '../services/workflows_api';
-import { Send, Bot, User, Loader2 } from 'lucide-react';
+import { Send, Bot, User, Loader2, Square } from 'lucide-react';
 
 interface WorkflowChatProps {
   workflowId: string;
   onWorkflowUpdate: () => void;
+  onBusyStatusChange?: (isBusy: boolean) => void;
 }
 
-const WorkflowChat: React.FC<WorkflowChatProps> = ({ workflowId, onWorkflowUpdate }) => {
+const WorkflowChat: React.FC<WorkflowChatProps> = ({ workflowId, onWorkflowUpdate, onBusyStatusChange }) => {
   const [conversationId, setConversationId] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [userInput, setUserInput] = useState('');
   const [isAgentThinking, setIsAgentThinking] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    onBusyStatusChange?.(isAgentThinking);
+  }, [isAgentThinking, onBusyStatusChange]);
 
   useEffect(() => {
     const newConversationId = uuidv4();
@@ -39,7 +45,19 @@ const WorkflowChat: React.FC<WorkflowChatProps> = ({ workflowId, onWorkflowUpdat
     setUserInput('');
     setIsAgentThinking(true);
 
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    abortControllerRef.current = new AbortController();
+
     await runConversation(newMessages);
+  };
+
+  const handleInterrupt = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      setIsAgentThinking(false);
+    }
   };
 
   const runConversation = async (currentMessages: ChatMessage[]) => {
@@ -47,19 +65,26 @@ const WorkflowChat: React.FC<WorkflowChatProps> = ({ workflowId, onWorkflowUpdat
     let isComplete = false;
 
     while (!isComplete) {
-      const response = await runWorkflowAgentChatStep(workflowId, {
-        conversation_id: conversationId,
-        messages: conversationState,
-      });
+      const response = await runWorkflowAgentChatStep(
+        workflowId,
+        {
+          conversation_id: conversationId,
+          messages: conversationState,
+        },
+        abortControllerRef.current?.signal
+      );
+
+      if (response === 'aborted') {
+        console.log('Conversation interrupted by user.');
+        break;
+      }
 
       if (response) {
         conversationState = response.messages;
         setMessages(conversationState);
         isComplete = response.is_complete;
         
-        if (isComplete) {
-            onWorkflowUpdate();
-        }
+        onWorkflowUpdate();
       } else {
         // Handle API error
         const errorMessage: ChatMessage = {
@@ -86,8 +111,9 @@ const WorkflowChat: React.FC<WorkflowChatProps> = ({ workflowId, onWorkflowUpdat
   
   return (
     <div className="flex flex-col h-full bg-white border border-gray-200 rounded-lg">
-      <div className="p-4 border-b border-gray-200">
+      <div className="p-4 border-b border-gray-200 flex items-center justify-between">
         <h3 className="text-lg font-semibold flex items-center"><Bot className="mr-2" /> Workflow Agent</h3>
+        {isAgentThinking && <Loader2 className="w-5 h-5 animate-spin text-gray-500" />}
       </div>
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.map((msg, index) => (
@@ -122,13 +148,23 @@ const WorkflowChat: React.FC<WorkflowChatProps> = ({ workflowId, onWorkflowUpdat
             className="flex-1 p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
             disabled={isAgentThinking}
           />
-          <button
-            type="submit"
-            className="p-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-gray-400"
-            disabled={!userInput.trim() || isAgentThinking}
-          >
-            <Send className="w-5 h-5" />
-          </button>
+          {isAgentThinking ? (
+            <button
+              type="button"
+              onClick={handleInterrupt}
+              className="p-2 bg-red-500 text-white rounded-lg hover:bg-red-600"
+            >
+              <Square className="w-5 h-5" />
+            </button>
+          ) : (
+            <button
+              type="submit"
+              className="p-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-gray-400"
+              disabled={!userInput.trim()}
+            >
+              <Send className="w-5 h-5" />
+            </button>
+          )}
         </form>
       </div>
     </div>

@@ -45,9 +45,10 @@ const WorkflowSidebar: React.FC<WorkflowSidebarProps> = ({ workflows, onSelectWo
           <li key={workflow.uuid} className="mb-2 relative">
             <div className="flex items-center justify-between p-2 rounded-md hover:bg-gray-100">
               <span
-                className={`flex-grow cursor-pointer ${selectedWorkflow?.uuid === workflow.uuid ? 'font-semibold' : ''}`}
+                className={`flex-grow cursor-pointer flex items-center ${selectedWorkflow?.uuid === workflow.uuid ? 'font-semibold' : ''}`}
                 onClick={() => onSelectWorkflow(workflow)}
               >
+                <span className={`h-2 w-2 rounded-full mr-2 shrink-0 ${workflow.is_active ? 'bg-green-500' : 'bg-gray-400'}`}></span>
                 {workflow.name}
               </span>
               <button

@@ -67,6 +67,18 @@ async def save(workflow: WorkflowModel, user_id: UUID) -> WorkflowModel:
     return await db._update_workflow_in_db(workflow=workflow, user_id=user_id)
 
 
+async def set_active_status(
+    workflow_uuid: UUID, is_active: bool, user_id: UUID
+) -> Optional[WorkflowModel]:
+    """Sets the is_active status of a workflow."""
+    workflow = await get(uuid=workflow_uuid, user_id=user_id)
+    if not workflow:
+        return None
+
+    workflow.is_active = is_active
+    return await save(workflow=workflow, user_id=user_id)
+
+
 async def get_with_details(
     workflow_uuid: UUID, user_id: UUID
 ) -> Optional[WorkflowWithDetails]:
@@ -147,6 +159,7 @@ async def add_new_step(
     name: str,
     user_id: UUID,
     position: int = -1,
+    model: Optional[str] = None,
 ) -> WorkflowModel:
     """
     Creates a new step definition and adds its reference to the workflow.
@@ -160,11 +173,13 @@ async def add_new_step(
         # or simply ignore it and append. Let's log a warning.
         logger.warning(f"Positional insertion of steps is not yet supported. Appending to the end.")
 
+    default_model = "google/gemini-2.5-flash"
+
     # Create the new step first
     if step_type == "custom_llm":
-        new_step = await llm_client.create(name=name, user_id=user_id, model="gpt-4-turbo", system_prompt="")
+        new_step = await llm_client.create(name=name, user_id=user_id, model=model or default_model, system_prompt="")
     elif step_type == "custom_agent":
-        new_step = await agent_client.create(name=name, user_id=user_id, model="gpt-4-turbo", system_prompt="")
+        new_step = await agent_client.create(name=name, user_id=user_id, model=model or default_model, system_prompt="")
     elif step_type == "stop_checker":
         new_step = await checker_client.create(name=name, user_id=user_id, stop_conditions=[])
     else:
