@@ -2,6 +2,7 @@ import logging
 import uuid
 from typing import Any
 from datetime import datetime
+from uuid import UUID
 
 from agentlogger.src.client import save_conversation
 from agentlogger.src.models import (
@@ -14,28 +15,29 @@ from mcp_servers.tone_of_voice_mcpserver.src.services.openrouter_service import 
 )
 from workflow.internals.output_processor import create_output_data, generate_summary
 from workflow.models import CustomLLM, CustomLLMInstanceModel, MessageModel, StepOutputData
+from shared.config import settings
 
 logger = logging.getLogger(__name__)
 
 
 async def run_llm_step(
-    instance: CustomLLMInstanceModel,
     llm_definition: CustomLLM,
     resolved_system_prompt: str,
-    user_id: str,
+    user_id: UUID,
+    workflow_instance_uuid: UUID,
 ) -> CustomLLMInstanceModel:
-    """
-    Executes a CustomLLM step.
+    """Runs a CustomLLM step."""
+    logger.info(f"Starting execution for LLM step {llm_definition.uuid}")
+    instance = CustomLLMInstanceModel(
+        user_id=user_id,
+        workflow_instance_uuid=workflow_instance_uuid,
+        status="running",
+        started_at=datetime.now(),
+        llm_definition_uuid=llm_definition.uuid,
+    )
 
-    Args:
-        instance: The specific instance of the LLM step to run.
-        llm_definition: The definition of the LLM step.
-        resolved_system_prompt: The fully resolved system prompt.
-
-    Returns:
-        The updated instance with the output and messages.
-    """
-    logger.info(f"Executing LLM step for instance {instance.uuid}")
+    if not settings.OPENROUTER_API_KEY:
+        logger.error("OPENROUTER_API_KEY not found. Cannot proceed.")
     
     try:
         logger.debug(f"LLM definition: {llm_definition.model_dump_json(indent=2)}")
@@ -62,9 +64,11 @@ async def run_llm_step(
         instance.messages.append(MessageModel(role="assistant", content=response_content))
 
         # Package the result into a standard StepOutputData object
+        # The final message content is the output
+        final_content = response_content or "LLM provided no final answer."
+        markdown_rep = f"{final_content}"
         instance.output = await create_output_data(
-            raw_data=response_content,
-            summary=await generate_summary(response_content),
+            markdown_representation=markdown_rep,
             user_id=user_id,
         )
         instance.status = "completed"

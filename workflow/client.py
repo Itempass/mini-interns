@@ -273,25 +273,24 @@ async def remove_trigger(workflow_uuid: UUID, user_id: UUID) -> WorkflowModel:
 #
 
 async def create_instance(
-    workflow_uuid: UUID, triggering_data: InitialWorkflowData, user_id: UUID
+    workflow_uuid: UUID, initial_markdown: str, user_id: UUID
 ) -> WorkflowInstanceModel:
-    """Creates a new instance of a workflow, ready to be run."""
-    # The initial trigger data is stored as the first "step output"
-    trigger_output = await create_output_data(
-        raw_data=triggering_data.raw_data,
-        summary=await generate_summary(triggering_data.raw_data),
+    """
+    Creates a new instance of a workflow, ready to be run.
+    """
+    # Create the initial output data container that represents the trigger's output.
+    trigger_output_data = await create_output_data(
+        markdown_representation=initial_markdown,
         user_id=user_id,
     )
 
     instance = WorkflowInstanceModel(
         user_id=user_id,
         workflow_definition_uuid=workflow_uuid,
-        status="running",  # Start in running state
-        trigger_output=trigger_output,
+        status="running",
+        trigger_output=trigger_output_data
     )
     await db._create_workflow_instance_in_db(instance=instance, user_id=user_id)
-    logger.info(f"Successfully created workflow instance {instance.uuid} in the database.")
-
     return instance
 
 
@@ -316,9 +315,8 @@ async def get_instance(
 
 
 async def get_output_data(output_id: str, user_id: UUID) -> Optional[StepOutputData]:
-    """Retrieves a single StepOutputData object from the database by its UUID."""
-    # This is a direct passthrough to the internal database function.
-    return await db._get_step_output_data_from_db(output_id=UUID(output_id), user_id=user_id)
+    """Retrieves a single StepOutputData object by its ID."""
+    return await _get_step_output_data_from_db(output_id, user_id)
 
 
 async def list_instances(

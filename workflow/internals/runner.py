@@ -3,13 +3,12 @@ import json
 import logging
 import re
 from uuid import UUID
-from typing import Any, Dict
+from typing import Any, Dict, List
 
-import workflow.agent_client as agent_client
-import workflow.checker_client as checker_client
 import workflow.client as workflow_client
 import workflow.internals.database as db
-import workflow.llm_client as llm_client
+from workflow.internals import llm_runner
+from workflow.internals import agent_runner
 from workflow.internals.output_processor import create_output_data, generate_summary
 from workflow.models import (
     CustomAgent,
@@ -30,226 +29,151 @@ from mcp_servers.tone_of_voice_mcpserver.src.services.openrouter_service import 
 
 logger = logging.getLogger(__name__)
 
-# REGEX to find placeholders like <<trigger_output>> or <<step_output.uuid-goes-here>>
-placeholder_re = re.compile(r"<<([^>]+)>>")
-
 
 def _prepare_input(
     step_definition: WorkflowStep,
-    step_outputs: dict[UUID, StepOutputData],
-    trigger_output: StepOutputData,
-) -> dict:
+    workflow_instance: WorkflowInstanceModel,
+) -> Dict[str, Any]:
     """
-    Prepares the input for a step by resolving data references in its config.
-    It inspects the step's `system_prompt` or other fields and injects the
-    actual data from previous steps or the trigger.
+    Prepares the configuration for a step by replacing placeholders
+    in its system prompt with the outputs of previous steps.
     """
-    config = step_definition.model_dump()
-    prepared_config = config.copy()
+    prepared_config = step_definition.model_dump()
+    system_prompt = prepared_config.get("system_prompt", "")
+    if not system_prompt:
+        return prepared_config
 
-    # For now, we only resolve placeholders in the system_prompt.
-    # This could be extended to other fields.
-    if "system_prompt" in prepared_config and prepared_config["system_prompt"]:
+    # Create a unified dictionary of all available outputs, keyed by their source name.
+    available_outputs: Dict[str, StepOutputData] = {}
+    if workflow_instance.trigger_output:
+        available_outputs["trigger_output"] = workflow_instance.trigger_output
+        logger.info(f"RUNNER_DEBUG: Added trigger_output to available_outputs")
+    
+    logger.info(f"RUNNER_DEBUG: Found {len(workflow_instance.step_instances)} step instances in workflow")
+    for i, inst in enumerate(workflow_instance.step_instances):
+        logger.info(f"RUNNER_DEBUG: Step instance {i}: type={type(inst).__name__}, has_output={inst.output is not None}")
+        logger.info(f"RUNNER_DEBUG: Step instance {i} attributes: {list(vars(inst).keys())}")
+        
+        if inst.output:
+            def_uuid = None
+            if hasattr(inst, 'llm_definition_uuid'):
+                def_uuid = inst.llm_definition_uuid
+                logger.info(f"RUNNER_DEBUG: Step instance {i} has llm_definition_uuid: {def_uuid}")
+            elif hasattr(inst, 'agent_definition_uuid'):
+                def_uuid = inst.agent_definition_uuid
+                logger.info(f"RUNNER_DEBUG: Step instance {i} has agent_definition_uuid: {def_uuid}")
+            elif hasattr(inst, 'checker_definition_uuid'):
+                def_uuid = inst.checker_definition_uuid
+                logger.info(f"RUNNER_DEBUG: Step instance {i} has checker_definition_uuid: {def_uuid}")
 
-        def replace_match(match):
-            placeholder = match.group(1).strip()  # e.g., "trigger_output" or "step_output.uuid-goes-here"
-
-            logger.info(f"RUNNER_DEBUG: Preparing placeholder '<<{placeholder}>>' for agent prompt.")
-
-            parts = placeholder.split('.')
-            base_ref_type = parts[0]
-            
-            data_source: StepOutputData
-
-            if base_ref_type == "trigger_output":
-                logger.info(f"RUNNER_DEBUG: Placeholder is trigger_output. Type of trigger_output.raw_data: {type(trigger_output.raw_data)}")
-                if len(parts) > 1:
-                    raise ValueError("The <<trigger_output>> placeholder does not support any sub-paths.")
-                data_source = trigger_output
-            elif base_ref_type == "step_output":
-                if len(parts) != 2:
-                    raise ValueError(f"Invalid step reference format. Use '<<step_output.UUID>>'. Found: '{placeholder}'")
-                step_uuid_str = parts[1]
-                try:
-                    step_uuid = UUID(step_uuid_str)
-                except ValueError:
-                    raise ValueError(f"Invalid UUID in step reference: {step_uuid_str}")
-                
-                if step_uuid not in step_outputs:
-                    raise ValueError(f"Could not find output for referenced step {step_uuid}")
-                data_source = step_outputs[step_uuid]
+            if def_uuid:
+                logger.info(f"RUNNER_DEBUG: Found previous step instance of type {type(inst).__name__} with output. Storing output under key {str(def_uuid)}.")
+                available_outputs[str(def_uuid)] = inst.output
             else:
-                raise ValueError(f"Unknown placeholder base '{base_ref_type}' in '{placeholder}'")
+                logger.warning(f"RUNNER_DEBUG: Found previous step instance of type {type(inst).__name__} with output, but could not determine its definition UUID.")
+    
+    logger.info(f"RUNNER_DEBUG: Final available_outputs keys: {list(available_outputs.keys())}")
 
-            # For agents, inject a detailed markdown block with a schema.
-            # For other step types, just provide the most representative text content.
-            if step_definition.type == "custom_agent":
-                
-                # The data_source object now has a correct, pre-computed schema. We use it directly.
-                if data_source.data_schema:
-                    schema_json_string = json.dumps(data_source.data_schema, indent=2)
-                else:
-                    # Fallback in case the schema is somehow missing
-                    schema_json_string = '{"error": "Schema not available for this data source."}'
+    # This regex finds all occurrences of <<some_placeholder>>
+    placeholder_re = re.compile(r"<<(.*?)>>")
 
-                return (
-                    f"DATA CONTAINER:\n"
-                    f"* summary: {data_source.summary}\n"
-                    f"* id: {data_source.uuid}\n"
-                    f"* data_schema:\n"
-                    f"  This container provides the following fields. You can use them in your toolcalls using a JSONPath."
-                    f"(e.g., '$.raw_data.messageId' or '$.markdown_representation').\n"
-                    f"  ```json\n{schema_json_string}\n  ```"
-                )
-            else: 
-                replacement = data_source.markdown_representation or data_source.raw_data
-                if isinstance(replacement, (dict, list)):
-                    return json.dumps(replacement)
-                return str(replacement)
+    def replace_match(match):
+        placeholder = match.group(1).strip()
+        logger.info(f"RUNNER_DEBUG: Processing placeholder '<<{placeholder}>>'")
 
-        prepared_config["system_prompt"] = placeholder_re.sub(
-            replace_match, prepared_config["system_prompt"]
-        )
+        lookup_key = placeholder
+        if placeholder.startswith("step_output."):
+            try:
+                lookup_key = placeholder.split('.', 1)[1]
+            except IndexError:
+                logger.warning(f"RUNNER_DEBUG: Malformed step_output placeholder '<<{placeholder}>>'.")
+                return f"<<{placeholder}>>"
 
+        if lookup_key in available_outputs:
+            output_data = available_outputs[lookup_key]
+            logger.info(f"RUNNER_DEBUG: Found data for key '{lookup_key}'. Replacing with markdown representation.")
+            return output_data.markdown_representation
+        else:
+            logger.warning(f"RUNNER_DEBUG: Could not find data for placeholder '<<{placeholder}>>' (looked for key '{lookup_key}'). Leaving it as is.")
+            return f"<<{placeholder}>>"
+
+    prepared_config["system_prompt"] = placeholder_re.sub(replace_match, system_prompt)
     return prepared_config
 
 
-async def run_workflow(workflow_instance_uuid: UUID, user_id: UUID):
+async def run_workflow(instance_uuid: UUID, user_id: UUID):
     """
-    The main entry point for executing a workflow instance.
+    Asynchronously runs a workflow instance from start to finish.
+    It fetches the workflow definition, then iterates through the steps,
+    executing each one in sequence and passing the output of previous
+    steps to subsequent ones.
     """
-    print(f"--- ENTERING run_workflow for instance {workflow_instance_uuid} ---")
-    logger.info(f"Starting run for workflow instance {workflow_instance_uuid}")
-    instance = await db._get_workflow_instance_from_db(
-        uuid=workflow_instance_uuid, user_id=user_id
-    )
+    logger.info(f"Starting workflow run for instance {instance_uuid}")
+    instance = await db._get_workflow_instance_from_db(instance_uuid, user_id=user_id)
     if not instance:
-        logger.error(f"Workflow instance {workflow_instance_uuid} not found.")
+        logger.error(f"Workflow instance {instance_uuid} not found.")
         return
 
-    workflow = await workflow_client.get(
-        uuid=instance.workflow_definition_uuid, user_id=user_id
-    )
-    if not workflow:
+    workflow_def = await db._get_workflow_from_db(instance.workflow_definition_uuid, user_id=user_id)
+    if not workflow_def:
+        message = f"Workflow definition {instance.workflow_definition_uuid} not found for instance {instance.uuid}. Aborting."
+        logger.error(message)
         instance.status = "failed"
-        instance.error_message = "Workflow definition not found."
+        instance.error_message = message
         await db._update_workflow_instance_in_db(instance, user_id)
         return
 
-    # Keep track of the outputs of each step as it completes.
-    step_outputs: dict[UUID, StepOutputData] = {}
-    if instance.trigger_output:
-        # The trigger's output is handled directly by _prepare_input.
-        pass
-    else:
-        logger.warning(f"Workflow instance {workflow_instance_uuid} started with no trigger data.")
-        # Create a dummy trigger output to avoid errors
-        raw_data={"message": "No trigger data provided."}
-        instance.trigger_output = await create_output_data(
-            raw_data=raw_data,
-            summary=await generate_summary(raw_data),
-            user_id=user_id
-        )
+    logger.info(f"Executing workflow '{workflow_def.name}' ({workflow_def.uuid}) for instance {instance.uuid}")
 
-    # The `workflow.steps` is a list of step UUIDs. We fetch each one before execution.
-    for step_uuid in workflow.steps:
-        step_def = await db._get_step_from_db(uuid=step_uuid, user_id=user_id)
+    current_step_index = 0
+    while True:
+        if current_step_index >= len(workflow_def.steps):
+            logger.info(f"Workflow {instance.uuid} completed all steps.")
+            instance.status = "completed"
+            await db._update_workflow_instance_in_db(instance, user_id)
+            break
+
+        step_uuid = workflow_def.steps[current_step_index]
+        step_def = await db._get_step_from_db(step_uuid, user_id=user_id)
+
         if not step_def:
+            message = f"Could not find step definition for {step_uuid} in workflow {instance.uuid}. Aborting."
+            logger.error(message)
             instance.status = "failed"
-            instance.error_message = f"Step definition {step_uuid} not found."
+            instance.error_message = message
             await db._update_workflow_instance_in_db(instance, user_id)
-            logger.error(f"Workflow instance {workflow_instance_uuid} failed because step {step_uuid} was not found.")
-            return
+            break
 
-        logger.info(f"Processing step {step_uuid} of type {step_def.type} for workflow {workflow_instance_uuid}")
-
-        step_instance = None
         try:
-            # 1. Create Step Instance record
-            if step_def.type == "custom_llm":
-                step_instance = await llm_client.create_instance(
-                    workflow_instance_uuid=workflow_instance_uuid, 
-                    llm_definition_uuid=step_def.uuid, 
-                    user_id=user_id
-                )
-            elif step_def.type == "custom_agent":
-                step_instance = await agent_client.create_instance(
-                    workflow_instance_uuid=workflow_instance_uuid, 
-                    agent_definition_uuid=step_def.uuid, 
-                    user_id=user_id
-                )
-            elif step_def.type == "stop_checker":
-                step_instance = await checker_client.create_instance(
-                    workflow_instance_uuid=workflow_instance_uuid, 
-                    checker_definition_uuid=step_def.uuid, 
-                    user_id=user_id
-                )
-            else:
-                raise ValueError(f"Unknown step type: {step_def.type}")
-
-            logger.debug(f"Created step instance {step_instance.uuid} for step definition {step_def.uuid}")
-
-            # 2. Prepare Inputs by resolving placeholders
+            # Prepare inputs by resolving placeholders
             logger.info(f"Preparing inputs for step {step_uuid}")
-            prepared_config = _prepare_input(
-                step_def, step_outputs, instance.trigger_output
-            )
-            step_instance.input_data = prepared_config
-            logger.debug(f"Prepared config for step {step_uuid}: {json.dumps(prepared_config, indent=2, default=str)}")
+            prepared_config = _prepare_input(step_def, instance)
 
-            # 3. Execute Step
-            logger.info(f"Executing step {step_uuid}")
-            should_stop = False
+            step_instance: WorkflowStepInstance = None
             if step_def.type == "custom_llm":
-                step_instance = await llm_client.execute_step(
-                    instance=step_instance,
-                    llm_definition=step_def,
-                    resolved_system_prompt=prepared_config["system_prompt"],
-                    user_id=user_id,
+                step_instance = await llm_runner.run_llm_step(
+                    step_def, prepared_config["system_prompt"], user_id, instance.uuid
                 )
             elif step_def.type == "custom_agent":
-                step_instance = await agent_client.execute_step(
-                    instance=step_instance,
-                    agent_definition=step_def,
-                    resolved_system_prompt=prepared_config["system_prompt"],
-                    user_id=user_id,
+                step_instance = await agent_runner.run_agent_step(
+                    step_def, prepared_config["system_prompt"], user_id, instance.uuid
                 )
             elif step_def.type == "stop_checker":
-                should_stop = await checker_client.execute_step(
-                    instance=step_instance,
-                    step_definition=step_def,
-                    step_outputs=step_outputs
-                )
+                logger.info("stop checker not implemented")
 
-            logger.info(f"Step {step_uuid} execution finished.")
-            # Mark the step as completed and save its state, since execution was successful
-            step_instance.status = "completed"
-            await db._update_step_instance_in_db(instance=step_instance, user_id=user_id)
-            print(f"--- Step instance {step_instance.uuid} marked as completed and saved ---")
-
-            # 4. Process Output
-            if step_instance and hasattr(step_instance, 'output') and step_instance.output:
-                step_outputs[step_def.uuid] = step_instance.output
-                logger.debug(f"Stored output for step {step_uuid}: {step_instance.output.model_dump_json(indent=2)}")
-
-            if should_stop:
-                logger.info(
-                    f"Stopping workflow {workflow_instance_uuid} as requested by step {step_uuid}."
-                )
-                instance.status = "completed"
-                await db._update_workflow_instance_in_db(instance, user_id)
-                break
-        except Exception as e:
-            logger.error(f"Error executing step {step_uuid} in workflow {workflow_instance_uuid}: {e}", exc_info=True)
-            instance.status = "failed"
-            instance.error_message = f"Error in step {step_uuid}: {e}"
+            # After the step runs, append its instance to the main workflow instance.
             if step_instance:
-                step_instance.status = "failed"
-                step_instance.error_message = str(e)
-                await db._update_step_instance_in_db(instance=step_instance, user_id=user_id)
-            await db._update_workflow_instance_in_db(instance, user_id)
-            return
+                instance.step_instances.append(step_instance)
+                await db._update_workflow_instance_in_db(instance, user_id)
 
-    logger.info(f"Workflow instance {workflow_instance_uuid} finished with status: {instance.status}")
-    instance.status = "completed"
-    await db._update_workflow_instance_in_db(instance, user_id)
+            logger.info(f"RUNNER_DEBUG: End of loop for step {step_uuid}. Total instances on workflow model: {len(instance.step_instances)}")
+
+        except Exception as e:
+            message = f"Error executing step {step_uuid} in workflow {instance.uuid}: {e}"
+            logger.error(message, exc_info=True)
+            instance.status = "failed"
+            instance.error_message = message
+            await db._update_workflow_instance_in_db(instance, user_id)
+            break  # Stop workflow on step failure
+
+        current_step_index += 1

@@ -1,17 +1,20 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { CustomLLMStep, WorkflowStep, getAvailableLLMModels, LLMModel } from '../../../services/workflows_api';
 
 interface EditCustomLLMStepProps {
   step: CustomLLMStep;
   onSave: (step: WorkflowStep) => void;
   onCancel: () => void;
+  hasTrigger?: boolean;
+  precedingSteps?: WorkflowStep[];
 }
 
-const EditCustomLLMStep: React.FC<EditCustomLLMStepProps> = ({ step, onSave, onCancel }) => {
+const EditCustomLLMStep: React.FC<EditCustomLLMStepProps> = ({ step, onSave, onCancel, hasTrigger = false, precedingSteps = [] }) => {
   const [currentStep, setCurrentStep] = useState(step);
   const [availableModels, setAvailableModels] = useState<LLMModel[]>([]);
   const [isLoadingModels, setIsLoadingModels] = useState(true);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     const fetchModels = async () => {
@@ -29,6 +32,24 @@ const EditCustomLLMStep: React.FC<EditCustomLLMStepProps> = ({ step, onSave, onC
 
   const handleSave = () => {
     onSave(currentStep);
+  };
+
+  const insertPlaceholder = (placeholder: string) => {
+    const textarea = textareaRef.current;
+    if (textarea) {
+      const start = textarea.selectionStart;
+      const end = textarea.selectionEnd;
+      const currentValue = currentStep.system_prompt;
+      const newValue = currentValue.substring(0, start) + placeholder + currentValue.substring(end);
+      
+      setCurrentStep({ ...currentStep, system_prompt: newValue });
+      
+      // Set cursor position after the inserted placeholder
+      setTimeout(() => {
+        textarea.focus();
+        textarea.setSelectionRange(start + placeholder.length, start + placeholder.length);
+      }, 0);
+    }
   };
 
   return (
@@ -80,6 +101,7 @@ const EditCustomLLMStep: React.FC<EditCustomLLMStepProps> = ({ step, onSave, onC
         <div>
           <label htmlFor="step-system-prompt" className="block text-sm font-medium text-gray-700">System Prompt</label>
           <textarea
+            ref={textareaRef}
             id="step-system-prompt"
             value={currentStep.system_prompt}
             onChange={(e) => setCurrentStep({ ...currentStep, system_prompt: e.target.value })}
@@ -87,6 +109,32 @@ const EditCustomLLMStep: React.FC<EditCustomLLMStepProps> = ({ step, onSave, onC
             className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 font-mono text-sm"
             placeholder="e.g., You are a helpful assistant."
           />
+          
+          {/* Output Placeholders */}
+          {(hasTrigger || precedingSteps.length > 0) && (
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <p className="text-sm text-gray-600">Insert previous outputs into prompt:</p>
+              {hasTrigger && (
+                <button
+                  type="button"
+                  onClick={() => insertPlaceholder('<<trigger_output>>')}
+                  className="px-3 py-1 bg-green-100 text-green-800 text-sm rounded-full hover:bg-green-200 transition-colors"
+                >
+                  trigger output
+                </button>
+              )}
+              {precedingSteps.map((precedingStep, index) => (
+                <button
+                  key={precedingStep.uuid}
+                  type="button"
+                  onClick={() => insertPlaceholder(`<<step_output.${precedingStep.uuid}>>`)}
+                  className="px-3 py-1 bg-blue-100 text-blue-800 text-sm rounded-full hover:bg-blue-200 transition-colors"
+                >
+                  step {index + 1} output
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 

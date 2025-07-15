@@ -92,15 +92,22 @@ class TriggerModel(BaseModel):
 
 
 # 4.2. Instance and Execution Models
+class StepOutputData(BaseModel):
+    """
+    A container for the output data of a single workflow step.
+    Each step's output is stored in one of these objects.
+    """
+    uuid: UUID = Field(default_factory=uuid4)
+    user_id: UUID
+    markdown_representation: str # A markdown representation of the data.
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
 class InitialWorkflowData(BaseModel):
     """
-    A model to define the explicit structure of the data that triggers a workflow.
-    This provides a clear, type-safe contract for what `workflow_client.create_instance` expects.
+    The initial data that a workflow instance is created with.
+    This data comes from the trigger.
     """
-    raw_data: Any
-    summary: Optional[str] = None
-    markdown_representation: Optional[str] = None
-    data_schema: Optional[Dict[str, Any]] = None
+    markdown_representation: str
 
 class MessageModel(BaseModel):
     """Individual message in a conversation, used for logging and debugging."""
@@ -109,19 +116,6 @@ class MessageModel(BaseModel):
     role: str
     tool_calls: Optional[List[Dict[str, Any]]] = None
     model_config = {"extra": "allow"}
-
-
-class StepOutputData(BaseModel):
-    """
-    A container for the output of a single workflow step.
-    """
-    uuid: UUID = Field(default_factory=uuid4)
-    user_id: UUID
-    raw_data: Any
-    summary: str
-    markdown_representation: Optional[str] = None
-    data_schema: Optional[Dict[str, Any]] = Field(default=None)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
 class CustomLLMInstanceModel(BaseModel):

@@ -78,16 +78,15 @@ async def create(
 
 async def get(uuid: UUID, user_id: UUID) -> Optional[TriggerModel]:
     """
-    Retrieves a trigger definition by its UUID.
+    Retrieves a trigger by its UUID.
 
     Args:
         uuid: The UUID of the trigger to retrieve.
         user_id: The ID of the user owning the trigger.
 
     Returns:
-        The retrieved TriggerModel object, or None if not found.
+        The trigger, or None if not found.
     """
-
     return await _get_trigger_from_db(uuid=uuid, user_id=user_id)
 
 
@@ -120,6 +119,21 @@ async def list_triggers(user_id: UUID) -> List[TriggerModel]:
         A list of TriggerModel objects.
     """
     return await _list_triggers_from_db(user_id=user_id)
+
+
+async def update(trigger_model: TriggerModel, user_id: UUID) -> TriggerModel:
+    """
+    Updates the state of a trigger definition in the database.
+
+    Args:
+        trigger_model: The TriggerModel object to update.
+        user_id: The ID of the user owning the trigger.
+
+    Returns:
+        The updated TriggerModel object.
+    """
+    await _update_trigger_in_db(trigger=trigger_model, user_id=user_id)
+    return trigger_model
 
 
 async def save(trigger_model: TriggerModel, user_id: UUID) -> TriggerModel:

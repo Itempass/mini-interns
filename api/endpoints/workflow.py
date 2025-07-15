@@ -7,6 +7,7 @@ import json
 from fastapi import APIRouter, Depends, HTTPException, status
 
 import workflow.client as workflow_client
+import workflow.trigger_client as trigger_client
 import workflow.internals.runner as runner
 from workflow.models import (
     StepOutputData,
@@ -22,6 +23,7 @@ from ..types.api_models.workflow import (
     SetTriggerRequest,
     TriggerTypeResponse,
     UpdateStepRequest,
+    UpdateTriggerRequest,
 )
 from .auth import get_current_user_id
 
@@ -455,6 +457,45 @@ async def remove_workflow_trigger(
 ):
     """Detaches and deletes the trigger associated with the workflow."""
     await workflow_client.remove_trigger(workflow_uuid=workflow_uuid, user_id=user_id)
+    return await workflow_client.get_with_details(
+        workflow_uuid=workflow_uuid, user_id=user_id
+    )
+
+
+@router.put(
+    "/{workflow_uuid}/trigger",
+    response_model=WorkflowWithDetails,
+    summary="Update trigger settings for a workflow",
+)
+async def update_workflow_trigger(
+    workflow_uuid: UUID,
+    request: UpdateTriggerRequest,
+    user_id: UUID = Depends(get_current_user_id),
+):
+    """
+    Updates the settings of an existing trigger for a workflow.
+    """
+    logger.info(f"PUT /workflows/{workflow_uuid}/trigger - Received request body: {request.dict()}")
+    # Get the current trigger for the workflow
+    trigger = await trigger_client.get_for_workflow(
+        workflow_uuid=workflow_uuid, user_id=user_id
+    )
+    if not trigger:
+        logger.error(f"No trigger found for workflow {workflow_uuid}")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, 
+            detail="No trigger found for this workflow"
+        )
+    
+    # Update the trigger's filter rules
+    logger.info(f"Updating trigger {trigger.uuid} with filter rules: {request.filter_rules}")
+    trigger.filter_rules = request.filter_rules
+    
+    # Save the updated trigger
+    await trigger_client.update(trigger_model=trigger, user_id=user_id)
+    
+    # Return the updated workflow with details
+    logger.info(f"Successfully updated trigger for workflow {workflow_uuid}")
     return await workflow_client.get_with_details(
         workflow_uuid=workflow_uuid, user_id=user_id
     ) 

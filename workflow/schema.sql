@@ -75,10 +75,7 @@ CREATE TABLE IF NOT EXISTS `workflow_step_instances` (
 CREATE TABLE IF NOT EXISTS `step_outputs` (
     `uuid` BINARY(16) PRIMARY KEY,
     `user_id` BINARY(16) NOT NULL,
-    `raw_data` JSON,
-    `summary` TEXT,
     `markdown_representation` TEXT,
-    `data_schema` JSON,
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     INDEX `idx_step_outputs_user_id` (`user_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci; 

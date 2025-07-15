@@ -46,26 +46,13 @@ def _format_mcp_tools_for_openai(
     formatted_tools = []
     for tool in tools:
         full_tool_name = f"{server_name}-{tool.name}"
-        
-        # Deep copy the schema to avoid modifying the original
-        parameter_schema = json.loads(json.dumps(tool.inputSchema))
-        
-        # Add our custom description to any primitive property type
-        if "properties" in parameter_schema:
-            for prop, details in parameter_schema["properties"].items():
-                if details.get("type") in ["string", "number", "integer", "boolean"]:
-                    details["description"] = (
-                        f"Provide the value directly. Alternatively, to get this value from a previous step's output, "
-                        f"provide a data pointer string in the format: "
-                        f"'step_output:<step_output_id>:<JSONPath>' (e.g., 'step_output:uuid-goes-here:$.raw_data.some_field')."
-                    )
 
         formatted_tool = {
             "type": "function",
             "function": {
                 "name": full_tool_name,
                 "description": tool.description,
-                "parameters": parameter_schema,
+                "parameters": tool.inputSchema,
             },
         }
         formatted_tools.append(formatted_tool)
@@ -73,13 +60,21 @@ def _format_mcp_tools_for_openai(
 
 
 async def run_agent_step(
-    instance: CustomAgentInstanceModel,
     agent_definition: CustomAgent,
     resolved_system_prompt: str,
     user_id: UUID,
+    workflow_instance_uuid: UUID,
 ) -> CustomAgentInstanceModel:
     logger.info(
-        f"Starting execution for agent step instance {instance.uuid} of agent {agent_definition.uuid}"
+        f"Starting execution for agent step {agent_definition.uuid} in workflow instance {workflow_instance_uuid}"
+    )
+
+    instance = CustomAgentInstanceModel(
+        user_id=user_id,
+        workflow_instance_uuid=workflow_instance_uuid,
+        status="running",
+        started_at=datetime.now(),
+        agent_definition_uuid=agent_definition.uuid,
     )
 
     if not settings.OPENROUTER_API_KEY:
@@ -239,12 +234,8 @@ async def run_agent_step(
                 logger.info("Agent finished execution loop.")
                 # The final message content is the output
                 final_content = response_message.content or "Agent provided no final answer."
-                markdown_rep = f"## Agent Final Answer\n\n{final_content}"
+                markdown_rep = f"{final_content}"
                 instance.output = await create_output_data(
-                    raw_data=final_content,
-                    summary=await generate_summary(
-                        raw_data=final_content, markdown_representation=markdown_rep
-                    ),
                     markdown_representation=markdown_rep,
                     user_id=user_id,
                 )
@@ -256,7 +247,8 @@ async def run_agent_step(
 
             # --- Argument Resolution Step ---
             # Before calling the tools, resolve any "magic string" data pointers.
-            resolved_tool_calls = await _resolve_tool_arguments(tool_calls, instance.user_id)
+            # resolved_tool_calls = await _resolve_tool_arguments(tool_calls, instance.user_id)
+            resolved_tool_calls = tool_calls
 
             for i, tool_call in enumerate(resolved_tool_calls):
                 tool_call_details_map[i] = tool_call
@@ -289,10 +281,6 @@ async def run_agent_step(
                 timeout_message = "Agent reached maximum execution cycles and was terminated."
                 markdown_rep = f"## Agent Timed Out\n\n{timeout_message}"
                 instance.output = await create_output_data(
-                    raw_data=timeout_message,
-                    summary=await generate_summary(
-                        raw_data=timeout_message, markdown_representation=markdown_rep
-                    ),
                     markdown_representation=markdown_rep,
                     user_id=user_id
                 )
@@ -416,10 +404,7 @@ async def _handle_get_step_output(tool_call, user_id) -> str:
         if not output_data:
             return f"Error: No output data found for ID {output_id}."
         
-        # Return the raw_data, serialized if it's complex
-        if isinstance(output_data.raw_data, (dict, list, int, float, bool)):
-            return json.dumps(output_data.raw_data)
-        return str(output_data.raw_data)
+        return output_data.markdown_representation
 
     except (json.JSONDecodeError, AttributeError, Exception) as e:
         logger.warning(f"Could not process get_step_output call: {e}", exc_info=True)

@@ -11,6 +11,7 @@ from workflow.models import StepOutputData
 from mcp_servers.tone_of_voice_mcpserver.src.services.openrouter_service import (
     openrouter_service,
 )
+from shared.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -74,37 +75,17 @@ async def generate_summary(
 
 
 async def create_output_data(
-    raw_data: Any,
+    markdown_representation: str,
     user_id: UUID,
-    summary: str | None = None,
-    markdown_representation: str | None = None,
 ) -> StepOutputData:
     """
-    Creates and stores a StepOutputData object, automatically generating its schema and summary if not provided.
+    Creates a StepOutputData object. In our new simplified system,
+    this just involves creating the object with the markdown and user_id.
     """
-    # If a summary isn't provided, generate one automatically.
-    if summary is None:
-        summary = await generate_summary(
-            raw_data=raw_data, markdown_representation=markdown_representation
-        )
-
-    # Create the object first, with a placeholder for the schema.
-    # The `data_schema` field in the model is set to `exclude=True` to prevent recursion.
-    output = StepOutputData(
+    return StepOutputData(
         user_id=user_id,
-        raw_data=raw_data,
-        summary=summary,
         markdown_representation=markdown_representation,
     )
-
-    # Now, generate the schema from the object itself and assign it.
-    output.data_schema = generate_simplified_json_schema(output)
-
-    logger.info(f"SCHEMA_DEBUG_PROCESSOR: Final schema assigned to output object {output.uuid}: {json.dumps(output.data_schema, indent=2)}")
-
-    # Persist it to the database so it's addressable by its UUID
-    await db._create_step_output_data_in_db(output, user_id)
-    return output
 
 
 def generate_step_summary_from_prompt(system_prompt: str) -> str:

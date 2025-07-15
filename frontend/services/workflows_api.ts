@@ -336,4 +336,34 @@ export const removeWorkflowTrigger = async (workflowId: string): Promise<Workflo
         console.error('An error occurred while removing workflow trigger:', error);
         return null;
     }
+};
+
+export const updateWorkflowTrigger = async (
+    workflowId: string, 
+    filterRules: any
+): Promise<WorkflowWithDetails | null> => {
+    try {
+        const url = `${API_URL}/workflows/${workflowId}/trigger`;
+        const body = { filter_rules: filterRules };
+        console.log('[workflows_api] Sending PUT request to:', url, 'with body:', JSON.stringify(body));
+
+        const response = await fetch(url, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(body),
+        });
+
+        console.log('[workflows_api] Received response with status:', response.status);
+
+        if (!response.ok) {
+            console.error('Failed to update workflow trigger. Status:', response.status, 'Response:', await response.text());
+            return null;
+        }
+        return await response.json();
+    } catch (error) {
+        console.error('An error occurred while updating workflow trigger:', error);
+        return null;
+    }
 }; 

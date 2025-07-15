@@ -9,17 +9,36 @@ interface StepEditorProps {
   workflowSteps: WorkflowStep[];
   onSave: (step: WorkflowStep) => void;
   onCancel: () => void;
+  hasTrigger?: boolean;
 }
 
-const StepEditor: React.FC<StepEditorProps> = ({ step, workflowSteps, onSave, onCancel }) => {
+const StepEditor: React.FC<StepEditorProps> = ({ step, workflowSteps, onSave, onCancel, hasTrigger = false }) => {
+  // Find the current step's position in the workflow
+  const currentStepIndex = workflowSteps.findIndex(s => s.uuid === step.uuid);
+  const precedingSteps = workflowSteps.slice(0, currentStepIndex);
+
   switch (step.type) {
     case 'custom_llm':
-      return <EditCustomLLMStep step={step as CustomLLMStep} onSave={onSave} onCancel={onCancel} />;
+      return (
+        <EditCustomLLMStep 
+          step={step as CustomLLMStep} 
+          onSave={onSave} 
+          onCancel={onCancel} 
+          hasTrigger={hasTrigger}
+          precedingSteps={precedingSteps}
+        />
+      );
     case 'custom_agent':
-      return <EditCustomAgentStep step={step as CustomAgentStep} onSave={onSave} onCancel={onCancel} />;
+      return (
+        <EditCustomAgentStep 
+          step={step as CustomAgentStep} 
+          onSave={onSave} 
+          onCancel={onCancel} 
+          hasTrigger={hasTrigger}
+          precedingSteps={precedingSteps}
+        />
+      );
     case 'stop_checker': {
-      // The checker needs to know about previous steps to select one for its conditions.
-      const precedingSteps = workflowSteps.slice(0, workflowSteps.findIndex(s => s.uuid === step.uuid));
       return (
         <EditStopCheckerStep
           step={step as StopWorkflowCheckerStep}
