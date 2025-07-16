@@ -33,6 +33,7 @@ class EmailThread(BaseModel):
     last_message_date: str
     folders: List[str] = Field(default_factory=list)  # All folders this thread appears in
     contains_user_reply: bool
+    most_recent_user_labels: List[str] = Field(default_factory=list)
     
     @classmethod
     def from_messages(cls, messages: List[EmailMessage], thread_id: str) -> 'EmailThread':

@@ -107,7 +107,7 @@ class IMAPDataSource:
                 "thread_markdown": email_thread.markdown,
                 "thread_subject": email_thread.subject,
                 "thread_participants": email_thread.participants,
-                "source_email_labels": source_email.gmail_labels
+                "most_recent_user_labels": email_thread.most_recent_user_labels
             }
 
         except Exception as e:
@@ -144,28 +144,16 @@ class IMAPDataSource:
             tasks = [get_complete_thread(email) for email in unique_emails]
             email_threads = await asyncio.gather(*tasks)
 
-            # We need to map threads back to their source email to get labels
-            source_email_map = {email.message_id: email for email in unique_emails}
-
+            # We no longer need to map back to the source email for labels.
+            # The correct, filtered labels are now on the thread object itself.
             for thread in email_threads:
                 if thread:
-                    # Find the original source email to get its labels
-                    # This relies on at least one message_id in the thread matching our source map
-                    source_email = None
-                    for msg in thread.messages:
-                        if msg.message_id in source_email_map:
-                            source_email = source_email_map[msg.message_id]
-                            break
-                    
-                    if source_email:
-                        full_thread_dataset.append({
-                            "thread_markdown": thread.markdown,
-                            "thread_subject": thread.subject,
-                            "thread_participants": thread.participants,
-                            "source_email_labels": source_email.gmail_labels
-                        })
-                    else:
-                        logger.warning(f"Could not map thread with ID {thread.thread_id} back to a source email.")
+                    full_thread_dataset.append({
+                        "thread_markdown": thread.markdown,
+                        "thread_subject": thread.subject,
+                        "thread_participants": thread.participants,
+                        "most_recent_user_labels": thread.most_recent_user_labels
+                    })
 
             logger.info(f"Successfully processed and flattened {len(full_thread_dataset)} email threads.")
             return full_thread_dataset

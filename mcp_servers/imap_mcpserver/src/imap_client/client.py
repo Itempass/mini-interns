@@ -189,8 +189,13 @@ def _get_complete_thread_sync(message_id: str) -> Optional[EmailThread]:
                     labels_match = re.search(r'X-GM-LABELS \(([^)]+)\)', header_info)
                     if labels_match:
                         labels_str = labels_match.group(1)
-                        labels = re.findall(r'"([^"]*)"', labels_str)
-                        labels = [label.replace('\\\\', '\\') for label in labels]
+                        # This regex handles both quoted labels (possibly with spaces)
+                        # and unquoted labels. It returns a list of tuples, where one
+                        # element is the matched label and the other is empty.
+                        matches = re.findall(r'"([^"\\]*(?:\\.[^"\\]*)*)"|(\S+)', labels_str)
+                        # We flatten the list of tuples into a clean list of strings.
+                        raw_labels = [group1 or group2 for group1, group2 in matches]
+                        labels = [label.replace('\\\\', '\\') for label in raw_labels]
 
                     # Skip draft messages (no Message-ID or has \Draft label)
                     if not message_id_header or '\\Draft' in labels:
@@ -231,7 +236,36 @@ def _get_complete_thread_sync(message_id: str) -> Optional[EmailThread]:
             
             # Step 6: Create EmailThread from messages
             if messages:
-                return EmailThread.from_messages(messages, gmail_thread_id)
+                thread = EmailThread.from_messages(messages, gmail_thread_id)
+
+                # Step 7: Get all user-defined labels from the entire thread
+                all_special_use_attributes = list(resolver.SPECIAL_USE_ATTRIBUTES) + list(resolver.FALLBACK_MAP.keys())
+                
+                resolved_special_folders = set()
+                for attr in all_special_use_attributes:
+                    try:
+                        resolved_special_folders.add(attr)
+                        resolved_special_folders.add(resolver.get_folder_by_attribute(attr))
+                    except FolderNotFoundError:
+                        continue
+
+                # Collect labels from all messages in the thread
+                all_labels_in_thread = set()
+                for message in thread.messages:
+                    all_labels_in_thread.update(message.gmail_labels)
+
+                logger.debug(f"All unique labels found in thread: {all_labels_in_thread}")
+                logger.debug(f"Resolved special folders for filtering: {resolved_special_folders}")
+
+                # Filter out system labels
+                user_labels = [
+                    label for label in all_labels_in_thread 
+                    if label not in resolved_special_folders
+                ]
+                thread.most_recent_user_labels = sorted(list(set(user_labels))) # Sort for consistent output
+                logger.debug(f"Resulting user labels for thread: {thread.most_recent_user_labels}")
+
+                return thread
             
             return None
             
@@ -355,7 +389,8 @@ def _get_recent_messages_from_attribute_sync(attribute: str, count: int = 20) ->
                     labels_match = re.search(r'X-GM-LABELS \(([^)]+)\)', header_info)
                     if labels_match:
                         labels_str = labels_match.group(1)
-                        labels = re.findall(r'"([^"]*)"', labels_str)
+                        # This new regex handles both quoted and unquoted labels
+                        labels = re.findall(r'\\?\"?([^\"\s]+)\\?\"?', labels_str)
                         labels = [label.replace('\\\\', '\\') for label in labels]
 
                     # Skip draft messages (no Message-ID or has \Draft label)
