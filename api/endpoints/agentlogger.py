@@ -11,13 +11,14 @@ logger = logging.getLogger(__name__)
 def get_grouped_logs(
     limit: int = Query(20, ge=1, le=100), 
     offset: int = Query(0, ge=0),
-    workflow_id: Optional[str] = Query(None)
+    workflow_id: Optional[str] = Query(None),
+    log_type: Optional[str] = Query(None)
 ):
     """
     Get paginated, grouped logs from the agent logger database.
     """
     try:
-        grouped_data = get_grouped_log_entries(limit=limit, offset=offset, workflow_id=workflow_id)
+        grouped_data = get_grouped_log_entries(limit=limit, offset=offset, workflow_id=workflow_id, log_type=log_type)
         return GroupedLogEntriesResponse(**grouped_data)
     except Exception as e:
         logger.error(f"Error fetching grouped logs: {e}", exc_info=True)

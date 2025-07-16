@@ -85,11 +85,11 @@ def get_all_log_entries() -> List[LogEntry]:
         logger.error(f"Error retrieving logs: {e}")
         return []
 
-def get_grouped_log_entries(limit: int, offset: int, workflow_id: Optional[str] = None) -> Dict[str, Any]:
+def get_grouped_log_entries(limit: int, offset: int, workflow_id: Optional[str] = None, log_type: Optional[str] = None) -> Dict[str, Any]:
     """Retrieve paginated and grouped log entries."""
     try:
         db_service = get_database_service()
-        return db_service.get_grouped_log_entries(limit, offset, workflow_id)
+        return db_service.get_grouped_log_entries(limit, offset, workflow_id, log_type)
     except Exception as e:
         logger.error(f"Error retrieving grouped logs: {e}", exc_info=True)
         return {"workflows": [], "total_workflows": 0}

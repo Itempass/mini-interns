@@ -152,6 +152,7 @@ const WorkflowsPage = () => {
                           key={selectedWorkflow.uuid}
                           workflowId={selectedWorkflow.uuid}
                           onSelectLog={handleSelectLog}
+                          logType={'workflow'}
                         />
                       )}
                     </div>

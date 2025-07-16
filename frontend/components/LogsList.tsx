@@ -5,11 +5,12 @@ import { getGroupedLogEntries, LogEntry, GroupedLog } from '../services/api';
 interface LogsListProps {
   onSelectLog: (logId: string) => void;
   workflowId?: string;
+  logType?: string;
 }
 
 const PAGE_SIZE = 20;
 
-const LogsList: React.FC<LogsListProps> = ({ onSelectLog, workflowId }) => {
+const LogsList: React.FC<LogsListProps> = ({ onSelectLog, workflowId, logType }) => {
   const [groupedLogs, setGroupedLogs] = useState<GroupedLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [offset, setOffset] = useState(0);
@@ -18,7 +19,7 @@ const LogsList: React.FC<LogsListProps> = ({ onSelectLog, workflowId }) => {
 
   const fetchLogs = async (currentOffset: number, isNewWorkflow: boolean) => {
     setLoading(true);
-    const response = await getGroupedLogEntries(PAGE_SIZE, currentOffset, workflowId);
+    const response = await getGroupedLogEntries(PAGE_SIZE, currentOffset, workflowId, logType);
     if (response.workflows.length > 0) {
       setGroupedLogs(prev => isNewWorkflow ? response.workflows : [...prev, ...response.workflows]);
     } else if (isNewWorkflow) {
@@ -34,7 +35,7 @@ const LogsList: React.FC<LogsListProps> = ({ onSelectLog, workflowId }) => {
   useEffect(() => {
     setOffset(0);
     fetchLogs(0, true);
-  }, [workflowId]);
+  }, [workflowId, logType]);
 
   const handleLoadMore = () => {
     const newOffset = offset + PAGE_SIZE;
@@ -76,8 +77,9 @@ const LogsList: React.FC<LogsListProps> = ({ onSelectLog, workflowId }) => {
     const duration = log.end_time ? new Date(log.end_time).getTime() - new Date(log.start_time).getTime() : null;
     const status = log.needs_review ? 'Needs Review' : (log.feedback ? 'Reviewed' : 'OK');
     const isExpanded = log.workflow_instance_id && expandedWorkflows[log.workflow_instance_id];
+    const isWorkflowAgent = log.log_type === 'workflow_agent';
 
-    const onRowClick = isChild
+    const onRowClick = isChild || isWorkflowAgent
       ? () => handleRowClick(log.id)
       : () => { if (log.workflow_instance_id) toggleWorkflow(log.workflow_instance_id); };
 
@@ -89,7 +91,7 @@ const LogsList: React.FC<LogsListProps> = ({ onSelectLog, workflowId }) => {
       >
         <td className={`${tdClasses} ${isChild ? 'pl-8' : ''}`}>
           <div className="flex items-center">
-            {!isChild && (
+            {!isChild && !isWorkflowAgent && (
               <span className="mr-2 text-lg w-4 inline-block text-center">
                 {isExpanded ? '▼' : '▶'}
               </span>
@@ -98,6 +100,7 @@ const LogsList: React.FC<LogsListProps> = ({ onSelectLog, workflowId }) => {
               log.log_type === 'custom_agent' ? 'bg-blue-100 text-blue-800' :
               log.log_type === 'custom_llm' ? 'bg-green-100 text-green-800' :
               log.log_type === 'workflow' ? 'bg-indigo-100 text-indigo-800' :
+              log.log_type === 'workflow_agent' ? 'bg-purple-100 text-purple-800' :
               'bg-gray-100 text-gray-800'
             }`}>
               {log.log_type.replace(/_/g, ' ')}
@@ -151,7 +154,7 @@ const LogsList: React.FC<LogsListProps> = ({ onSelectLog, workflowId }) => {
             {groupedLogs.map(({ workflow_log, step_logs }) => (
               <Fragment key={workflow_log.id}>
                 {renderLogRow(workflow_log, false)}
-                {workflow_log.workflow_instance_id && expandedWorkflows[workflow_log.workflow_instance_id] && (
+                {workflow_log.log_type === 'workflow' && workflow_log.workflow_instance_id && expandedWorkflows[workflow_log.workflow_instance_id] && (
                   step_logs.map(stepLog => renderLogRow(stepLog, true))
                 )}
               </Fragment>

@@ -182,19 +182,23 @@ class DatabaseService:
             logger.error(f"Failed to retrieve log entries: {e}")
             return []
             
-    def get_grouped_log_entries(self, limit: int, offset: int, workflow_id: Optional[str] = None) -> Dict[str, Any]:
+    def get_grouped_log_entries(self, limit: int, offset: int, workflow_id: Optional[str] = None, log_type: Optional[str] = None) -> Dict[str, Any]:
         """
         Retrieve paginated and grouped log entries from the database.
         Fetches workflow logs with pagination and their associated step logs.
-        Can be filtered by a specific workflow_id.
+        Can be filtered by a specific workflow_id and/or log_type.
         """
         try:
             with sqlite3.connect(self.db_path) as conn:
                 conn.row_factory = sqlite3.Row
                 
                 # 1. Build base queries and params
-                count_query = "SELECT COUNT(*) FROM logs WHERE log_type IN ('workflow', 'workflow_agent')"
-                main_query = "SELECT * FROM logs WHERE log_type IN ('workflow', 'workflow_agent')"
+                parent_log_types = "('workflow', 'workflow_agent')"
+                if log_type:
+                    parent_log_types = f"('{log_type}')"
+
+                count_query = f"SELECT COUNT(*) FROM logs WHERE log_type IN {parent_log_types}"
+                main_query = f"SELECT * FROM logs WHERE log_type IN {parent_log_types}"
                 params = []
 
                 if workflow_id:

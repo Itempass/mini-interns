@@ -317,19 +317,25 @@ export const getLogEntries = async (): Promise<LogEntriesResponse> => {
   }
 };
 
-export const getGroupedLogEntries = async (limit: number, offset: number, workflowId?: string): Promise<GroupedLogEntriesResponse> => {
+export const getGroupedLogEntries = async (limit: number, offset: number, workflowId?: string, logType?: string): Promise<GroupedLogEntriesResponse> => {
   try {
-    let url = `${API_URL}/agentlogger/logs/grouped?limit=${limit}&offset=${offset}`;
+    const params = new URLSearchParams({
+      limit: String(limit),
+      offset: String(offset),
+    });
     if (workflowId) {
-      url += `&workflow_id=${workflowId}`;
+      params.append('workflow_id', workflowId);
     }
-    const response = await fetch(url);
+    if (logType) {
+      params.append('log_type', logType);
+    }
+    const response = await fetch(`${API_URL}/agentlogger/logs/grouped?${params.toString()}`);
     if (!response.ok) {
-      throw new Error('Failed to fetch grouped logs');
+      throw new Error('Failed to fetch grouped log entries');
     }
     return await response.json();
   } catch (error) {
-    console.error('An error occurred while fetching grouped logs:', error);
+    console.error('Error fetching grouped log entries:', error);
     return { workflows: [], total_workflows: 0 };
   }
 };
