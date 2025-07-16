@@ -55,23 +55,16 @@ class TestCaseResult(BaseModel):
     comparison_details: Optional[Dict[str, Any]] = None
 
 
-class SummaryReport(BaseModel):
-    """A summary of the results of an entire evaluation run."""
-    accuracy: float
-    total_cases: int
-    passed: int
-    failed: int
-
-
 class EvaluationRun(BaseModel):
     """Represents a single execution of an EvaluationTemplate against a prompt."""
     uuid: UUID = Field(default_factory=uuid4)
     user_id: UUID
     template_uuid: UUID
-    workflow_step_uuid: UUID
+    original_prompt: str
+    original_model: str
     status: Literal["pending", "running", "completed", "failed"]
-    summary_report: Optional[SummaryReport] = None
-    detailed_results: Optional[List[TestCaseResult]] = None
+    summary_report: Optional[Dict[str, Any]] = None
+    detailed_results: Optional[Dict[str, Any]] = None
     started_at: Optional[datetime] = None
     finished_at: Optional[datetime] = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

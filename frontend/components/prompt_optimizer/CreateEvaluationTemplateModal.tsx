@@ -1,8 +1,8 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { X, Loader2, Download, Edit, Plus, AlertTriangle } from 'lucide-react';
-import { listDataSources, getDataSourceConfigSchema, fetchDataSourceSample, createEvaluationTemplate, DataSource, EvaluationTemplate, EvaluationTemplateCreate, listEvaluationTemplates, getEvaluationTemplate, EvaluationTemplateLight, updateEvaluationTemplate } from '../../services/promptoptimizer_api';
+import { X, Loader2, Download, Edit, Plus, AlertTriangle, Play, Copy } from 'lucide-react';
+import { listDataSources, getDataSourceConfigSchema, fetchDataSourceSample, createEvaluationTemplate, DataSource, EvaluationTemplate, EvaluationTemplateCreate, listEvaluationTemplates, getEvaluationTemplate, EvaluationTemplateLight, updateEvaluationTemplate, runEvaluation, getEvaluationRun, EvaluationRun } from '../../services/promptoptimizer_api';
 import { JsonSchemaForm } from './JsonSchemaForm';
 import { StepSidebar } from './StepSidebar';
 import { isEqual } from 'lodash';
@@ -11,9 +11,11 @@ import { isEqual } from 'lodash';
 interface CreateEvaluationTemplateModalProps {
   isOpen: boolean;
   onClose: () => void;
+  prompt: string;
+  model: string;
 }
 
-const CreateEvaluationTemplateModal: React.FC<CreateEvaluationTemplateModalProps> = ({ isOpen, onClose }) => {
+const CreateEvaluationTemplateModal: React.FC<CreateEvaluationTemplateModalProps> = ({ isOpen, onClose, prompt, model }) => {
   const [step, setStep] = useState(1);
   const [isLoading, setIsLoading] = useState(false);
   const [isDownloading, setIsDownloading] = useState<string | null>(null); // Store UUID of downloading template
@@ -52,6 +54,12 @@ const CreateEvaluationTemplateModal: React.FC<CreateEvaluationTemplateModalProps
   // Step 4 state
   const [templateName, setTemplateName] = useState('');
   const [templateDescription, setTemplateDescription] = useState('');
+
+  // New state for evaluation runs
+  const [runningTemplate, setRunningTemplate] = useState<EvaluationTemplateLight | null>(null);
+  const [currentRun, setCurrentRun] = useState<EvaluationRun | null>(null);
+  const [isPolling, setIsPolling] = useState(false);
+
 
   // Step 5 state (Success)
   const [createdTemplate, setCreatedTemplate] = useState<EvaluationTemplate | null>(null);
@@ -184,6 +192,53 @@ const CreateEvaluationTemplateModal: React.FC<CreateEvaluationTemplateModalProps
       setIsLoading(false);
     }
   };
+
+  const handleRunEvaluation = async (template: EvaluationTemplateLight) => {
+    setIsLoading(true);
+    setErrorMessage('');
+    setRunningTemplate(template);
+    
+    try {
+      // The API now returns the created run object immediately
+      const newRun = await runEvaluation(template.uuid, prompt, model);
+      setCurrentRun(newRun);
+      setIsPolling(true);
+      setStep(6); // Move to the "Running" step
+    } catch (err) {
+      setErrorMessage(err.message || 'Failed to start evaluation.');
+      setIsLoading(false);
+    }
+  };
+
+
+  useEffect(() => {
+    if (!isPolling || !currentRun) return;
+
+    const interval = setInterval(async () => {
+      try {
+        const run = await getEvaluationRun(currentRun.uuid);
+        if (run.status === 'completed' || run.status === 'failed') {
+          setIsPolling(false);
+          setIsLoading(false);
+          setCurrentRun(run);
+          setStep(7); // Move to results step
+          clearInterval(interval);
+        } else {
+          // Keep polling, maybe update some state to show progress
+          setCurrentRun(run);
+        }
+      } catch (error) {
+        console.error("Polling failed", error);
+        setErrorMessage('Failed to get evaluation status.');
+        setIsPolling(false);
+        clearInterval(interval);
+        setStep(1);
+      }
+    }, 3000); // Poll every 3 seconds
+
+    return () => clearInterval(interval);
+  }, [isPolling, currentRun]);
+
 
   const handleCreateNewClick = async () => {
     setMode('new');
@@ -388,6 +443,13 @@ const CreateEvaluationTemplateModal: React.FC<CreateEvaluationTemplateModalProps
                                         >
                                             <Edit size={18} />
                                         </button>
+                                        <button
+                                            onClick={() => handleRunEvaluation(template)}
+                                            className="p-1 ml-2 text-green-600 rounded-md hover:bg-green-100"
+                                            title={`Run evaluation with ${template.name}`}
+                                        >
+                                            <Play size={18} />
+                                        </button>
                                     </div>
                                 </li>
                             ))}
@@ -505,6 +567,19 @@ const CreateEvaluationTemplateModal: React.FC<CreateEvaluationTemplateModalProps
                 </div>
           </div>
         );
+      case 6: // Running Evaluation
+        return (
+            <div className="text-center p-8">
+                <Loader2 className="h-12 w-12 text-blue-600 animate-spin mx-auto" />
+                <h3 className="mt-4 text-lg font-medium text-gray-900">Running Evaluation...</h3>
+                <p className="mt-2 text-sm text-gray-600">
+                    Evaluating <span className="font-semibold">{runningTemplate?.name}</span>. This may take a few minutes.
+                </p>
+                <p className="mt-1 text-xs text-gray-500">You can safely close this window; the process will continue in the background.</p>
+            </div>
+        );
+      case 7: // Results
+        return <EvaluationResultsView run={currentRun} onClose={onClose} />;
       default:
         return null;
     }
@@ -594,5 +669,74 @@ const CreateEvaluationTemplateModal: React.FC<CreateEvaluationTemplateModalProps
     </div>
   );
 };
+
+
+const EvaluationResultsView: React.FC<{ run: EvaluationRun | null, onClose: () => void }> = ({ run, onClose }) => {
+    const [promptCopied, setPromptCopied] = useState(false);
+
+    if (!run) {
+        return (
+            <div className="text-center p-8">
+                <h3 className="text-lg font-medium text-red-700">Error</h3>
+                <p className="mt-2 text-sm text-gray-600">Could not load evaluation results.</p>
+            </div>
+        );
+    }
+
+    if (run.status === 'failed') {
+        return (
+            <div className="text-center p-8">
+                <h3 className="text-lg font-medium text-red-700">Evaluation Failed</h3>
+                <p className="mt-2 text-sm text-gray-600">Something went wrong during the evaluation. Please check the system logs for more details.</p>
+            </div>
+        )
+    }
+
+    const v1_accuracy = run.summary_report?.v1_accuracy ?? 0;
+    const v2_accuracy = run.summary_report?.v2_accuracy ?? 0;
+    const refined_prompt = run.detailed_results?.refined_prompt_v2 ?? "No prompt generated.";
+
+    const handleCopyPrompt = () => {
+        navigator.clipboard.writeText(refined_prompt);
+        setPromptCopied(true);
+        setTimeout(() => setPromptCopied(false), 2000);
+    };
+
+    return (
+        <div>
+            <h3 className="text-lg font-medium text-gray-900">Evaluation Complete</h3>
+            <div className="mt-4 grid grid-cols-2 gap-4 text-center">
+                <div className="p-4 bg-gray-100 rounded-lg">
+                    <p className="text-sm font-medium text-gray-600">Original Prompt (V1)</p>
+                    <p className="text-3xl font-bold text-gray-800 mt-1">{(v1_accuracy * 100).toFixed(1)}%</p>
+                    <p className="text-xs text-gray-500">Accuracy</p>
+                </div>
+                <div className="p-4 bg-green-100 rounded-lg border border-green-300">
+                    <p className="text-sm font-medium text-green-700">Refined Prompt (V2)</p>
+                    <p className="text-3xl font-bold text-green-800 mt-1">{(v2_accuracy * 100).toFixed(1)}%</p>
+                    <p className="text-xs text-green-500">Accuracy</p>
+                </div>
+            </div>
+            <div className="mt-6">
+                <label className="block text-sm font-medium text-gray-700">Refined Prompt (V2)</label>
+                <div className="relative mt-1">
+                    <textarea
+                        readOnly
+                        value={refined_prompt}
+                        rows={8}
+                        className="w-full p-2 border border-gray-300 rounded-md bg-gray-50 text-sm font-mono"
+                    />
+                    <button
+                        onClick={handleCopyPrompt}
+                        className="absolute top-2 right-2 p-1 text-gray-500 rounded hover:bg-gray-200"
+                    >
+                        {promptCopied ? <span className="text-xs text-green-600">Copied!</span> : <Copy size={16} />}
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 
 export default CreateEvaluationTemplateModal; 

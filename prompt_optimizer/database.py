@@ -6,7 +6,8 @@ from uuid import UUID
 import mysql.connector
 
 from shared.config import settings
-from .models import EvaluationTemplate, EvaluationTemplateLight
+from .models import EvaluationTemplate, EvaluationTemplateLight, EvaluationRun
+from datetime import timezone
 
 logger = logging.getLogger(__name__)
 
@@ -165,5 +166,114 @@ def list_evaluation_templates(user_id: UUID) -> List[EvaluationTemplate]:
     except mysql.connector.Error as err:
         logger.error(f"Error listing evaluation templates for user {user_id}: {err}")
         return []
+    finally:
+        conn.close()
+
+
+# --- Evaluation Run Functions ---
+
+def create_evaluation_run(run: EvaluationRun) -> EvaluationRun:
+    """Saves a new EvaluationRun to the database."""
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cursor:
+            sql = """
+            INSERT INTO evaluation_runs (
+                uuid, user_id, template_uuid, original_prompt, original_model, status,
+                summary_report, detailed_results, started_at, finished_at, created_at
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """
+
+            summary_report_str = json.dumps(run.summary_report) if run.summary_report else None
+            detailed_results_str = json.dumps(run.detailed_results) if run.detailed_results else None
+
+            cursor.execute(sql, (
+                str(run.uuid),
+                str(run.user_id),
+                str(run.template_uuid),
+                run.original_prompt,
+                run.original_model,
+                run.status,
+                summary_report_str,
+                detailed_results_str,
+                run.started_at,
+                run.finished_at,
+                run.created_at
+            ))
+            conn.commit()
+            return run
+    except mysql.connector.Error as err:
+        logger.error(f"Error creating evaluation run: {err}")
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def update_evaluation_run(run: EvaluationRun) -> EvaluationRun:
+    """Updates an existing EvaluationRun in the database."""
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cursor:
+            sql = """
+            UPDATE evaluation_runs SET
+                status = %s,
+                summary_report = %s,
+                detailed_results = %s,
+                started_at = %s,
+                finished_at = %s
+            WHERE uuid = %s AND user_id = %s
+            """
+            
+            summary_report_str = json.dumps(run.summary_report) if run.summary_report else None
+            detailed_results_str = json.dumps(run.detailed_results) if run.detailed_results else None
+            
+            cursor.execute(sql, (
+                run.status,
+                summary_report_str,
+                detailed_results_str,
+                run.started_at,
+                run.finished_at,
+                str(run.uuid),
+                str(run.user_id)
+            ))
+            conn.commit()
+
+            if cursor.rowcount == 0:
+                raise ValueError("EvaluationRun not found or user not authorized to update.")
+
+            return run
+    except mysql.connector.Error as err:
+        logger.error(f"Error updating evaluation run {run.uuid}: {err}")
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def get_evaluation_run(run_uuid: UUID, user_id: UUID) -> Optional[EvaluationRun]:
+    """Retrieves a single EvaluationRun from the database by its UUID."""
+    conn = get_db_connection()
+    try:
+        with conn.cursor(dictionary=True) as cursor:
+            sql = "SELECT * FROM evaluation_runs WHERE uuid = %s AND user_id = %s"
+            cursor.execute(sql, (str(run_uuid), str(user_id)))
+            row = cursor.fetchone()
+            if row:
+                # Deserialize JSON fields if they exist
+                if row.get('summary_report'):
+                    row['summary_report'] = json.loads(row['summary_report'])
+                if row.get('detailed_results'):
+                    row['detailed_results'] = json.loads(row['detailed_results'])
+
+                # Convert created_at to timezone-aware if it's not
+                if row.get('created_at') and row['created_at'].tzinfo is None:
+                    row['created_at'] = row['created_at'].replace(tzinfo=timezone.utc)
+
+                return EvaluationRun(**row)
+            return None
+    except mysql.connector.Error as err:
+        logger.error(f"Error getting evaluation run {run_uuid}: {err}")
+        raise
     finally:
         conn.close()

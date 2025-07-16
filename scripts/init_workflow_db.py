@@ -26,6 +26,49 @@ def init_workflow_db():
             logger.info("Database connection successful.")
             
             cursor = conn.cursor()
+
+            # --- Start of Targeted Migration ---
+            # Check if the 'created_at' column exists in 'evaluation_runs'
+            cursor.execute("""
+                SELECT COUNT(*) FROM information_schema.columns
+                WHERE table_name = 'evaluation_runs' AND column_name = 'created_at' AND table_schema = %s
+            """, (settings.MYSQL_DATABASE,))
+            
+            column_exists = cursor.fetchone()[0] == 1
+
+            # If the column does not exist, add it.
+            if not column_exists:
+                logger.info("Column 'created_at' not found in 'evaluation_runs'. Adding it now...")
+                try:
+                    cursor.execute("""
+                        ALTER TABLE evaluation_runs
+                        ADD COLUMN created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    """)
+                    logger.info("Successfully added 'created_at' column to 'evaluation_runs'.")
+                except mysql.connector.Error as err:
+                    logger.error(f"Failed to add 'created_at' column: {err}")
+                    raise err
+            # --- End of Targeted Migration ---
+
+            # --- Start of Decoupling Migration ---
+            # Check for original_prompt column
+            cursor.execute("SELECT COUNT(*) FROM information_schema.columns WHERE table_name = 'evaluation_runs' AND column_name = 'original_prompt' AND table_schema = %s", (settings.MYSQL_DATABASE,))
+            if cursor.fetchone()[0] == 0:
+                logger.info("Adding 'original_prompt' column to 'evaluation_runs'...")
+                cursor.execute("ALTER TABLE evaluation_runs ADD COLUMN original_prompt TEXT NOT NULL")
+
+            # Check for original_model column
+            cursor.execute("SELECT COUNT(*) FROM information_schema.columns WHERE table_name = 'evaluation_runs' AND column_name = 'original_model' AND table_schema = %s", (settings.MYSQL_DATABASE,))
+            if cursor.fetchone()[0] == 0:
+                logger.info("Adding 'original_model' column to 'evaluation_runs'...")
+                cursor.execute("ALTER TABLE evaluation_runs ADD COLUMN original_model VARCHAR(255) NOT NULL")
+
+            # Check if old workflow_step_uuid column exists before trying to drop it
+            cursor.execute("SELECT COUNT(*) FROM information_schema.columns WHERE table_name = 'evaluation_runs' AND column_name = 'workflow_step_uuid' AND table_schema = %s", (settings.MYSQL_DATABASE,))
+            if cursor.fetchone()[0] > 0:
+                logger.info("Dropping obsolete 'workflow_step_uuid' column from 'evaluation_runs'...")
+                cursor.execute("ALTER TABLE evaluation_runs DROP COLUMN workflow_step_uuid")
+            # --- End of Decoupling Migration ---
             
             schema_path = os.path.join('workflow', 'schema.sql')
             logger.info(f"Reading schema from {schema_path}")

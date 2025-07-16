@@ -168,6 +168,8 @@ const EditCustomLLMStep: React.FC<EditCustomLLMStepProps> = ({ step, onSave, onC
       <CreateEvaluationTemplateModal
         isOpen={isOptimizerOpen}
         onClose={() => setIsOptimizerOpen(false)}
+        prompt={currentStep.system_prompt}
+        model={currentStep.model}
       />
     </>
   );

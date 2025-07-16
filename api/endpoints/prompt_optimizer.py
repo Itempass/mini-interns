@@ -1,12 +1,22 @@
 from typing import List, Dict, Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from pydantic import BaseModel
 from starlette.requests import Request
 
 from prompt_optimizer import client as prompt_optimizer_client
-from prompt_optimizer.models import EvaluationTemplate, EvaluationTemplateCreate, EvaluationTemplateLight
+from prompt_optimizer import service, database
+from prompt_optimizer.models import EvaluationTemplate, EvaluationTemplateCreate, EvaluationTemplateLight, EvaluationRun
+from datetime import datetime, timezone
+
+# A dummy User model and dependency for now
+class User(BaseModel):
+    uuid: UUID
+
+async def get_current_user() -> User:
+    return User(uuid=UUID("a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11"))
+
 
 router = APIRouter()
 
@@ -163,4 +173,61 @@ async def get_evaluation_template(template_uuid: UUID, user_id: UUID = Depends(g
     template = prompt_optimizer_client.get_template(template_uuid, user_id)
     if not template:
         raise HTTPException(status_code=404, detail="Evaluation template not found")
-    return template 
+    return template
+
+
+class RunRequest(BaseModel):
+    original_prompt: str
+    original_model: str
+
+@router.post("/evaluation/templates/{template_id}/run", response_model=EvaluationRun, status_code=202)
+async def run_evaluation(
+    template_id: UUID,
+    run_request: RunRequest,
+    background_tasks: BackgroundTasks,
+    user: User = Depends(get_current_user),
+):
+    """
+    Creates an EvaluationRun record and initiates the evaluation in the background.
+    """
+    # Verify the template exists and belongs to the user
+    template = database.get_evaluation_template(template_id, user.uuid)
+    if not template:
+        raise HTTPException(status_code=404, detail="Evaluation template not found")
+
+    # 1. Create the run record in a 'pending' state FIRST.
+    new_run = EvaluationRun(
+        user_id=user.uuid,
+        template_uuid=template_id,
+        original_prompt=run_request.original_prompt,
+        original_model=run_request.original_model,
+        status="pending",
+        created_at=datetime.now(timezone.utc)
+    )
+    created_run = database.create_evaluation_run(new_run)
+    
+    # 2. Add the long-running task to the background.
+    # The task will update the run record as it progresses.
+    background_tasks.add_task(
+        service.run_evaluation_and_refinement,
+        run_uuid=created_run.uuid, # Pass the run's UUID
+        user_id=user.uuid
+    )
+    
+    # 3. Return the created run object immediately.
+    return created_run
+
+
+@router.get("/evaluation/runs/{run_id}", response_model=EvaluationRun)
+async def get_evaluation_run_details(
+    run_id: UUID,
+    user: User = Depends(get_current_user)
+):
+    """
+
+    Fetches the status and results of a specific evaluation run.
+    """
+    run = database.get_evaluation_run(run_uuid=run_id, user_id=user.uuid)
+    if not run:
+        raise HTTPException(status_code=404, detail="Evaluation run not found.")
+    return run 

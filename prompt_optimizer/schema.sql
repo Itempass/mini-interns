@@ -18,12 +18,17 @@ CREATE INDEX idx_eval_templates_user_updated ON evaluation_templates(user_id, up
 CREATE TABLE IF NOT EXISTS evaluation_runs (
     uuid CHAR(36) PRIMARY KEY,
     template_uuid CHAR(36) NOT NULL,
-    workflow_step_uuid CHAR(36) NOT NULL, -- The CUSTOM_LLM step being tested
     user_id CHAR(36) NOT NULL,
+    original_prompt TEXT NOT NULL,
+    original_model VARCHAR(255) NOT NULL,
     status VARCHAR(50) NOT NULL, -- e.g., 'running', 'completed', 'failed'
-    summary_report JSON, -- e.g., {"accuracy": 0.85, "total_cases": 200, "passed": 170}
-    detailed_results JSON, -- Stores an array of all test cases: [{input, ground_truth, output, is_match}, ...]
+    summary_report JSON, -- e.g., {"v1_accuracy": 0.85, "v2_accuracy": 0.95}
+    detailed_results JSON, -- Stores an array of all test cases and the refined prompt
     started_at TIMESTAMP,
     finished_at TIMESTAMP,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (template_uuid) REFERENCES evaluation_templates(uuid) ON DELETE CASCADE
 );
+
+-- Add an index for faster lookups of runs by user.
+CREATE INDEX idx_eval_runs_user ON evaluation_runs(user_id);

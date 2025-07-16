@@ -120,6 +120,11 @@ async def get_with_details(
     )
 
 
+async def get_step(step_uuid: UUID, user_id: UUID) -> Optional[WorkflowStep]:
+    """Retrieves a single workflow step definition by its UUID."""
+    return await _get_step_from_db(uuid=step_uuid, user_id=user_id)
+
+
 async def list_all(user_id: UUID) -> List[WorkflowModel]:
     """Lists all workflow definitions for a user."""
     return await _list_workflows_from_db(user_id=user_id)
