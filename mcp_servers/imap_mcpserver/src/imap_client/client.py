@@ -239,6 +239,60 @@ def _get_complete_thread_sync(message_id: str) -> Optional[EmailThread]:
         logger.error(f"Error getting thread: {e}")
         return None
 
+def _get_emails_sync(folder_name: str, count: int, filter_by_labels: Optional[List[str]] = None) -> List[EmailMessage]:
+    """
+    Synchronous function to get recent emails from a specific folder, with optional label filtering.
+    """
+    messages = []
+    try:
+        with imap_connection() as (mail, resolver):
+            # Resolve the folder name to the actual name on the server
+            try:
+                # First, try to get the folder by its given name
+                target_folder = resolver.get_folder_by_name(folder_name)
+            except FolderNotFoundError:
+                # Fallback for common names if direct name not found (e.g., 'Inbox' vs '[Gmail]/Inbox')
+                if folder_name.lower() == 'inbox':
+                    target_folder = resolver.get_folder_by_attribute('\\Inbox')
+                elif folder_name.lower() == 'all mail':
+                    target_folder = resolver.get_folder_by_attribute('\\All')
+                else:
+                    # If it's not a common alias, re-raise the error
+                    raise
+
+            mail.select(f'"{target_folder}"', readonly=True)
+
+            search_query = 'ALL'
+            if filter_by_labels:
+                # Gmail-specific search for labels using X-GM-RAW extension.
+                # This makes the function Gmail-dependent when filtering.
+                labels_query = " ".join([f"label:{label}" for label in filter_by_labels])
+                search_query = f'(X-GM-RAW "{labels_query}")'
+            
+            typ, data = mail.uid('search', None, search_query)
+
+            if typ != 'OK' or not data or not data[0]:
+                return []
+
+            uids = data[0].split()
+            # Get the most recent 'count' UIDs
+            recent_uids = uids[-count:]
+            recent_uids.reverse() # Fetch newest first
+
+            if not recent_uids:
+                return []
+
+            for uid in recent_uids:
+                # Use the existing helper to fetch the full message
+                message = _fetch_single_message(mail, uid.decode(), target_folder)
+                if message:
+                    messages.append(message)
+            return messages
+
+    except Exception as e:
+        logger.error(f"Error getting emails from folder '{folder_name}' with labels {filter_by_labels}: {e}", exc_info=True)
+        return []
+
 def _get_recent_message_ids_sync(count: int = 20) -> List[str]:
     """Synchronous function to get recent Message-IDs from INBOX"""
     try:
@@ -724,7 +778,19 @@ async def draft_reply(original_message: EmailMessage, reply_body: str) -> Dict[s
     return await asyncio.to_thread(_draft_reply_sync, original_message, reply_body)
 
 async def set_label(message_id: str, label: str) -> Dict[str, Any]:
-    return await asyncio.to_thread(_set_label_sync, message_id, label)
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, _set_label_sync, message_id, label)
+
+async def get_emails(folder_name: str, count: int, filter_by_labels: Optional[List[str]] = None) -> List[EmailMessage]:
+    """Asynchronous wrapper for getting emails from a folder with optional label filtering."""
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(
+        None,
+        _get_emails_sync,
+        folder_name,
+        count,
+        filter_by_labels
+    )
 
 async def get_all_labels() -> List[str]:
     """Asynchronously gets all labels from the IMAP server."""

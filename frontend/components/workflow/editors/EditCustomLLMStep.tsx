@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { CustomLLMStep, WorkflowStep, getAvailableLLMModels, LLMModel } from '../../../services/workflows_api';
+import CreateEvaluationTemplateModal from '../../prompt_optimizer/CreateEvaluationTemplateModal';
 
 interface EditCustomLLMStepProps {
   step: CustomLLMStep;
@@ -17,6 +18,7 @@ const EditCustomLLMStep: React.FC<EditCustomLLMStepProps> = ({ step, onSave, onC
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [initialPrompt, setInitialPrompt] = useState(step.system_prompt);
   const [isPromptDirty, setIsPromptDirty] = useState(false);
+  const [isOptimizerOpen, setIsOptimizerOpen] = useState(false);
 
   useEffect(() => {
     const fetchModels = async () => {
@@ -73,77 +75,92 @@ const EditCustomLLMStep: React.FC<EditCustomLLMStepProps> = ({ step, onSave, onC
   };
 
   return (
-    <div className="p-6">
-      <div className="space-y-4">
-        <div>
-          <label htmlFor="step-system-prompt" className="block text-sm font-medium text-gray-700">System Prompt</label>
-          <div className="relative">
-            <textarea
-              ref={textareaRef}
-              id="step-system-prompt"
-              value={currentStep.system_prompt}
-              onChange={handlePromptChange}
-              rows={10}
-              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 font-mono text-sm"
-              placeholder="e.g., You are a helpful assistant."
-            />
-            
-            {isPromptDirty && (
-              <button
-                onClick={handlePromptSave}
-                className="absolute bottom-3 right-3 px-2 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700"
-              >
-                click to save
-              </button>
-            )}
-          </div>
-
-          {/* Output Placeholders */}
-          {(hasTrigger || precedingSteps.length > 0) && (
-            <div className="mt-2 flex flex-wrap items-center gap-2">
-              <p className="text-sm text-gray-600">Insert previous outputs into prompt:</p>
-              {hasTrigger && (
+    <>
+      <div className="p-6">
+        <div className="space-y-4">
+          <div>
+            <label htmlFor="step-system-prompt" className="block text-sm font-medium text-gray-700">System Prompt</label>
+            <div className="relative">
+              <textarea
+                ref={textareaRef}
+                id="step-system-prompt"
+                value={currentStep.system_prompt}
+                onChange={handlePromptChange}
+                rows={10}
+                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 font-mono text-sm"
+                placeholder="e.g., You are a helpful assistant."
+              />
+              
+              {isPromptDirty && (
                 <button
-                  type="button"
-                  onClick={() => insertPlaceholder('<<trigger_output>>')}
-                  className="px-3 py-1 bg-green-100 text-green-800 text-sm rounded-full hover:bg-green-200 transition-colors"
+                  onClick={handlePromptSave}
+                  className="absolute bottom-3 right-3 px-2 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700"
                 >
-                  trigger output
+                  click to save
                 </button>
               )}
-              {precedingSteps.map((precedingStep, index) => (
-                <button
-                  key={precedingStep.uuid}
-                  type="button"
-                  onClick={() => insertPlaceholder(`<<step_output.${precedingStep.uuid}>>`)}
-                  className="px-3 py-1 bg-blue-100 text-blue-800 text-sm rounded-full hover:bg-blue-200 transition-colors"
-                >
-                  step {index + 2} output
-                </button>
-              ))}
             </div>
-          )}
-        </div>
-        <div>
-            <label htmlFor="step-model" className="block text-sm font-medium text-gray-700">Language Model</label>
-            <select
-                id="step-model"
-                value={currentStep.model}
-                onChange={handleModelChange}
-                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                disabled={isLoadingModels}
-            >
-                {isLoadingModels ? (
-                    <option>Loading models...</option>
-                ) : (
-                    availableModels.map(model => (
-                        <option key={model.id} value={model.id}>{model.name}</option>
-                    ))
+
+            {/* Output Placeholders */}
+            {(hasTrigger || precedingSteps.length > 0) && (
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <p className="text-sm text-gray-600">Insert previous outputs into prompt:</p>
+                {hasTrigger && (
+                  <button
+                    type="button"
+                    onClick={() => insertPlaceholder('<<trigger_output>>')}
+                    className="px-3 py-1 bg-green-100 text-green-800 text-sm rounded-full hover:bg-green-200 transition-colors"
+                  >
+                    trigger output
+                  </button>
                 )}
-            </select>
+                {precedingSteps.map((precedingStep, index) => (
+                  <button
+                    key={precedingStep.uuid}
+                    type="button"
+                    onClick={() => insertPlaceholder(`<<step_output.${precedingStep.uuid}>>`)}
+                    className="px-3 py-1 bg-blue-100 text-blue-800 text-sm rounded-full hover:bg-blue-200 transition-colors"
+                  >
+                    step {index + 2} output
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          <div>
+            <label htmlFor="step-model" className="block text-sm font-medium text-gray-700">Language Model</label>
+            <div className="mt-1 flex items-center space-x-2">
+              <select
+                  id="step-model"
+                  value={currentStep.model}
+                  onChange={handleModelChange}
+                  className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                  disabled={isLoadingModels}
+              >
+                  {isLoadingModels ? (
+                      <option>Loading models...</option>
+                  ) : (
+                      availableModels.map(model => (
+                          <option key={model.id} value={model.id}>{model.name}</option>
+                      ))
+                  )}
+              </select>
+              <button
+                type="button"
+                onClick={() => setIsOptimizerOpen(true)}
+                className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 whitespace-nowrap"
+              >
+                Optimize...
+              </button>
+            </div>
+          </div>
         </div>
       </div>
-    </div>
+      <CreateEvaluationTemplateModal
+        isOpen={isOptimizerOpen}
+        onClose={() => setIsOptimizerOpen(false)}
+      />
+    </>
   );
 };
 

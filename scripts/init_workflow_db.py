@@ -33,11 +33,25 @@ def init_workflow_db():
             with open(schema_path, 'r') as f:
                 sql_script = f.read()
             
-            # Execute each statement from the schema file
+            # Execute each statement from the workflow schema file
             for statement in sql_script.split(';'):
                 statement = statement.strip()
                 if statement:
                     cursor.execute(statement)
+
+            # Execute each statement from the prompt_optimizer schema file
+            optimizer_schema_path = os.path.join('prompt_optimizer', 'schema.sql')
+            if os.path.exists(optimizer_schema_path):
+                logger.info(f"Reading schema from {optimizer_schema_path}")
+                with open(optimizer_schema_path, 'r') as f:
+                    optimizer_sql_script = f.read()
+                
+                for statement in optimizer_sql_script.split(';'):
+                    statement = statement.strip()
+                    if statement:
+                        cursor.execute(statement)
+            else:
+                logger.warning(f"Schema file not found at {optimizer_schema_path}. Skipping.")
             
             conn.commit()
             cursor.close()

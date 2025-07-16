@@ -41,6 +41,7 @@ COPY mcp_servers/ ./mcp_servers/
 COPY triggers/ ./triggers/
 COPY workflow/ ./workflow/
 COPY workflow_agent/ ./workflow_agent/
+COPY prompt_optimizer/ ./prompt_optimizer/
 COPY scripts/ ./scripts/
 COPY promtail-config.yml .
 COPY supervisord.conf .
