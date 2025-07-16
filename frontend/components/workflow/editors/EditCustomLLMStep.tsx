@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { CustomLLMStep, WorkflowStep, getAvailableLLMModels, LLMModel } from '../../../services/workflows_api';
 import CreateEvaluationTemplateModal from '../../prompt_optimizer/CreateEvaluationTemplateModal';
@@ -129,7 +128,7 @@ const EditCustomLLMStep: React.FC<EditCustomLLMStepProps> = ({ step, onSave, onC
           </div>
           <div>
             <label htmlFor="step-model" className="block text-sm font-medium text-gray-700">Language Model</label>
-            <div className="mt-1 flex items-center space-x-2">
+            <div className="mt-1">
               <select
                   id="step-model"
                   value={currentStep.model}
@@ -145,10 +144,20 @@ const EditCustomLLMStep: React.FC<EditCustomLLMStepProps> = ({ step, onSave, onC
                       ))
                   )}
               </select>
+            </div>
+          </div>
+          <div>
+            <div className="flex items-center">
+              <label className="block text-sm font-medium text-gray-700">Optimize prompt</label>
+              <span className="ml-2 px-2 py-0.5 text-xs font-semibold text-purple-800 bg-purple-100 rounded-full">
+                Experimental
+              </span>
+            </div>
+            <div className="mt-2">
               <button
                 type="button"
                 onClick={() => setIsOptimizerOpen(true)}
-                className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 whitespace-nowrap"
+                className="px-4 py-1 bg-blue-500 text-white text-sm font-medium rounded-md hover:bg-blue-600 whitespace-nowrap"
               >
                 Optimize...
               </button>

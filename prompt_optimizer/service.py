@@ -2,8 +2,9 @@ import logging
 from typing import Dict, Any, List, Protocol, Optional
 from uuid import UUID
 from datetime import datetime
+import asyncio
 
-from mcp_servers.imap_mcpserver.src.imap_client.client import get_emails, get_all_labels, get_all_folders
+from mcp_servers.imap_mcpserver.src.imap_client.client import get_emails, get_all_labels, get_all_special_use_folders, get_complete_thread, EmailMessage
 from . import database
 from .models import EvaluationTemplate, EvaluationTemplateCreate
 
@@ -38,9 +39,11 @@ class IMAPDataSource:
         try:
             # In a real multi-tenant app, user_id would be used to select the correct IMAP credentials.
             # For now, it's unused as we have a single system-wide IMAP connection.
-            labels = await get_all_labels()
-            folders = await get_all_folders()
-            logger.debug(f"Fetched {len(labels)} labels and {len(folders)} folders for user {user_id}")
+            labels, folders = await asyncio.gather(
+                get_all_labels(),
+                get_all_special_use_folders()
+            )
+            logger.debug(f"Fetched {len(labels)} labels and {len(folders)} special-use folders for user {user_id}")
             
             return {
                 "type": "object",
@@ -74,54 +77,98 @@ class IMAPDataSource:
             raise
 
     async def fetch_sample(self, config: Dict[str, Any], user_id: UUID) -> Dict[str, Any]:
-        """Fetches the single most recent email matching the configuration."""
+        """
+        Fetches a single email matching the config, gets its full thread context,
+        and returns a flattened dictionary representation of the thread.
+        """
         logger.info(f"Fetching IMAP sample for user {user_id} with config: {config}")
-        # Fetch just one email for the sample.
-        # The underlying get_emails function expects a single folder, so we'll just use the first one.
-        # The full fetch will need to handle multiple folders.
-        fetch_config = config.copy()
-        folder_to_sample = (fetch_config.pop("folder_names", []) + ["INBOX"])[0]
-        params = {**fetch_config, 'count': 1, 'folder_name': folder_to_sample}
+        
+        # 1. Fetch the most recent email message matching the criteria
+        folder_to_sample = (config.get("folder_names", []) + ["INBOX"])[0]
+        params = {**{k: v for k, v in config.items() if k != 'folder_names'}, 'count': 1, 'folder_name': folder_to_sample}
         
         try:
-            # Again, user_id is noted but unused for now.
-            results = await get_emails(**params)
-            if not results:
-                # It's important to return an empty object if no sample is found,
-                # so the frontend knows the configuration is valid but yielded no data.
+            email_messages = await get_emails(**params)
+            if not email_messages:
+                return {} # No sample found is a valid result
+            
+            source_email = email_messages[0]
+
+            # 2. Fetch the complete thread for that email
+            logger.info(f"Fetching complete thread for sample email with Message-ID: {source_email.message_id}")
+            email_thread = await get_complete_thread(source_email)
+
+            if not email_thread:
+                logger.warning(f"Could not fetch thread for sample Message-ID: {source_email.message_id}. Returning empty sample.")
                 return {}
-            # Return the first result as a dictionary
-            return results[0].model_dump()
+
+            # 3. Flatten the thread into the desired dictionary format
+            return {
+                "thread_markdown": email_thread.markdown,
+                "thread_subject": email_thread.subject,
+                "thread_participants": email_thread.participants,
+                "source_email_labels": source_email.gmail_labels
+            }
+
         except Exception as e:
-            logger.error(f"Failed to fetch IMAP sample for user {user_id}: {e}", exc_info=True)
+            logger.error(f"Failed to fetch and process IMAP sample for user {user_id}: {e}", exc_info=True)
             raise
 
     async def fetch_full_dataset(self, config: Dict[str, Any], user_id: UUID) -> List[Dict[str, Any]]:
-        """Fetches the full set of emails for the snapshot from multiple folders if specified."""
+        """
+        Fetches a set of emails based on the config, then gets the full thread 
+        context for each, returning a list of flattened thread dictionaries.
+        """
         logger.info(f"Fetching full IMAP dataset for user {user_id} with config: {config}")
         
-        all_results = []
-        # The underlying get_emails function takes one folder at a time.
-        # We iterate through the specified folders and aggregate the results.
+        # 1. Fetch initial email messages from all specified folders
+        all_matching_emails: List[EmailMessage] = []
         folder_names = config.get("folder_names", ["INBOX"])
         params_without_folders = {k: v for k, v in config.items() if k != "folder_names"}
 
         try:
             for folder in folder_names:
-                logger.debug(f"Fetching emails from folder: {folder}")
-                # We need to be careful about the total count. Let's divide it among the folders.
-                # A more sophisticated approach might be needed, but this is a start.
                 per_folder_count = config.get("count", 200) // len(folder_names)
-                
                 fetch_params = {**params_without_folders, 'folder_name': folder, 'count': per_folder_count}
-                
                 results = await get_emails(**fetch_params)
-                all_results.extend([item.model_dump() for item in results])
+                all_matching_emails.extend(results)
 
-            # Deduplicate results in case folders overlap (e.g., "All Mail")
-            unique_results = {item['message_id']: item for item in all_results}.values()
-            logger.info(f"Fetched a total of {len(unique_results)} unique emails from {len(folder_names)} folder(s).")
-            return list(unique_results)
+            # Deduplicate the initial list of emails
+            unique_emails = {msg.message_id: msg for msg in all_matching_emails}.values()
+            logger.info(f"Found {len(unique_emails)} unique initial emails to process.")
+
+            # 2. For each unique email, fetch its full thread and flatten it
+            full_thread_dataset = []
+            
+            # Using asyncio.gather for concurrent thread fetching
+            tasks = [get_complete_thread(email) for email in unique_emails]
+            email_threads = await asyncio.gather(*tasks)
+
+            # We need to map threads back to their source email to get labels
+            source_email_map = {email.message_id: email for email in unique_emails}
+
+            for thread in email_threads:
+                if thread:
+                    # Find the original source email to get its labels
+                    # This relies on at least one message_id in the thread matching our source map
+                    source_email = None
+                    for msg in thread.messages:
+                        if msg.message_id in source_email_map:
+                            source_email = source_email_map[msg.message_id]
+                            break
+                    
+                    if source_email:
+                        full_thread_dataset.append({
+                            "thread_markdown": thread.markdown,
+                            "thread_subject": thread.subject,
+                            "thread_participants": thread.participants,
+                            "source_email_labels": source_email.gmail_labels
+                        })
+                    else:
+                        logger.warning(f"Could not map thread with ID {thread.thread_id} back to a source email.")
+
+            logger.info(f"Successfully processed and flattened {len(full_thread_dataset)} email threads.")
+            return full_thread_dataset
             
         except Exception as e:
             logger.error(f"Failed to fetch full IMAP dataset for user {user_id}: {e}", exc_info=True)
@@ -148,7 +195,7 @@ class DataSourceRegistry:
         """Returns a list of available sources, suitable for display in the frontend."""
         # In a more complex system, the name and description could come from the source class itself.
         return [
-            {"id": "imap_emails", "name": "IMAP Emails"}
+            {"id": "imap_emails", "name": "IMAP Email Threads"}
         ]
 
 # Initialize the registry and register our IMAP source.

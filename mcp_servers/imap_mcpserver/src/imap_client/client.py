@@ -717,6 +717,32 @@ def _get_all_labels_sync(mail: imaplib.IMAP4_SSL, resolver: FolderResolver) -> L
         logger.error(f"Error listing labels: {e}")
         return []
 
+def _get_all_special_use_folders_sync() -> List[str]:
+    """
+    Synchronous function to get a list of all special-use folder names.
+    Leverages the FolderResolver to get language-agnostic folder names.
+    """
+    folders = []
+    try:
+        with imap_connection() as (mail, resolver):
+            # Also add the INBOX, which is a special case not in the attributes list
+            special_folders_to_check = list(resolver.SPECIAL_USE_ATTRIBUTES) + ['\\Inbox']
+            
+            for attribute in special_folders_to_check:
+                try:
+                    folder_name = resolver.get_folder_by_attribute(attribute)
+                    if folder_name not in folders:
+                        folders.append(folder_name)
+                except FolderNotFoundError:
+                    logger.warning(f"Could not resolve special-use folder for attribute '{attribute}'. Skipping.")
+                    continue
+        logger.info(f"Resolved special-use folders: {folders}")
+        return sorted(folders)
+    except Exception as e:
+        logger.error(f"Failed to get special-use folders: {e}", exc_info=True)
+        return []
+
+
 def _get_messages_from_folder_sync(folder_name: str, count: int) -> List[EmailMessage]:
     """Synchronous function to get recent messages from a specific folder."""
     messages = []
@@ -820,6 +846,14 @@ async def get_all_labels() -> List[str]:
     except Exception as e:
         logger.error(f"Error getting all labels: {e}")
         return []
+
+async def get_all_special_use_folders() -> List[str]:
+    """
+    Asynchronous wrapper to get a list of all special-use folder names.
+    """
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, _get_all_special_use_folders_sync)
+
 
 async def get_messages_from_folder(folder_name: str, count: int = 10) -> List[EmailMessage]:
     """Asynchronously gets recent messages from a specific folder/label."""

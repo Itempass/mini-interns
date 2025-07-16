@@ -185,10 +185,10 @@ const CreateEvaluationTemplateModal: React.FC<CreateEvaluationTemplateModalProps
     }
   };
 
-  const handleCreateNewClick = () => {
+  const handleCreateNewClick = async () => {
     setMode('new');
-    setStep(2); // Move to the configuration step for a new template
-    setIsDirty(false); // Creating new is not "dirty"
+    setStep(1); // Ensure we are on the correct step before proceeding
+    await handleNext();
   };
 
 
@@ -549,7 +549,10 @@ const CreateEvaluationTemplateModal: React.FC<CreateEvaluationTemplateModalProps
           </div>
         </div>
         <div className="bg-gray-50 px-6 py-4 flex justify-between items-center rounded-b-lg">
-          <div>
+          <div className="flex items-center gap-4">
+            <span className="px-2 py-0.5 text-xs font-semibold text-purple-800 bg-purple-100 rounded-full">
+                Experimental
+            </span>
             {step > 1 && step < 5 && (
               <button
                 onClick={handlePrevious}
