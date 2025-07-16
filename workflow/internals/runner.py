@@ -4,7 +4,10 @@ import logging
 import re
 from uuid import UUID
 from typing import Any, Dict, List
+from datetime import datetime, timezone
 
+from agentlogger.src.client import save_log_entry
+from agentlogger.src.models import LogEntry, Message
 import workflow.client as workflow_client
 import workflow.internals.database as db
 from workflow.internals import llm_runner
@@ -108,72 +111,101 @@ async def run_workflow(instance_uuid: UUID, user_id: UUID):
     executing each one in sequence and passing the output of previous
     steps to subsequent ones.
     """
-    logger.info(f"Starting workflow run for instance {instance_uuid}")
-    instance = await db._get_workflow_instance_from_db(instance_uuid, user_id=user_id)
-    if not instance:
-        logger.error(f"Workflow instance {instance_uuid} not found.")
-        return
+    log_entry = None
+    instance = None
+    try:
+        logger.info(f"Starting workflow run for instance {instance_uuid}")
+        instance = await db._get_workflow_instance_from_db(instance_uuid, user_id=user_id)
+        if not instance:
+            logger.error(f"Workflow instance {instance_uuid} not found.")
+            return
 
-    workflow_def = await db._get_workflow_from_db(instance.workflow_definition_uuid, user_id=user_id)
-    if not workflow_def:
-        message = f"Workflow definition {instance.workflow_definition_uuid} not found for instance {instance.uuid}. Aborting."
-        logger.error(message)
-        instance.status = "failed"
-        instance.error_message = message
-        await db._update_workflow_instance_in_db(instance, user_id)
-        return
-
-    logger.info(f"Executing workflow '{workflow_def.name}' ({workflow_def.uuid}) for instance {instance.uuid}")
-
-    current_step_index = 0
-    while True:
-        if current_step_index >= len(workflow_def.steps):
-            logger.info(f"Workflow {instance.uuid} completed all steps.")
-            instance.status = "completed"
-            await db._update_workflow_instance_in_db(instance, user_id)
-            break
-
-        step_uuid = workflow_def.steps[current_step_index]
-        step_def = await db._get_step_from_db(step_uuid, user_id=user_id)
-
-        if not step_def:
-            message = f"Could not find step definition for {step_uuid} in workflow {instance.uuid}. Aborting."
+        workflow_def = await db._get_workflow_from_db(instance.workflow_definition_uuid, user_id=user_id)
+        if not workflow_def:
+            message = f"Workflow definition {instance.workflow_definition_uuid} not found for instance {instance.uuid}. Aborting."
             logger.error(message)
             instance.status = "failed"
             instance.error_message = message
             await db._update_workflow_instance_in_db(instance, user_id)
-            break
+            return
 
-        try:
-            # Prepare inputs by resolving placeholders
-            logger.info(f"Preparing inputs for step {step_uuid}")
-            prepared_config = _prepare_input(step_def, instance)
+        log_entry = LogEntry(
+            log_type='workflow',
+            workflow_id=str(workflow_def.uuid),
+            workflow_instance_id=str(instance.uuid),
+            workflow_name=workflow_def.name,
+            start_time=instance.created_at,
+            reference_string=instance.trigger_output.markdown_representation if instance.trigger_output else "Workflow started without trigger data."
+        )
 
-            step_instance: WorkflowStepInstance = None
-            if step_def.type == "custom_llm":
-                step_instance = await llm_runner.run_llm_step(
-                    step_def, prepared_config["system_prompt"], user_id, instance.uuid
-                )
-            elif step_def.type == "custom_agent":
-                step_instance = await agent_runner.run_agent_step(
-                    step_def, prepared_config["system_prompt"], user_id, instance.uuid
-                )
-            elif step_def.type == "stop_checker":
-                logger.info("stop checker not implemented")
+        logger.info(f"Executing workflow '{workflow_def.name}' ({workflow_def.uuid}) for instance {instance.uuid}")
 
-            # After the step runs, append its instance to the main workflow instance.
-            if step_instance:
-                instance.step_instances.append(step_instance)
+        current_step_index = 0
+        while True:
+            if current_step_index >= len(workflow_def.steps):
+                logger.info(f"Workflow {instance.uuid} completed all steps.")
+                instance.status = "completed"
                 await db._update_workflow_instance_in_db(instance, user_id)
+                break
 
-            logger.info(f"RUNNER_DEBUG: End of loop for step {step_uuid}. Total instances on workflow model: {len(instance.step_instances)}")
+            step_uuid = workflow_def.steps[current_step_index]
+            step_def = await db._get_step_from_db(step_uuid, user_id=user_id)
 
-        except Exception as e:
-            message = f"Error executing step {step_uuid} in workflow {instance.uuid}: {e}"
-            logger.error(message, exc_info=True)
+            if not step_def:
+                message = f"Could not find step definition for {step_uuid} in workflow {instance.uuid}. Aborting."
+                logger.error(message)
+                instance.status = "failed"
+                instance.error_message = message
+                await db._update_workflow_instance_in_db(instance, user_id)
+                break
+
+            try:
+                # Prepare inputs by resolving placeholders
+                logger.info(f"Preparing inputs for step {step_uuid}")
+                prepared_config = _prepare_input(step_def, instance)
+
+                step_instance: WorkflowStepInstance = None
+                if step_def.type == "custom_llm":
+                    step_instance = await llm_runner.run_llm_step(
+                        step_def, prepared_config["system_prompt"], user_id, instance.uuid
+                    )
+                elif step_def.type == "custom_agent":
+                    step_instance = await agent_runner.run_agent_step(
+                        step_def, prepared_config["system_prompt"], user_id, instance.uuid
+                    )
+                elif step_def.type == "stop_checker":
+                    logger.info("stop checker not implemented")
+
+                # After the step runs, append its instance to the main workflow instance.
+                if step_instance:
+                    instance.step_instances.append(step_instance)
+                    await db._update_workflow_instance_in_db(instance, user_id)
+
+                logger.info(f"RUNNER_DEBUG: End of loop for step {step_uuid}. Total instances on workflow model: {len(instance.step_instances)}")
+
+            except Exception as e:
+                message = f"Error executing step {step_uuid} in workflow {instance.uuid}: {e}"
+                logger.error(message, exc_info=True)
+                instance.status = "failed"
+                instance.error_message = message
+                await db._update_workflow_instance_in_db(instance, user_id)
+                break  # Stop workflow on step failure
+
+            current_step_index += 1
+    except Exception as e:
+        logger.error(f"Unhandled exception in workflow run {instance_uuid}: {e}", exc_info=True)
+        if instance:
             instance.status = "failed"
-            instance.error_message = message
+            instance.error_message = str(e)
             await db._update_workflow_instance_in_db(instance, user_id)
-            break  # Stop workflow on step failure
+    finally:
+        if log_entry and instance:
+            final_instance = await db._get_workflow_instance_from_db(instance_uuid, user_id=user_id)
+            summary_message = f"Workflow '{log_entry.workflow_name}' finished with status: {final_instance.status}."
+            if final_instance.error_message:
+                summary_message += f"\nError: {final_instance.error_message}"
 
-        current_step_index += 1
+            log_entry.messages = [Message(role="system", content=summary_message)]
+            log_entry.end_time = datetime.now(timezone.utc)
+            await save_log_entry(log_entry)
+            logger.info(f"Saved workflow log for instance {instance_uuid}")

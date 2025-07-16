@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Literal, Optional, Union
 from uuid import UUID, uuid4
 
@@ -26,8 +26,8 @@ class CustomLLM(BaseModel):
     model: str
     system_prompt: str
     generated_summary: Optional[str] = None  # For UI display, auto-generated
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class CustomAgent(BaseModel):
@@ -42,8 +42,8 @@ class CustomAgent(BaseModel):
     system_prompt: str
     tools: Dict[str, Any] = Field(default_factory=dict)  # tool_id -> { enabled: bool, ... }
     generated_summary: Optional[str] = None  # For UI display, auto-generated
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class StopWorkflowChecker(BaseModel):
@@ -55,8 +55,8 @@ class StopWorkflowChecker(BaseModel):
     description: str = Field(default="", description="A description of what this step does.")
     type: Literal["stop_checker"] = "stop_checker"
     stop_conditions: List[StopWorkflowCondition] = Field(...)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     # This step does not produce output for other steps to consume.
 
 
@@ -75,8 +75,8 @@ class WorkflowModel(BaseModel):
     steps: List[UUID] = Field(default_factory=list, description="An ordered list of Step UUIDs referenced by their unique IDs.")
     template_id: Optional[str] = None
     template_version: Optional[str] = None
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class TriggerModel(BaseModel):
@@ -87,8 +87,8 @@ class TriggerModel(BaseModel):
     workflow_uuid: UUID
     filter_rules: Dict[str, Any] = Field(default_factory=dict)
     initial_data_description: str = Field(..., description="Description of the initial data passed to the workflow.")
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 # 4.2. Instance and Execution Models
@@ -100,7 +100,7 @@ class StepOutputData(BaseModel):
     uuid: UUID = Field(default_factory=uuid4)
     user_id: UUID
     markdown_representation: str # A markdown representation of the data.
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class InitialWorkflowData(BaseModel):
     """
@@ -125,10 +125,10 @@ class CustomLLMInstanceModel(BaseModel):
     user_id: UUID
     workflow_instance_uuid: UUID
     status: Literal["pending", "running", "completed", "failed", "skipped", "cancelled"]
-    started_at: Optional[datetime] = None
+    started_at: Optional[datetime] = Field(default_factory=lambda: datetime.now(timezone.utc))
     finished_at: Optional[datetime] = None
     error_message: Optional[str] = None
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     llm_definition_uuid: UUID  # Link back to CustomLLM definition
     messages: List[MessageModel] = Field(default_factory=list)
     input_data: Optional[Dict[str, Any]] = None
@@ -142,10 +142,10 @@ class CustomAgentInstanceModel(BaseModel):
     user_id: UUID
     workflow_instance_uuid: UUID
     status: Literal["pending", "running", "completed", "failed", "skipped", "cancelled"]
-    started_at: Optional[datetime] = None
+    started_at: Optional[datetime] = Field(default_factory=lambda: datetime.now(timezone.utc))
     finished_at: Optional[datetime] = None
     error_message: Optional[str] = None
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     agent_definition_uuid: UUID  # Link back to CustomAgent definition
     messages: List[MessageModel] = Field(default_factory=list)
     input_data: Optional[Dict[str, Any]] = None
@@ -159,10 +159,10 @@ class StopWorkflowCheckerInstanceModel(BaseModel):
     user_id: UUID
     workflow_instance_uuid: UUID
     status: Literal["pending", "running", "completed", "failed", "skipped", "cancelled"]
-    started_at: Optional[datetime] = None
+    started_at: Optional[datetime] = Field(default_factory=lambda: datetime.now(timezone.utc))
     finished_at: Optional[datetime] = None
     error_message: Optional[str] = None
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     checker_definition_uuid: UUID  # Link back to StopWorkflowChecker definition
     input_data: Optional[Dict[str, Any]] = None
     # This step does not produce an output
@@ -180,8 +180,8 @@ class WorkflowInstanceModel(BaseModel):
     status: Literal["running", "completed", "stopped", "failed", "cancelled"]
     trigger_output: Optional[StepOutputData] = None  # The initial data that started the workflow.
     step_instances: List[WorkflowStepInstance] = Field(default_factory=list)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     error_message: Optional[str] = None
 
 

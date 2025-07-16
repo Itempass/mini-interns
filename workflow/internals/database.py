@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from typing import AsyncGenerator, Optional
 from urllib.parse import urlparse
 from uuid import UUID
+from datetime import timezone
 
 import aiomysql
 from aiomysql.cursors import DictCursor
@@ -45,6 +46,7 @@ async def get_workflow_db_pool():
                 password=url.password,
                 db=url.path.lstrip("/"),
                 autocommit=False,  # Important for transaction management
+                init_command="SET time_zone='+00:00'",  # Ensure all connections are in UTC
             )
             logger.info("Successfully created database connection pool for workflows.")
         except Exception as e:
@@ -122,6 +124,12 @@ async def _get_workflow_from_db(uuid: UUID, user_id: UUID) -> WorkflowModel | No
             if row.get("trigger_uuid"):
                 row["trigger_uuid"] = UUID(bytes=row["trigger_uuid"])
 
+            # Ensure datetimes are timezone-aware
+            if row.get("created_at") and row["created_at"].tzinfo is None:
+                row["created_at"] = row["created_at"].replace(tzinfo=timezone.utc)
+            if row.get("updated_at") and row["updated_at"].tzinfo is None:
+                row["updated_at"] = row["updated_at"].replace(tzinfo=timezone.utc)
+
             # Add user_id to the row dict before model instantiation
             row["user_id"] = user_id
             return WorkflowModel(**row)
@@ -153,6 +161,12 @@ async def _list_workflows_from_db(user_id: UUID) -> list[WorkflowModel]:
                 row["uuid"] = UUID(bytes=row["uuid"])
                 if row.get("trigger_uuid"):
                     row["trigger_uuid"] = UUID(bytes=row["trigger_uuid"])
+
+                # Ensure datetimes are timezone-aware
+                if row.get("created_at") and row["created_at"].tzinfo is None:
+                    row["created_at"] = row["created_at"].replace(tzinfo=timezone.utc)
+                if row.get("updated_at") and row["updated_at"].tzinfo is None:
+                    row["updated_at"] = row["updated_at"].replace(tzinfo=timezone.utc)
 
                 # Add user_id to the row dict before model instantiation
                 row["user_id"] = user_id
@@ -624,6 +638,12 @@ async def _get_workflow_instance_from_db(
             # Add user_id before instantiation
             row["user_id"] = user_id
 
+            # Ensure datetimes are timezone-aware
+            if row.get("created_at") and row["created_at"].tzinfo is None:
+                row["created_at"] = row["created_at"].replace(tzinfo=timezone.utc)
+            if row.get("updated_at") and row["updated_at"].tzinfo is None:
+                row["updated_at"] = row["updated_at"].replace(tzinfo=timezone.utc)
+
             # Deserialize JSON and binary fields
             row["uuid"] = UUID(bytes=row["uuid"])
             row["workflow_definition_uuid"] = UUID(
@@ -663,6 +683,12 @@ async def _list_workflow_instances_from_db(
             for row in rows:
                 # Add user_id before instantiation
                 row["user_id"] = user_id
+
+                # Ensure datetimes are timezone-aware
+                if row.get("created_at") and row["created_at"].tzinfo is None:
+                    row["created_at"] = row["created_at"].replace(tzinfo=timezone.utc)
+                if row.get("updated_at") and row["updated_at"].tzinfo is None:
+                    row["updated_at"] = row["updated_at"].replace(tzinfo=timezone.utc)
 
                 # Deserialize JSON and binary fields
                 row["uuid"] = UUID(bytes=row["uuid"])

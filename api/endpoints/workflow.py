@@ -3,8 +3,9 @@ import os
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 import json
+from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Body, Request
 from pydantic import BaseModel
 
 import workflow.client as workflow_client
@@ -29,6 +30,9 @@ from ..types.api_models.workflow import (
 )
 from workflow_agent.client.models import ChatRequest, ChatStepResponse
 from .auth import get_current_user_id
+from agentlogger.src.client import upsert_log_entry_sync, get_log_entry
+from agentlogger.src.models import LogEntry, Message as LoggerMessage
+
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/workflows", tags=["Workflows"])
@@ -560,6 +564,7 @@ async def update_workflow_trigger(
     "/{workflow_uuid}/chat/step",
     response_model=ChatStepResponse,
     summary="Execute a single step in a workflow agent chat",
+    tags=["Workflow Agent"],
 )
 async def workflow_agent_chat_step(
     workflow_uuid: UUID,
@@ -567,20 +572,40 @@ async def workflow_agent_chat_step(
     user_id: UUID = Depends(get_current_user_id),
 ):
     """
-    Executes a single turn in the conversation with the workflow agent.
-
-    This endpoint is designed to be called repeatedly by the frontend to
-    simulate a real-time chat. It performs one "unit" of work per call:
-    - If the user just sent a message, it calls the LLM.
-    - If the LLM just decided to use a tool, it executes the tool.
-
-    The `is_complete` flag in the response tells the frontend whether the
-    agent's turn is over or if another call is needed immediately.
+    Runs a single step of the workflow agent chat.
     """
     try:
-        return await workflow_agent_client.run_chat_step(
+        chat_response = await workflow_agent_client.run_chat_step(
             request=request, user_id=user_id, workflow_uuid=workflow_uuid
         )
+
+        # --- Add Logging ---
+        try:
+            workflow = await workflow_client.get(uuid=workflow_uuid, user_id=user_id)
+            
+            existing_log = get_log_entry(request.conversation_id)
+            start_time = existing_log.start_time if existing_log else datetime.now(timezone.utc)
+            end_time = datetime.now(timezone.utc) if chat_response.is_complete else None
+
+            logger_messages = [LoggerMessage.model_validate(msg.model_dump()) for msg in chat_response.messages]
+
+            log_entry = LogEntry(
+                id=request.conversation_id,
+                log_type='workflow_agent',
+                workflow_id=str(workflow_uuid),
+                workflow_name=workflow.name if workflow else "Workflow Configuration Agent",
+                step_instance_id=request.conversation_id,
+                step_name="Workflow Configuration Agent Chat",
+                messages=logger_messages,
+                start_time=start_time,
+                end_time=end_time,
+            )
+            upsert_log_entry_sync(log_entry)
+        except Exception as e:
+            logger.error(f"Failed to log workflow agent turn for conversation {request.conversation_id}: {e}", exc_info=True)
+        # --- End Logging ---
+        
+        return chat_response
     except Exception as e:
         logger.error(f"Error during agent chat step for workflow {workflow_uuid}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="An error occurred during the agent chat turn.") 

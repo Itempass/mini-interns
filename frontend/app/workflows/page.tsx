@@ -9,12 +9,21 @@ import ConnectionStatusIndicator from '../../components/ConnectionStatusIndicato
 import NoWorkflowsView from '../../components/NoWorkflowsView';
 import WorkflowChat from '../../components/WorkflowChat';
 import { Search, Bot, Workflow as WorkflowIcon, Loader2 } from 'lucide-react';
+import LogsList from '../../components/LogsList';
+import LogDetail from '../../components/LogDetail';
+import { LogEntry, getLogEntry } from '../../services/api';
 
 const WorkflowsPage = () => {
   const [selectedWorkflow, setSelectedWorkflow] = useState<Workflow | null>(null);
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [isLogsExpanded, setIsLogsExpanded] = useState(false);
   const [isAgentBusy, setIsAgentBusy] = useState(false);
+
+  // State for log detail modal
+  const [selectedLogId, setSelectedLogId] = useState<string | null>(null);
+  const [selectedLog, setSelectedLog] = useState<LogEntry | null>(null);
+  const [isLogModalOpen, setIsLogModalOpen] = useState(false);
+  const [isLoadingLog, setIsLoadingLog] = useState(false);
 
   const fetchWorkflows = async (newlyCreated?: Workflow) => {
     const freshWorkflows = await getWorkflows();
@@ -42,6 +51,27 @@ const WorkflowsPage = () => {
 
   const handleSelectWorkflow = (workflow: Workflow | null) => {
     setSelectedWorkflow(workflow);
+    // When changing workflow, ensure the logs are not expanded
+    setIsLogsExpanded(false);
+  };
+
+  const handleSelectLog = async (logId: string) => {
+    setSelectedLogId(logId);
+    setIsLogModalOpen(true);
+    setIsLoadingLog(true);
+    const data = await getLogEntry(logId);
+    if (data) {
+      setSelectedLog(data);
+    } else {
+      console.error("Could not load log");
+    }
+    setIsLoadingLog(false);
+  };
+
+  const handleCloseLogModal = () => {
+    setIsLogModalOpen(false);
+    setSelectedLogId(null);
+    setSelectedLog(null);
   };
 
   return (
@@ -117,8 +147,13 @@ const WorkflowsPage = () => {
                   </div>
                   {isLogsExpanded && (
                     <div className="flex-1 p-4 overflow-y-auto">
-                      {/* Body for logs will go here in the future */}
-                      <p>Logs will appear here when this view is expanded.</p>
+                      {selectedWorkflow && (
+                        <LogsList
+                          key={selectedWorkflow.uuid}
+                          workflowId={selectedWorkflow.uuid}
+                          onSelectLog={handleSelectLog}
+                        />
+                      )}
                     </div>
                   )}
                 </div>
@@ -131,6 +166,26 @@ const WorkflowsPage = () => {
           </main>
         </div>
       </div>
+
+      {isLogModalOpen && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-gray-900 bg-opacity-75 flex justify-center items-center">
+          <div className="bg-white rounded-lg shadow-2xl w-full max-w-6xl h-[90vh] flex flex-col relative">
+            <div className="flex justify-between items-center p-4 border-b">
+              <h2 className="text-xl font-bold">Log Details</h2>
+              <button onClick={handleCloseLogModal} className="text-gray-500 hover:text-gray-800 text-3xl font-bold">&times;</button>
+            </div>
+            <div className="p-5 overflow-y-auto flex-grow">
+              {isLoadingLog ? (
+                <div>Loading...</div>
+              ) : selectedLog ? (
+                <LogDetail log={selectedLog} />
+              ) : (
+                <div>Log not found.</div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

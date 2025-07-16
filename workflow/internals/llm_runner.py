@@ -1,14 +1,13 @@
 import logging
 import uuid
 from typing import Any
-from datetime import datetime
+from datetime import datetime, timezone
 from uuid import UUID
 
-from agentlogger.src.client import save_conversation
+from agentlogger.src.client import save_log_entry
 from agentlogger.src.models import (
-    ConversationData,
+    LogEntry,
     Message as LoggerMessage,
-    Metadata,
 )
 from mcp_servers.tone_of_voice_mcpserver.src.services.openrouter_service import (
     openrouter_service,
@@ -32,7 +31,6 @@ async def run_llm_step(
         user_id=user_id,
         workflow_instance_uuid=workflow_instance_uuid,
         status="running",
-        started_at=datetime.now(),
         llm_definition_uuid=llm_definition.uuid,
     )
 
@@ -88,23 +86,18 @@ async def run_llm_step(
                 for msg in instance.messages
             ]
             
-            log_conversation_id = str(uuid.uuid4())
-
-            convo_data = ConversationData(
-                conversation_id=log_conversation_id,
+            log_entry = LogEntry(
+                log_type='custom_llm',
+                workflow_instance_id=str(workflow_instance_uuid),
+                step_id=str(llm_definition.uuid),
+                step_instance_id=str(instance.uuid),
+                step_name=llm_definition.name,
                 messages=logger_messages,
-                metadata=Metadata(
-                    conversation_id=log_conversation_id,
-                    user_id=str(user_id),
-                    step_id=str(instance.uuid),
-                    start_time=instance.created_at,
-                    end_time=datetime.now(),
-                    status=instance.status,
-                    model=llm_definition.model,
-                    raw_input=resolved_system_prompt,
-                ),
+                start_time=instance.started_at,
+                end_time=datetime.now(timezone.utc),
+                reference_string="TODO: PASS REFERENCE STRING",
             )
-            await save_conversation(convo_data)
+            await save_log_entry(log_entry)
             logger.info(f"Successfully saved LLM conversation for instance {instance.uuid}.")
         except Exception as e:
             logger.error(
@@ -112,6 +105,6 @@ async def run_llm_step(
                 exc_info=True,
             )
 
-    instance.finished_at = datetime.utcnow()
+    instance.finished_at = datetime.now(timezone.utc)
     # Return the final instance
     return instance 

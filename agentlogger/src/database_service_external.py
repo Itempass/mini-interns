@@ -2,54 +2,46 @@
 External Database Service for Agent Logger
 Handles API operations for forwarding conversation logs.
 """
-import os
 import json
 import logging
-from datetime import datetime, timezone
 from typing import Optional, Dict, Any
 
 import requests
-from requests.exceptions import RequestException, Timeout, ConnectionError
+from requests.exceptions import RequestException
 
-from .models import ConversationData
+from .models import LogEntry
 
 # Configure logging
 logger = logging.getLogger(__name__)
 
 # --- Constants ---
-API_BASE_URL = "https://mini-logs.cloud1.itempasshomelab.org"  # Docker host access
+API_BASE_URL = "https://mini-logs.cloud1.itempasshomelab.org"
 INSTANCE_ID_PATH = "/data/.instance_id"
-REQUEST_TIMEOUT = 30  # seconds
+REQUEST_TIMEOUT = 30
 
 class DatabaseServiceExternal:
-    """API-based service for forwarding conversation logs"""
+    """API-based service for forwarding logs."""
     
     def __init__(self, api_base_url: str = API_BASE_URL, instance_id_path: str = INSTANCE_ID_PATH):
-        """Initialize API service with base URL and instance ID path"""
         self.api_base_url = api_base_url.rstrip('/')
         self.instance_id_path = instance_id_path
-        self._instance_id = None
+        self._instance_id: Optional[str] = None
 
     def get_instance_id(self) -> str:
-        """Reads the instance ID from the configured path."""
+        """Reads the instance ID from the configured path, caching it after the first read."""
         if self._instance_id is None:
             try:
                 with open(self.instance_id_path, 'r') as f:
                     self._instance_id = f.read().strip()
             except FileNotFoundError:
-                logger.error(f"Instance ID file not found at: {self.instance_id_path}")
+                logger.warning(f"Instance ID file not found at: {self.instance_id_path}. Defaulting to 'unknown'.")
                 self._instance_id = "unknown"
         return self._instance_id
 
-    def add_review(self, conversation_id: str, feedback: str, log_data: Optional[Dict[str, Any]] = None):
-        """
-        Add a review and feedback to a conversation log via API.
-        """
+    def add_review(self, log_id: str, feedback: str, log_data: Optional[Dict[str, Any]] = None):
+        """Adds a review to a log entry via API."""
         try:
-            payload = {
-                "conversation_id": conversation_id,
-                "feedback": feedback
-            }
+            payload = {"log_id": log_id, "feedback": feedback}
             if log_data:
                 payload["log_data"] = log_data
             
@@ -59,71 +51,47 @@ class DatabaseServiceExternal:
                 headers={"Content-Type": "application/json"},
                 timeout=REQUEST_TIMEOUT
             )
-            
-            if response.status_code in [200, 201]:
-                logger.info(f"Successfully added review for conversation {conversation_id}.")
-            else:
-                error_data = response.json() if response.headers.get('content-type', '').startswith('application/json') else {}
-                error_msg = error_data.get('error', f'HTTP {response.status_code}')
-                logger.error(f"Failed to add review for conversation {conversation_id}: {error_msg}")
-                raise Exception(f"API error: {error_msg}")
-                
+            response.raise_for_status()
+            logger.info(f"Successfully added review for log {log_id}.")
         except RequestException as e:
-            logger.error(f"Network error adding review for conversation {conversation_id}: {e}")
+            logger.error(f"Network error adding review for log {log_id}: {e}")
             raise
         except Exception as e:
-            logger.error(f"Failed to add review for conversation {conversation_id}: {e}")
+            logger.error(f"Failed to add review for log {log_id}: {e}")
             raise
 
-    def create_conversation_log(self, conversation: ConversationData):
+    def create_log_entry(self, log_entry: LogEntry):
         """
-        Store a conversation log via API.
-        
-        Args:
-            conversation: ConversationData model to store.
-            
-        Raises:
-            Exception: If API operation fails.
+        Forwards a log entry to the external API.
         """
         try:
-            # Convert ConversationData to API format
-            conversation_dict = json.loads(conversation.model_dump_json())
+            log_dict = json.loads(log_entry.model_dump_json())
             
-            # Add instance_id to metadata
-            conversation_dict["metadata"]["instance_id"] = self.get_instance_id()
+            # Ensure instance_id is set
+            if not log_dict.get("instance_id"):
+                log_dict["instance_id"] = self.get_instance_id()
             
             response = requests.post(
                 f"{self.api_base_url}/api/ingest",
-                json=conversation_dict,
+                json=log_dict,
                 headers={"Content-Type": "application/json"},
                 timeout=REQUEST_TIMEOUT
             )
-            
-            if response.status_code in [200, 201]:
-                logger.info(f"Successfully forwarded conversation {conversation.metadata.conversation_id} to API.")
-            else:
-                error_data = response.json() if response.headers.get('content-type', '').startswith('application/json') else {}
-                error_msg = error_data.get('error', f'HTTP {response.status_code}')
-                logger.error(f"Failed to forward conversation log to API: {error_msg}")
-                raise Exception(f"API error: {error_msg}")
-                
+            response.raise_for_status()
+            logger.info(f"Successfully forwarded log {log_entry.id} to API.")
         except RequestException as e:
-            logger.error(f"Network error forwarding conversation log to API: {e}")
+            logger.error(f"Network error forwarding log to API: {e}")
             raise
         except Exception as e:
-            logger.error(f"Failed to forward conversation log to API: {e}")
+            logger.error(f"Failed to forward log to API: {e}")
             raise
 
 # --- Singleton Instance ---
 _database_service_external: Optional[DatabaseServiceExternal] = None
 
 def get_database_service_external() -> DatabaseServiceExternal:
-    """Get the global external database service instance (lazy initialization)"""
+    """Get the global external database service instance."""
     global _database_service_external
     if _database_service_external is None:
-        try:
-            _database_service_external = DatabaseServiceExternal()
-        except Exception as e:
-            logger.error(f"Failed to create DatabaseServiceExternal instance: {e}")
-            raise
+        _database_service_external = DatabaseServiceExternal()
     return _database_service_external 

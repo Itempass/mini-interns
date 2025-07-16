@@ -3,7 +3,7 @@ import asyncio
 import json
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Coroutine
 from uuid import UUID
 
@@ -12,11 +12,10 @@ from fastmcp import Client as MCPClient
 from openai import OpenAI
 from jsonpath_ng import parse
 
-from agentlogger.src.client import save_conversation
+from agentlogger.src.client import save_log_entry
 from agentlogger.src.models import (
-    ConversationData,
+    LogEntry,
     Message as LoggerMessage,
-    Metadata,
 )
 from mcp.types import Tool
 from shared.app_settings import load_app_settings
@@ -73,7 +72,6 @@ async def run_agent_step(
         user_id=user_id,
         workflow_instance_uuid=workflow_instance_uuid,
         status="running",
-        started_at=datetime.now(),
         agent_definition_uuid=agent_definition.uuid,
     )
 
@@ -298,25 +296,19 @@ async def run_agent_step(
                 LoggerMessage.model_validate(msg.model_dump()) 
                 for msg in instance.messages
             ]
-            
-            # The agent logger uses its own unique ID for the conversation log.
-            log_conversation_id = str(uuid.uuid4())
 
-            convo_data = ConversationData(
-                conversation_id=log_conversation_id,
-                user_id=str(user_id),
-                agent_id=str(agent_definition.uuid),
+            log_entry = LogEntry(
+                log_type='custom_agent',
+                workflow_instance_id=str(workflow_instance_uuid),
+                step_id=str(agent_definition.uuid),
+                step_instance_id=str(instance.uuid),
+                step_name=agent_definition.name,
                 messages=logger_messages,
-                metadata=Metadata(
-                    conversation_id=log_conversation_id,
-                    start_time=instance.created_at,
-                    end_time=datetime.now(),
-                    status=instance.status,
-                    model=agent_definition.model,
-                    raw_input=resolved_system_prompt, # Using resolved prompt as a stand-in for the initial input
-                ),
+                start_time=instance.started_at,
+                end_time=datetime.now(timezone.utc),
+                reference_string="TODO: PASS REFERENCE STRING"
             )
-            await save_conversation(convo_data)
+            await save_log_entry(log_entry)
             logger.info(f"Successfully saved conversation for instance {instance.uuid}.")
         except Exception as e:
             logger.error(
@@ -330,7 +322,8 @@ async def run_agent_step(
                 *(client.__aexit__(None, None, None) for client in mcp_clients.values()),
                 return_exceptions=True,  # To prevent one failure from stopping others
             )
-    
+
+    instance.finished_at = datetime.now(timezone.utc)
     return instance
 
 
