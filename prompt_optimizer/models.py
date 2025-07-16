@@ -33,9 +33,17 @@ class EvaluationTemplate(BaseModel):
     description: Optional[str] = None
     data_source_config: DataSourceConfig
     field_mapping_config: FieldMappingConfig
-    cached_data: List[Dict[str, Any]] = Field(..., description="A static snapshot of the data fetched using the data_source_config.")
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    cached_data: List[Dict[str, Any]] = Field(default_factory=list)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+class EvaluationTemplateLight(BaseModel):
+    """A lightweight version of EvaluationTemplate for list views, excluding heavy data."""
+    uuid: UUID
+    user_id: UUID
+    name: str
+    description: Optional[str] = None
+    updated_at: datetime
 
 
 class TestCaseResult(BaseModel):

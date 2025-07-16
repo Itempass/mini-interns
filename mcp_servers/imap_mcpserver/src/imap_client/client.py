@@ -246,32 +246,24 @@ def _get_emails_sync(folder_name: str, count: int, filter_by_labels: Optional[Li
     messages = []
     try:
         with imap_connection() as (mail, resolver):
-            # Resolve the folder name to the actual name on the server
-            try:
-                # First, try to get the folder by its given name
-                target_folder = resolver.get_folder_by_name(folder_name)
-            except FolderNotFoundError:
-                # Fallback for common names if direct name not found (e.g., 'Inbox' vs '[Gmail]/Inbox')
-                if folder_name.lower() == 'inbox':
-                    target_folder = resolver.get_folder_by_attribute('\\Inbox')
-                elif folder_name.lower() == 'all mail':
-                    target_folder = resolver.get_folder_by_attribute('\\All')
-                else:
-                    # If it's not a common alias, re-raise the error
-                    raise
-
-            mail.select(f'"{target_folder}"', readonly=True)
-
-            search_query = 'ALL'
+            # The folder_name is the actual name, so we don't need the resolver.
+            # We select it directly.
+            logger.info(f"Attempting to select folder: {folder_name}")
+            mail.select(f'"{folder_name}"', readonly=True)
+            
+            search_criteria = ['ALL']
             if filter_by_labels:
                 # Gmail-specific search for labels using X-GM-RAW extension.
-                # This makes the function Gmail-dependent when filtering.
-                labels_query = " ".join([f"label:{label}" for label in filter_by_labels])
-                search_query = f'(X-GM-RAW "{labels_query}")'
+                # For an OR search, we wrap the label queries in {}.
+                labels_query = "{" + " ".join([f"label:{label}" for label in filter_by_labels]) + "}"
+                search_criteria.append(f'(X-GM-RAW "{labels_query}")')
             
-            typ, data = mail.uid('search', None, search_query)
+            search_query_str = ' '.join(search_criteria)
+            logger.info(f"Executing IMAP search in folder '{folder_name}' with query: {search_query_str}")
+            typ, data = mail.uid('search', None, search_query_str)
 
             if typ != 'OK' or not data or not data[0]:
+                logger.warning(f"No messages found in folder '{folder_name}' matching criteria: {search_query_str}")
                 return []
 
             uids = data[0].split()
@@ -284,7 +276,7 @@ def _get_emails_sync(folder_name: str, count: int, filter_by_labels: Optional[Li
 
             for uid in recent_uids:
                 # Use the existing helper to fetch the full message
-                message = _fetch_single_message(mail, uid.decode(), target_folder)
+                message = _fetch_single_message(mail, uid.decode(), folder_name)
                 if message:
                     messages.append(message)
             return messages
@@ -625,39 +617,60 @@ def _draft_reply_sync(original_message: EmailMessage, reply_body: str) -> Dict[s
         return {"success": False, "message": error_msg}
 
 def _set_label_sync(message_id: str, label: str) -> Dict[str, Any]:
-    """Synchronous function to add a label to a message."""
+    """Synchronous function to set a label for a message."""
     try:
         with imap_connection() as (mail, resolver):
-            # Step 1: Get all available labels and validate
-            all_labels = _get_all_labels_sync(mail, resolver)
-            if label not in all_labels:
-                return {"success": False, "message": f"Label '{label}' does not exist. Available labels are: {all_labels}"}
-
-            # Step 2: Find UID and mailbox for the message
+            # Find the message UID and mailbox
             uid, mailbox = _find_uid_by_message_id(mail, resolver, message_id)
-            if not uid or not mailbox:
-                return {"success": False, "message": f"Could not find message with Message-ID: {message_id}"}
+            if not uid:
+                return {"status": "error", "message": "Message not found"}
 
-            # Step 3: Select mailbox and apply label
+            # Select the mailbox before setting the label
             mail.select(f'"{mailbox}"', readonly=False)
-            # Use +X-GM-LABELS to add a label without affecting others.
-            # Labels with spaces or special characters need to be quoted.
-            result, data = mail.uid('store', uid, '+X-GM-LABELS', f'("{label}")')
-
-            if result == "OK":
-                return {"success": True, "message": f"Label '{label}' successfully added to message."}
+            
+            # Use the UID to store the label
+            result = mail.uid('store', uid, '+X-GM-LABELS', f'("{label}")')
+            
+            if result[0] == 'OK':
+                return {"status": "success", "message": f"Label '{label}' added successfully."}
             else:
-                error_msg = data[0].decode() if data and data[0] else "Unknown error"
-                logger.error(f"Failed to set label for message {message_id}: {error_msg}")
-                return {"success": False, "message": f"Failed to set label: {error_msg}"}
-
+                return {"status": "error", "message": f"Failed to add label: {result[1][0].decode()}"}
     except Exception as e:
-        error_msg = f"Error setting label: {str(e)}"
-        logger.error(error_msg, exc_info=True)
-        return {"success": False, "message": error_msg}
+        logger.error(f"Error setting label: {e}")
+        return {"status": "error", "message": str(e)}
+
+def _get_all_folders_sync(mail: imaplib.IMAP4_SSL) -> List[str]:
+    """
+    Synchronous function to get all folders/mailboxes.
+    """
+    folders = []
+    try:
+        typ, data = mail.list()
+        if typ == 'OK':
+            for item in data:
+                # The response from mail.list() is a bit complex.
+                # It can have different formats, so we need to parse it carefully.
+                # A typical response item is: b'(\\HasNoChildren) "/" "INBOX"'
+                parts = item.decode().split('"')
+                if len(parts) >= 3:
+                    folder_name = parts[-2]
+                    # We'll skip folders that are containers for other folders and have the \Noselect attribute
+                    if '\\Noselect' not in parts[0]:
+                        folders.append(folder_name)
+    except Exception as e:
+        logger.error(f"Error fetching folders: {e}")
+    
+    # Let's ensure INBOX is first if it exists, as it's the most common.
+    if "INBOX" in folders:
+        folders.remove("INBOX")
+        folders.insert(0, "INBOX")
+        
+    return folders
 
 def _get_all_labels_sync(mail: imaplib.IMAP4_SSL, resolver: FolderResolver) -> List[str]:
-    """Gets all user-defined labels (folders) from the IMAP server in a language-agnostic way."""
+    """
+    Synchronous function to get all unique Gmail labels from a sample of recent emails.
+    """
     try:
         # 1. Get the names of all special-use folders from the resolver
         special_use_folders = set()
@@ -791,6 +804,13 @@ async def get_emails(folder_name: str, count: int, filter_by_labels: Optional[Li
         count,
         filter_by_labels
     )
+
+async def get_all_folders() -> List[str]:
+    """Asynchronous wrapper for getting all folders."""
+    loop = asyncio.get_running_loop()
+    with imap_connection() as (mail, resolver):
+        # We don't need the resolver here, but the connection manager provides it.
+        return await loop.run_in_executor(None, _get_all_folders_sync, mail)
 
 async def get_all_labels() -> List[str]:
     """Asynchronously gets all labels from the IMAP server."""

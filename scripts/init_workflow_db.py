@@ -37,7 +37,13 @@ def init_workflow_db():
             for statement in sql_script.split(';'):
                 statement = statement.strip()
                 if statement:
-                    cursor.execute(statement)
+                    try:
+                        cursor.execute(statement)
+                    except mysql.connector.Error as err:
+                        if err.errno == 1061:  # ER_DUP_KEYNAME for MySQL
+                            logger.info(f"Ignoring duplicate key/index error for workflow schema: {err}")
+                        else:
+                            raise err
 
             # Execute each statement from the prompt_optimizer schema file
             optimizer_schema_path = os.path.join('prompt_optimizer', 'schema.sql')
@@ -49,7 +55,13 @@ def init_workflow_db():
                 for statement in optimizer_sql_script.split(';'):
                     statement = statement.strip()
                     if statement:
-                        cursor.execute(statement)
+                        try:
+                            cursor.execute(statement)
+                        except mysql.connector.Error as err:
+                            if err.errno == 1061:  # ER_DUP_KEYNAME for MySQL
+                                logger.info(f"Ignoring duplicate key/index error for optimizer schema: {err}")
+                            else:
+                                raise err
             else:
                 logger.warning(f"Schema file not found at {optimizer_schema_path}. Skipping.")
             

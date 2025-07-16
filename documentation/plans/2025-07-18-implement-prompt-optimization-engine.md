@@ -138,18 +138,18 @@ The entry point for this feature will be on the `CUSTOM_LLM` step editor (`front
 #### Phase 1: Implement Dynamic Data Source Backend
 -   **Goal:** Implement the backend logic required for the dynamic, "Configuration Schema" approach.
 -   **Tasks:**
-    -   Implement a data source registry and abstraction layer in `prompt_optimizer/service.py`. This service will be responsible for returning the config schema and fetching sample data for a given source.
-    -   Refactor the API endpoints in `api/endpoints/prompt_optimizer.py` to match the new design (`/data-sources`, `/config-schema`, `/sample`, and `POST /templates`).
-    -   Update the `prompt_optimizer/client.py` to be the clean interface for this new service logic.
+    -   [COMPLETED] Implement a data source registry and abstraction layer in `prompt_optimizer/service.py`. This service will be responsible for returning the config schema and fetching sample data for a given source.
+    -   [COMPLETED] Refactor the API endpoints in `api/endpoints/prompt_optimizer.py` to match the new design (`/data-sources`, `/config-schema`, `/sample`, and `POST /templates`).
+    -   [COMPLETED] Update the `prompt_optimizer/client.py` to be the clean interface for this new service logic.
 
 #### Phase 2: Implement Dynamic Frontend
 -   **Goal:** Connect the frontend modal to the new dynamic backend endpoints to create a fully interactive template creation flow.
 -   **Tasks:**
-    -   Update `CreateEvaluationTemplateModal` to be fully dynamic:
-        -   Fetch the list of available data sources to populate the first step.
-        -   On selection, fetch the corresponding config schema and dynamically render the configuration form.
-        -   On "Next," call the `/sample` endpoint and use the result to populate the field mapping UI.
-        -   On "Save," call the final `POST /templates` endpoint and handle the response, including providing a way for the user to download the resulting snapshot for verification.
+    -   [COMPLETED] Update `CreateEvaluationTemplateModal` to be fully dynamic:
+        -   [COMPLETED] Fetch the list of available data sources to populate the first step.
+        -   [COMPLETED] On selection, fetch the corresponding config schema and dynamically render the configuration form.
+        -   [COMPLETED] On "Next," call the `/sample` endpoint and use the result to populate the field mapping UI.
+        -   [COMPLETED] On "Save," call the final `POST /templates` endpoint and handle the response, including providing a way for the user to download the resulting snapshot for verification.
 
 #### Phase 3: Run Evaluations and Display Results
 -   **Goal:** Implement the logic to run an evaluation using a saved template and display the results.

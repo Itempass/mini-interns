@@ -11,6 +11,9 @@ CREATE TABLE IF NOT EXISTS evaluation_templates (
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 
+-- Add an index to optimize sorting and filtering by user and last update time.
+CREATE INDEX idx_eval_templates_user_updated ON evaluation_templates(user_id, updated_at DESC);
+
 -- Tracks a specific execution of an evaluation template against a prompt.
 CREATE TABLE IF NOT EXISTS evaluation_runs (
     uuid CHAR(36) PRIMARY KEY,

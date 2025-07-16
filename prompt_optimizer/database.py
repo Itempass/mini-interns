@@ -6,7 +6,7 @@ from uuid import UUID
 import mysql.connector
 
 from shared.config import settings
-from .models import EvaluationTemplate
+from .models import EvaluationTemplate, EvaluationTemplateLight
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +62,51 @@ def create_evaluation_template(template: EvaluationTemplate) -> EvaluationTempla
     finally:
         conn.close()
 
+def update_evaluation_template(template: EvaluationTemplate) -> EvaluationTemplate:
+    """Updates an existing EvaluationTemplate in the database."""
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cursor:
+            sql = """
+            UPDATE evaluation_templates SET
+                name = %s,
+                description = %s,
+                data_source_config = %s,
+                field_mapping_config = %s,
+                cached_data = %s,
+                updated_at = %s
+            WHERE uuid = %s AND user_id = %s
+            """
+            
+            # Serialize Pydantic models and lists to JSON strings
+            data_source_config_str = template.data_source_config.model_dump_json()
+            field_mapping_config_str = template.field_mapping_config.model_dump_json()
+            cached_data_str = json.dumps(template.cached_data)
+
+            cursor.execute(sql, (
+                template.name,
+                template.description,
+                data_source_config_str,
+                field_mapping_config_str,
+                cached_data_str,
+                template.updated_at,
+                str(template.uuid),
+                str(template.user_id)
+            ))
+            conn.commit()
+            
+            # Check if any row was actually updated
+            if cursor.rowcount == 0:
+                raise ValueError("Template not found or user not authorized to update.")
+
+            return template
+    except mysql.connector.Error as err:
+        logger.error(f"Error updating evaluation template {template.uuid}: {err}")
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
 def get_evaluation_template(template_uuid: UUID, user_id: UUID) -> Optional[EvaluationTemplate]:
     """Retrieves a single EvaluationTemplate from the database by its UUID."""
     conn = get_db_connection()
@@ -71,6 +116,10 @@ def get_evaluation_template(template_uuid: UUID, user_id: UUID) -> Optional[Eval
             cursor.execute(sql, (str(template_uuid), str(user_id)))
             row = cursor.fetchone()
             if row:
+                # Deserialize JSON string fields before creating the Pydantic model
+                row['data_source_config'] = json.loads(row['data_source_config'])
+                row['field_mapping_config'] = json.loads(row['field_mapping_config'])
+                row['cached_data'] = json.loads(row['cached_data'])
                 return EvaluationTemplate(**row)
             return None
     except mysql.connector.Error as err:
@@ -78,6 +127,22 @@ def get_evaluation_template(template_uuid: UUID, user_id: UUID) -> Optional[Eval
         raise
     finally:
         conn.close()
+
+def list_evaluation_templates_light(user_id: UUID) -> List[EvaluationTemplateLight]:
+    """Lists lightweight EvaluationTemplates for a given user, excluding heavy JSON fields."""
+    conn = get_db_connection()
+    try:
+        with conn.cursor(dictionary=True) as cursor:
+            sql = "SELECT uuid, user_id, name, description, updated_at FROM evaluation_templates WHERE user_id = %s ORDER BY updated_at DESC"
+            cursor.execute(sql, (str(user_id),))
+            rows = cursor.fetchall()
+            return [EvaluationTemplateLight(**row) for row in rows]
+    except mysql.connector.Error as err:
+        logger.error(f"Error listing evaluation templates for user {user_id}: {err}")
+        return []
+    finally:
+        conn.close()
+
 
 def list_evaluation_templates(user_id: UUID) -> List[EvaluationTemplate]:
     """Lists all EvaluationTemplates for a given user."""
@@ -87,7 +152,16 @@ def list_evaluation_templates(user_id: UUID) -> List[EvaluationTemplate]:
             sql = "SELECT * FROM evaluation_templates WHERE user_id = %s ORDER BY updated_at DESC"
             cursor.execute(sql, (str(user_id),))
             rows = cursor.fetchall()
-            return [EvaluationTemplate(**row) for row in rows]
+            
+            # Deserialize JSON string fields for each row before creating the Pydantic model
+            parsed_rows = []
+            for row in rows:
+                row['data_source_config'] = json.loads(row['data_source_config'])
+                row['field_mapping_config'] = json.loads(row['field_mapping_config'])
+                row['cached_data'] = json.loads(row['cached_data'])
+                parsed_rows.append(row)
+
+            return [EvaluationTemplate(**row) for row in parsed_rows]
     except mysql.connector.Error as err:
         logger.error(f"Error listing evaluation templates for user {user_id}: {err}")
         return []

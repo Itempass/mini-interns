@@ -1,26 +1,84 @@
-from typing import List
+from typing import List, Dict, Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from starlette.requests import Request
 
 from prompt_optimizer import client as prompt_optimizer_client
-from prompt_optimizer.models import EvaluationTemplate, EvaluationTemplateCreate
+from prompt_optimizer.models import EvaluationTemplate, EvaluationTemplateCreate, EvaluationTemplateLight
 
 router = APIRouter()
 
-# This is a placeholder for your actual user authentication logic.
-# In a real application, this would be replaced with a proper dependency
-# that extracts the user ID from a token or session.
+# Placeholder for user authentication
 async def get_current_user_id(request: Request) -> UUID:
-    # For now, we'll use a hardcoded user_id for development.
-    # IMPORTANT: Replace this with your actual authentication system.
     user_id_str = "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11"
     try:
         return UUID(user_id_str)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid user ID format")
 
+# --- New Dynamic Data Source Endpoints ---
+
+@router.get(
+    "/evaluation/data-sources",
+    summary="List available data sources",
+    response_model=List[Dict[str, str]]
+)
+async def list_data_sources():
+    """
+    Returns a list of available data sources that can be used to create
+    evaluation templates. Each source has an `id` and a `name`.
+    """
+    return prompt_optimizer_client.list_data_sources()
+
+@router.get(
+    "/evaluation/data-sources/{source_id}/config-schema",
+    summary="Get the configuration schema for a data source",
+    response_model=Dict[str, Any]
+)
+async def get_data_source_config_schema(
+    source_id: str,
+    user_id: UUID = Depends(get_current_user_id)
+):
+    """
+    Returns a JSON schema that describes the necessary configuration fields
+    for the specified data source. This schema can be used to dynamically
+    generate a form in the frontend.
+    """
+    try:
+        return await prompt_optimizer_client.get_config_schema(source_id, user_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve config schema: {e}")
+
+class SampleRequest(BaseModel):
+    config: Dict[str, Any]
+
+@router.post(
+    "/evaluation/data-sources/{source_id}/sample",
+    summary="Fetch a sample data item from a data source",
+    response_model=Dict[str, Any]
+)
+async def fetch_data_source_sample(
+    source_id: str,
+    request: SampleRequest,
+    user_id: UUID = Depends(get_current_user_id)
+):
+    """
+    Fetches a single sample data item from the specified data source using
+    the provided configuration. This is used to help the user map data fields
+    (e.g., 'input', 'ground_truth') before creating the full template.
+    """
+    try:
+        return await prompt_optimizer_client.fetch_sample(source_id, request.config, user_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch sample data: {e}")
+
+# --- Existing Template Management Endpoints ---
 @router.post(
     "/evaluation/templates",
     response_model=EvaluationTemplate,
@@ -34,27 +92,64 @@ async def create_evaluation_template(
     """
     Creates a new Evaluation Template.
 
-    This endpoint initiates the process of fetching data from the specified
-    source, creating a static snapshot of that data, and saving the
-    entire template to the database for future use.
+    This endpoint is the final step in the process. It takes the user's
+    complete configuration, fetches the full dataset to create a static
+    snapshot, and saves the template to the database.
     """
     try:
         created_template = await prompt_optimizer_client.create_template(create_request, user_id)
         return created_template
     except Exception as e:
-        # In a real app, you'd have more specific error handling.
         raise HTTPException(status_code=500, detail=f"Failed to create evaluation template: {e}")
+
+@router.put(
+    "/evaluation/templates/{template_uuid}",
+    response_model=EvaluationTemplate,
+    summary="Update an existing Evaluation Template"
+)
+async def update_evaluation_template(
+    template_uuid: UUID,
+    template_update: EvaluationTemplateCreate, # Use the create model for the body
+    user_id: UUID = Depends(get_current_user_id)
+):
+    """
+    Updates an existing evaluation template.
+
+    This endpoint takes the updated configuration, re-fetches the data to
+    create a new static snapshot, and saves the updated template.
+    """
+    try:
+        # Construct the full template object for the update
+        full_template_data = EvaluationTemplate(
+            uuid=template_uuid,
+            user_id=user_id,
+            name=template_update.name,
+            description=template_update.description,
+            data_source_config=template_update.data_source_config,
+            field_mapping_config=template_update.field_mapping_config,
+            # cached_data will be populated by the service
+        )
+        updated_template = await prompt_optimizer_client.update_template(full_template_data, user_id)
+        return updated_template
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except ValueError as e: # Catches the "not found" error from the DB layer
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update evaluation template: {e}")
+
 
 @router.get(
     "/evaluation/templates",
-    response_model=List[EvaluationTemplate],
-    summary="List all Evaluation Templates"
+    response_model=List[EvaluationTemplateLight],
+    summary="List all Evaluation Templates (Lightweight)"
 )
 async def list_evaluation_templates(user_id: UUID = Depends(get_current_user_id)):
     """
-    Retrieves a list of all evaluation templates available to the current user.
+    Retrieves a lightweight list of all evaluation templates for the current user.
+    This does NOT include the heavy `cached_data` field.
     """
-    return prompt_optimizer_client.list_templates(user_id)
+    return prompt_optimizer_client.list_templates_light(user_id)
 
 @router.get(
     "/evaluation/templates/{template_uuid}",
