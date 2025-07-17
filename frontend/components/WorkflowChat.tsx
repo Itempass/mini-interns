@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { ChatMessage, runWorkflowAgentChatStep } from '../services/workflows_api';
 import { Send, Bot, User, Loader2, Square } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
 
 interface WorkflowChatProps {
   workflowId: string;
@@ -18,6 +19,7 @@ const WorkflowChat: React.FC<WorkflowChatProps> = ({ workflowId, onWorkflowUpdat
   const [isAgentThinking, setIsAgentThinking] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     onBusyStatusChange?.(isAgentThinking);
@@ -27,13 +29,21 @@ const WorkflowChat: React.FC<WorkflowChatProps> = ({ workflowId, onWorkflowUpdat
     const newConversationId = uuidv4();
     setConversationId(newConversationId);
     setMessages([
-        { role: 'assistant', content: "Hello! How can I help you configure this workflow today?" }
+        { role: 'assistant', content: "Hello! I'll help you create a workflow. Please describe to me what you want to make." }
     ]);
   }, [workflowId]); 
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isAgentThinking]);
+
+  useEffect(() => {
+    autoResize();
+  }, [userInput]);
+
+  useEffect(() => {
+    autoResize();
+  }, []);
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -51,6 +61,30 @@ const WorkflowChat: React.FC<WorkflowChatProps> = ({ workflowId, onWorkflowUpdat
     abortControllerRef.current = new AbortController();
 
     await runConversation(newMessages);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSendMessage(e);
+    }
+  };
+
+  const autoResize = () => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = '2.5rem';
+      const maxHeight = 192; // 12rem
+      const newHeight = Math.min(textareaRef.current.scrollHeight, maxHeight);
+      textareaRef.current.style.height = `${newHeight}px`;
+      
+      // Only show scroll bar when content exceeds max height
+      textareaRef.current.style.overflowY = textareaRef.current.scrollHeight > maxHeight ? 'auto' : 'hidden';
+    }
+  };
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setUserInput(e.target.value);
+    autoResize();
   };
 
   const handleInterrupt = () => {
@@ -106,7 +140,19 @@ const WorkflowChat: React.FC<WorkflowChatProps> = ({ workflowId, onWorkflowUpdat
         </div>
       );
     }
-    return message.content;
+    return (
+      <div className="prose prose-sm max-w-none">
+        <ReactMarkdown 
+          components={{
+            p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+            code: ({ children }) => <code className="bg-gray-100 px-1 py-0.5 rounded text-sm">{children}</code>,
+            pre: ({ children }) => <pre className="bg-gray-100 p-2 rounded overflow-x-auto">{children}</pre>,
+          }}
+        >
+          {message.content}
+        </ReactMarkdown>
+      </div>
+    );
   };
   
   return (
@@ -139,14 +185,16 @@ const WorkflowChat: React.FC<WorkflowChatProps> = ({ workflowId, onWorkflowUpdat
         <div ref={messagesEndRef} />
       </div>
       <div className="p-4 border-t border-gray-200">
-        <form onSubmit={handleSendMessage} className="flex items-center gap-2">
-          <input
-            type="text"
+        <div className="flex items-end gap-2">
+          <textarea
+            ref={textareaRef}
             value={userInput}
-            onChange={(e) => setUserInput(e.target.value)}
+            onChange={handleInputChange}
+            onKeyDown={handleKeyDown}
             placeholder="Tell the agent what to do..."
-            className="flex-1 p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="flex-1 p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none leading-normal whitespace-pre-wrap"
             disabled={isAgentThinking}
+            style={{ minHeight: '2.5rem', height: '2.5rem', maxHeight: '12rem', overflowY: 'hidden' }}
           />
           {isAgentThinking ? (
             <button
@@ -165,7 +213,7 @@ const WorkflowChat: React.FC<WorkflowChatProps> = ({ workflowId, onWorkflowUpdat
               <Send className="w-5 h-5" />
             </button>
           )}
-        </form>
+        </div>
       </div>
     </div>
   );

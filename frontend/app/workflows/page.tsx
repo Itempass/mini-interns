@@ -99,18 +99,18 @@ const WorkflowsPage = () => {
             {selectedWorkflow ? (
               <>
                 <div className={`flex-1 flex-row gap-4 overflow-hidden ${isLogsExpanded ? 'hidden' : 'flex'}`}>
-                    <div className="flex-1 overflow-y-auto bg-white border border-gray-300 rounded-lg shadow-md">
-                      <WorkflowSettings
-                        key={selectedWorkflow.uuid}
-                        workflow={selectedWorkflow}
-                        onWorkflowUpdate={handleWorkflowUpdate}
-                      />
-                    </div>
                     <div className="flex-1 flex flex-col bg-white border border-gray-300 rounded-lg shadow-md">
                       <WorkflowChat
                         workflowId={selectedWorkflow.uuid}
                         onWorkflowUpdate={handleWorkflowUpdate}
                         onBusyStatusChange={setIsAgentBusy}
+                      />
+                    </div>
+                    <div className="flex-1 overflow-y-auto bg-white border border-gray-300 rounded-lg shadow-md">
+                      <WorkflowSettings
+                        key={selectedWorkflow.uuid}
+                        workflow={selectedWorkflow}
+                        onWorkflowUpdate={handleWorkflowUpdate}
                       />
                     </div>
                 </div>
@@ -121,12 +121,6 @@ const WorkflowsPage = () => {
                     onClick={() => setIsLogsExpanded(false)}
                   >
                     <div className="flex-1 p-4 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition shadow-md">
-                        <h3 className="text-lg font-semibold flex items-center">
-                            <WorkflowIcon className="w-5 h-5 mr-2" />
-                            {selectedWorkflow.name}
-                        </h3>
-                    </div>
-                    <div className="flex-1 p-4 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition shadow-md">
                         <div className="flex items-center justify-between">
                           <h3 className="text-lg font-semibold flex items-center">
                               <Bot className="w-5 h-5 mr-2" />
@@ -134,6 +128,12 @@ const WorkflowsPage = () => {
                           </h3>
                           {isAgentBusy && <Loader2 className="w-5 h-5 animate-spin text-gray-500" />}
                         </div>
+                    </div>
+                    <div className="flex-1 p-4 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition shadow-md">
+                        <h3 className="text-lg font-semibold flex items-center">
+                            <WorkflowIcon className="w-5 h-5 mr-2" />
+                            {selectedWorkflow.name}
+                        </h3>
                     </div>
                   </div>
                 )}

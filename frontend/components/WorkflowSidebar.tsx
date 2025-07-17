@@ -44,7 +44,7 @@ const WorkflowSidebar: React.FC<WorkflowSidebarProps> = ({ workflows, onSelectWo
         <ul>
           {workflows.map((workflow) => (
             <li key={workflow.uuid} className="mb-2 relative">
-              <div className="flex items-center justify-between p-2 rounded-md hover:bg-gray-100">
+              <div className={`flex items-center justify-between p-2 rounded-md hover:bg-gray-100 ${selectedWorkflow?.uuid === workflow.uuid ? 'border-2 border-black' : ''}`}>
                 <span
                   className={`flex-grow cursor-pointer flex items-center ${selectedWorkflow?.uuid === workflow.uuid ? 'font-semibold' : ''}`}
                   onClick={() => onSelectWorkflow(workflow)}
