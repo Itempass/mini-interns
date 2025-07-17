@@ -15,8 +15,8 @@ import {
   WorkflowStep,
   updateWorkflowStatus,
   updateWorkflowDetails,
+  addWorkflowStep,
 } from '../services/workflows_api';
-import CreateStepModal from './CreateStepModal';
 import StepEditor from './workflow/StepEditor';
 import TriggerSettings from './workflow/TriggerSettings';
 import StepTypeHelp from './help/StepTypeHelp';
@@ -34,7 +34,6 @@ const WorkflowSettings: React.FC<WorkflowSettingsProps> = ({ workflow, onWorkflo
   const [isLoading, setIsLoading] = useState(false);
   const [isFetchingDetails, setIsFetchingDetails] = useState(true);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
-  const [isAddStepModalOpen, setIsAddStepModalOpen] = useState(false);
   const [editingStep, setEditingStep] = useState<WorkflowStep | null>(null);
   const [stepPendingDelete, setStepPendingDelete] = useState<string | null>(null);
   const [showTriggerSelector, setShowTriggerSelector] = useState(false);
@@ -46,6 +45,9 @@ const WorkflowSettings: React.FC<WorkflowSettingsProps> = ({ workflow, onWorkflo
   const [isEditingName, setIsEditingName] = useState(false);
   const [workflowName, setWorkflowName] = useState('');
   const nameInputRef = useRef<HTMLInputElement>(null);
+  const [editingStepNameId, setEditingStepNameId] = useState<string | null>(null);
+  const [stepNameInput, setStepNameInput] = useState('');
+  const stepNameInputRef = useRef<HTMLInputElement>(null);
 
   // Trigger settings editing state
   const [editingTrigger, setEditingTrigger] = useState<any>(null);
@@ -81,6 +83,13 @@ const WorkflowSettings: React.FC<WorkflowSettingsProps> = ({ workflow, onWorkflo
       nameInputRef.current.select();
     }
   }, [isEditingName]);
+
+  useEffect(() => {
+    if (editingStepNameId && stepNameInputRef.current) {
+      stepNameInputRef.current.focus();
+      stepNameInputRef.current.select();
+    }
+  }, [editingStepNameId]);
 
   useEffect(() => {
     if (!isEditingName) return;
@@ -238,6 +247,27 @@ const WorkflowSettings: React.FC<WorkflowSettingsProps> = ({ workflow, onWorkflo
     };
   }, [showStepSelector]);
 
+  const handleAddStep = async (stepType: 'custom_llm' | 'custom_agent' | 'stop_checker') => {
+    if (!detailedWorkflow) return;
+
+    setIsLoading(true);
+    setShowStepSelector(false);
+
+    const updatedWorkflow = await addWorkflowStep(
+      detailedWorkflow.uuid,
+      stepType,
+      "Click to change name"
+    );
+
+    if (updatedWorkflow) {
+      setDetailedWorkflow(updatedWorkflow);
+      onWorkflowUpdate(updatedWorkflow);
+    } else {
+      alert('Failed to add step.');
+    }
+    setIsLoading(false);
+  };
+
   const handleSetTrigger = async (triggerTypeId: string) => {
     if (!triggerTypeId) return;
     
@@ -317,6 +347,28 @@ const WorkflowSettings: React.FC<WorkflowSettingsProps> = ({ workflow, onWorkflo
     } else {
       alert('Failed to update step.');
     }
+  };
+
+  const handleStepNameClick = (step: WorkflowStep) => {
+    setEditingStepNameId(step.uuid);
+    setStepNameInput(step.name);
+  };
+
+  const handleStepNameSave = async () => {
+    if (!editingStepNameId || !detailedWorkflow) return;
+
+    const stepToUpdate = detailedWorkflow.steps.find(s => s.uuid === editingStepNameId);
+
+    if (!stepToUpdate || stepToUpdate.name === stepNameInput) {
+        setEditingStepNameId(null);
+        return;
+    }
+
+    const updatedStep = { ...stepToUpdate, name: stepNameInput };
+    
+    await handleUpdateStep(updatedStep); 
+
+    setEditingStepNameId(null);
   };
 
   // Save trigger settings
@@ -585,29 +637,23 @@ const WorkflowSettings: React.FC<WorkflowSettingsProps> = ({ workflow, onWorkflo
                 <div className="absolute top-14 left-1/2 transform -translate-x-1/2 bg-white border border-gray-300 rounded-lg shadow-lg z-10 min-w-48">
                   <div className="py-2">
                     <button
-                      onClick={() => {
-                        setIsAddStepModalOpen(true);
-                        setShowStepSelector(false);
-                      }}
+                      onClick={() => handleAddStep('custom_llm')}
                       className="w-full px-4 py-2 text-left hover:bg-gray-100 text-sm"
+                      disabled={isLoading}
                     >
                       add LLM
                     </button>
                     <button
-                      onClick={() => {
-                        setIsAddStepModalOpen(true);
-                        setShowStepSelector(false);
-                      }}
+                      onClick={() => handleAddStep('custom_agent')}
                       className="w-full px-4 py-2 text-left hover:bg-gray-100 text-sm"
+                      disabled={isLoading}
                     >
                       add Agent
                     </button>
                     <button
-                      onClick={() => {
-                        setIsAddStepModalOpen(true);
-                        setShowStepSelector(false);
-                      }}
+                      onClick={() => handleAddStep('stop_checker')}
                       className="w-full px-4 py-2 text-left hover:bg-gray-100 text-sm"
+                      disabled={isLoading}
                     >
                       add Stop Workflow Check
                     </button>
@@ -670,7 +716,24 @@ const WorkflowSettings: React.FC<WorkflowSettingsProps> = ({ workflow, onWorkflo
                 <div className="flex items-center pb-4">
                   <span className="text-gray-500 font-bold text-lg mr-4">{index + 2}</span>
                   <div>
-                    <p className="font-semibold">{step.name}</p>
+                    {editingStepNameId === step.uuid ? (
+                      <input
+                        ref={stepNameInputRef}
+                        type="text"
+                        value={stepNameInput}
+                        onChange={(e) => setStepNameInput(e.target.value)}
+                        onBlur={handleStepNameSave}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') handleStepNameSave();
+                          if (e.key === 'Escape') setEditingStepNameId(null);
+                        }}
+                        className="font-semibold border rounded-md px-2 py-1 bg-white"
+                      />
+                    ) : (
+                      <p className="font-semibold cursor-pointer" onClick={(e) => {e.stopPropagation(); handleStepNameClick(step)}}>
+                        {step.name}
+                      </p>
+                    )}
                   </div>
                 </div>
                 <div className="absolute bottom-2 right-2 flex items-center space-x-2">
@@ -730,29 +793,23 @@ const WorkflowSettings: React.FC<WorkflowSettingsProps> = ({ workflow, onWorkflo
                 <div className="absolute top-14 left-1/2 transform -translate-x-1/2 bg-white border border-gray-300 rounded-lg shadow-lg z-10 min-w-48">
                   <div className="py-2">
                     <button
-                      onClick={() => {
-                        setIsAddStepModalOpen(true);
-                        setShowStepSelector(false);
-                      }}
+                      onClick={() => handleAddStep('custom_llm')}
                       className="w-full px-4 py-2 text-left hover:bg-gray-100 text-sm"
+                      disabled={isLoading}
                     >
                       add LLM
                     </button>
                     <button
-                      onClick={() => {
-                        setIsAddStepModalOpen(true);
-                        setShowStepSelector(false);
-                      }}
+                      onClick={() => handleAddStep('custom_agent')}
                       className="w-full px-4 py-2 text-left hover:bg-gray-100 text-sm"
+                      disabled={isLoading}
                     >
                       add Agent
                     </button>
                     <button
-                      onClick={() => {
-                        setIsAddStepModalOpen(true);
-                        setShowStepSelector(false);
-                      }}
+                      onClick={() => handleAddStep('stop_checker')}
                       className="w-full px-4 py-2 text-left hover:bg-gray-100 text-sm"
+                      disabled={isLoading}
                     >
                       add Stop Workflow Check
                     </button>
@@ -773,16 +830,6 @@ const WorkflowSettings: React.FC<WorkflowSettingsProps> = ({ workflow, onWorkflo
         </div>
       )}
 
-        <CreateStepModal
-          workflowId={detailedWorkflow.uuid}
-          isOpen={isAddStepModalOpen}
-          onClose={() => setIsAddStepModalOpen(false)}
-          onStepCreated={(updatedWorkflow) => {
-            console.log('[WorkflowSettings] Received updated workflow from CreateStepModal:', updatedWorkflow);
-            setDetailedWorkflow(updatedWorkflow);
-            onWorkflowUpdate(updatedWorkflow);
-          }}
-        />
       </div>
       
       {/* Help Sidebar */}
