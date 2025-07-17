@@ -20,7 +20,9 @@ import {
 import StepEditor from './workflow/StepEditor';
 import TriggerSettings from './workflow/TriggerSettings';
 import StepTypeHelp from './help/StepTypeHelp';
-import { HelpCircle, Workflow as WorkflowIcon, Brain, AlertCircle } from 'lucide-react';
+import { HelpCircle, Workflow as WorkflowIcon, Brain, AlertCircle, WifiOff } from 'lucide-react';
+import ImapSettingsModal from './settings/ImapSettingsModal';
+import { testImapConnection } from '../services/api';
 
 interface WorkflowSettingsProps {
   workflow: Workflow;
@@ -48,6 +50,8 @@ const WorkflowSettings: React.FC<WorkflowSettingsProps> = ({ workflow, onWorkflo
   const [editingStepNameId, setEditingStepNameId] = useState<string | null>(null);
   const [stepNameInput, setStepNameInput] = useState('');
   const stepNameInputRef = useRef<HTMLInputElement>(null);
+  const [isImapConnected, setIsImapConnected] = useState(true);
+  const [isImapModalOpen, setIsImapModalOpen] = useState(false);
 
   // Trigger settings editing state
   const [editingTrigger, setEditingTrigger] = useState<any>(null);
@@ -60,6 +64,16 @@ const WorkflowSettings: React.FC<WorkflowSettingsProps> = ({ workflow, onWorkflo
       console.log(`[WorkflowSettings] Received details for workflow: ${workflow.uuid}`, details);
       setDetailedWorkflow(details);
       setIsFetchingDetails(false);
+      checkImapConnection();
+    }
+  };
+
+  const checkImapConnection = async () => {
+    try {
+      await testImapConnection();
+      setIsImapConnected(true);
+    } catch (error) {
+      setIsImapConnected(false);
     }
   };
 
@@ -480,6 +494,22 @@ const WorkflowSettings: React.FC<WorkflowSettingsProps> = ({ workflow, onWorkflo
       <div className="p-6">
         
       <div className="mb-4">
+        {!isImapConnected && hasTrigger && (
+            <div 
+                className="p-3 mb-4 bg-yellow-50 border border-yellow-200 rounded-md cursor-pointer hover:bg-yellow-100"
+                onClick={() => setIsImapModalOpen(true)}
+            >
+                <div className="flex">
+                    <WifiOff className="w-5 h-5 mr-3 text-yellow-600 flex-shrink-0" />
+                    <div>
+                        <p className="font-bold text-yellow-900">Your email account is not connected yet!</p>
+                        <p className="text-sm text-yellow-800 mt-1">
+                            You must connect in order for this workflow to work. <span className="underline">Click here</span> to connect your account through IMAP.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        )}
         {hasTrigger ? (
           <div
             ref={editingTrigger ? editingTriggerRef : null}
@@ -836,6 +866,13 @@ const WorkflowSettings: React.FC<WorkflowSettingsProps> = ({ workflow, onWorkflo
       <div className={`fixed top-0 right-0 h-full transition-all duration-300 ease-in-out bg-white shadow-lg border-l overflow-y-auto z-50 ${isHelpPanelOpen ? 'w-full max-w-2xl' : 'w-0'}`}>
         {isHelpPanelOpen && <StepTypeHelp onClose={() => setIsHelpPanelOpen(false)} />}
       </div>
+      <ImapSettingsModal 
+        isOpen={isImapModalOpen}
+        onClose={() => {
+          setIsImapModalOpen(false);
+          checkImapConnection();
+        }}
+      />
     </>
   );
 };

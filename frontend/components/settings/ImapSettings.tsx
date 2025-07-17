@@ -1,62 +1,235 @@
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Copy, HelpCircle } from 'lucide-react';
-import { AppSettings, EmbeddingModel } from '../../services/api';
+import { 
+    AppSettings, 
+    EmbeddingModel, 
+    getSettings, 
+    setSettings, 
+    getInboxInitializationStatus, 
+    testImapConnection, 
+    reinitializeInbox, 
+    getToneOfVoiceProfile, 
+    rerunToneAnalysis, 
+    getToneOfVoiceStatus,
+    initializeInbox
+} from '../../services/api';
 import ExpandableProfile from '../ExpandableProfile';
 
 interface ImapSettingsProps {
-    settings: AppSettings;
-    initialSettings: AppSettings;
-    embeddingModels: EmbeddingModel[];
-    inboxStatus: string | null;
-    testStatus: 'idle' | 'testing' | 'success' | 'error';
-    testMessage: string;
-    saveStatus: 'idle' | 'saving' | 'saved';
+    showAdvancedSettings?: boolean;
     setHelpPanelOpen: (isOpen: boolean) => void;
-    showEmbeddingModelSaved: boolean;
-    embeddingConfigError: string;
-    toneOfVoiceProfile: any;
-    toneAnalysisStatus: string | null;
-    toneAnalysisMessage: string;
-    showGmailWarning: boolean;
-    hasUnsavedChanges: boolean;
-    handleSave: () => Promise<void>;
-    handleInputChange: (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => void;
-    handleImapServerBlur: (e: React.FocusEvent<HTMLInputElement>) => void;
-    handleEmbeddingModelChange: (e: React.ChangeEvent<HTMLSelectElement>) => Promise<void>;
-    handleTestConnection: () => Promise<void>;
-    handleRevectorize: () => Promise<void>;
-    handleRerunToneAnalysis: () => Promise<void>;
-    getStatusClasses: (status: string | null) => string;
-    setSettingsState: React.Dispatch<React.SetStateAction<AppSettings>>;
 }
 
 const ImapSettings: React.FC<ImapSettingsProps> = ({ 
-    settings,
-    initialSettings,
-    embeddingModels,
-    inboxStatus,
-    testStatus,
-    testMessage,
-    saveStatus,
+    showAdvancedSettings = true,
     setHelpPanelOpen,
-    showEmbeddingModelSaved,
-    embeddingConfigError,
-    toneOfVoiceProfile,
-    toneAnalysisStatus,
-    toneAnalysisMessage,
-    showGmailWarning,
-    hasUnsavedChanges,
-    handleSave,
-    handleInputChange,
-    handleImapServerBlur,
-    handleEmbeddingModelChange,
-    handleTestConnection,
-    handleRevectorize,
-    handleRerunToneAnalysis,
-    getStatusClasses,
-    setSettingsState,
  }) => {
+    const [settings, setSettingsState] = useState<AppSettings>({});
+    const [initialSettings, setInitialSettings] = useState<AppSettings>({});
+    const [embeddingModels, setEmbeddingModels] = useState<EmbeddingModel[]>([]);
+    const [inboxStatus, setInboxStatus] = useState<string | null>(null);
+    const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
+    const [testMessage, setTestMessage] = useState<string>('');
+    const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
+    const [embeddingConfigError, setEmbeddingConfigError] = useState<string>('');
+    const [toneOfVoiceProfile, setToneOfVoiceProfile] = useState<any>(null);
+    const [toneAnalysisStatus, setToneAnalysisStatus] = useState<string | null>(null);
+    const [toneAnalysisMessage, setToneAnalysisMessage] = useState<string>('');
+    const [showGmailWarning, setShowGmailWarning] = useState(false);
+
+    const hasUnsavedChanges = JSON.stringify(settings) !== JSON.stringify(initialSettings);
+
+    const attemptAutoVectorization = async (currentSettings: AppSettings) => {
+        if (currentSettings.IMAP_SERVER && currentSettings.IMAP_USERNAME && currentSettings.IMAP_PASSWORD) {
+          try {
+            await testImapConnection();
+            const status = await getInboxInitializationStatus();
+            if (status === 'not_started' || status === 'failed') {
+              await initializeInbox();
+            }
+          } catch (error) {
+            console.error("Automatic vectorization check failed.", error);
+          }
+        }
+    };
+
+    useEffect(() => {
+        const fetchSettings = async () => {
+          const { settings: fetchedSettings, embeddingModels: fetchedModels } = await getSettings();
+          setSettingsState(fetchedSettings);
+          setInitialSettings(fetchedSettings);
+          setEmbeddingModels(fetchedModels);
+    
+          if (fetchedSettings.IMAP_SERVER && fetchedSettings.IMAP_SERVER.toLowerCase().trim() !== 'imap.gmail.com') {
+            setShowGmailWarning(true);
+          } else {
+            setShowGmailWarning(false);
+          }
+    
+          if (!fetchedSettings.EMBEDDING_MODEL) {
+            setEmbeddingConfigError("No embedding model configured. Please select a model to enable vectorization.");
+          } else {
+            const selectedModel = fetchedModels.find(m => m.model_name_from_key === fetchedSettings.EMBEDDING_MODEL);
+            if (selectedModel && !selectedModel.api_key_provided) {
+              setEmbeddingConfigError(`API key for ${selectedModel.provider} is not configured.`);
+            } else {
+              setEmbeddingConfigError('');
+            }
+          }
+    
+          await attemptAutoVectorization(fetchedSettings);
+        };
+        const fetchToneProfile = async () => {
+          try {
+            const profile = await getToneOfVoiceProfile();
+            setToneOfVoiceProfile(profile);
+          } catch (error) {
+            console.error("Failed to fetch tone of voice profile:", error);
+          }
+        };
+    
+        fetchSettings();
+        fetchToneProfile();
+      }, []);
+    
+      useEffect(() => {
+        let timer: NodeJS.Timeout;
+        if (saveStatus === 'saved') {
+          timer = setTimeout(() => {
+            setSaveStatus('idle');
+          }, 2000);
+        }
+        return () => clearTimeout(timer);
+      }, [saveStatus]);
+
+      useEffect(() => {
+        if (!showAdvancedSettings) return;
+        const fetchStatus = async () => {
+          const status = await getInboxInitializationStatus();
+          setInboxStatus(status);
+        };
+        fetchStatus();
+        const interval = setInterval(fetchStatus, 3000);
+        return () => clearInterval(interval);
+      }, [showAdvancedSettings]);
+    
+      useEffect(() => {
+        if (!showAdvancedSettings) return;
+        const fetchToneStatus = async () => {
+            const status = await getToneOfVoiceStatus();
+            setToneAnalysisStatus(status);
+        };
+        fetchToneStatus();
+        const interval = setInterval(fetchToneStatus, 3000);
+        return () => clearInterval(interval);
+      }, [showAdvancedSettings]);
+    
+      useEffect(() => {
+        if (toneAnalysisStatus === 'completed') {
+            const fetchToneProfile = async () => {
+                const profile = await getToneOfVoiceProfile();
+                setToneOfVoiceProfile(profile);
+            };
+            fetchToneProfile();
+        }
+      }, [toneAnalysisStatus]);
+
+      const handleSave = async () => {
+        setSaveStatus('saving');
+        await setSettings(settings);
+        setInitialSettings(settings);
+        setSaveStatus('saved');
+        await attemptAutoVectorization(settings);
+      };
+    
+      const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+        const { name, value } = e.target;
+        setSettingsState(prev => ({ ...prev, [name]: value }));
+      };
+    
+      const handleImapServerBlur = (e: React.FocusEvent<HTMLInputElement>) => {
+        const value = e.target.value;
+        if (value && value.toLowerCase().trim() !== 'imap.gmail.com') {
+            setShowGmailWarning(true);
+        } else {
+            setShowGmailWarning(false);
+        }
+      };
+    
+      const handleEmbeddingModelChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
+        const newModelKey = e.target.value;
+        setSettingsState(prev => ({ ...prev, EMBEDDING_MODEL: newModelKey }));
+    
+        const selectedModel = embeddingModels.find(m => m.model_name_from_key === newModelKey);
+        if (!selectedModel || !selectedModel.api_key_provided) {
+            return;
+        }
+    
+        if (newModelKey === initialSettings.EMBEDDING_MODEL) {
+            setEmbeddingConfigError('');
+            return;
+        }
+    
+        const confirmed = window.confirm(
+            'Changing the embedding model requires re-vectorizing your entire inbox. This will delete all existing email vectors and can take several minutes. Are you sure you want to proceed?'
+        );
+    
+        if (confirmed) {
+            try {
+                await setSettings({ EMBEDDING_MODEL: newModelKey });
+                await reinitializeInbox();
+                setInitialSettings(prev => ({ ...prev, EMBEDDING_MODEL: newModelKey }));
+                setEmbeddingConfigError('');
+            } catch (error) {
+                console.error("Failed to update embedding model and re-vectorize:", error);
+                setSettingsState(initialSettings);
+            }
+        } else {
+            setSettingsState(initialSettings);
+        }
+      };
+    
+      const handleTestConnection = async () => {
+        setTestStatus('testing');
+        setTestMessage('');
+        try {
+          const result = await testImapConnection();
+          setTestStatus('success');
+          setTestMessage(result.message);
+        } catch (error: any) {
+          setTestStatus('error');
+          setTestMessage(error.message || 'An unknown error occurred.');
+        }
+      };
+    
+      const handleRevectorize = async () => {
+        if (window.confirm('Are you sure you want to re-vectorize? This will delete all existing email vector data and start from scratch. This action cannot be undone.')) {
+          await reinitializeInbox();
+          setInboxStatus(await getInboxInitializationStatus());
+          setToneAnalysisStatus(await getToneOfVoiceStatus());
+        }
+      };
+    
+      const handleRerunToneAnalysis = async () => {
+        setToneAnalysisMessage('');
+        try {
+            await rerunToneAnalysis();
+        } catch (error: any) {
+            setToneAnalysisMessage(error.message || 'An unknown error occurred.');
+            setToneAnalysisStatus('failed');
+        }
+      };
+
+    const getStatusClasses = (status: string | null): string => {
+        switch (status) {
+          case 'completed': return 'bg-green-100 text-green-800 px-2 py-1 rounded-full text-sm';
+          case 'running': return 'bg-blue-100 text-blue-800 px-2 py-1 rounded-full text-sm animate-pulse';
+          case 'failed': return 'bg-red-100 text-red-800 px-2 py-1 rounded-full text-sm';
+          default: return 'bg-gray-100 text-gray-800 px-2 py-1 rounded-full text-sm';
+        }
+    };
+
     const handleCopy = (text: string) => {
         navigator.clipboard.writeText(text).then(() => {}, (err) => {
           console.error('Failed to copy text: ', err);
@@ -149,91 +322,95 @@ const ImapSettings: React.FC<ImapSettingsProps> = ({
             </button>
         </div>
         </div>
-        <div className={settingsSectionClasses}>
-        <h2 className="text-center mb-5 text-2xl font-bold">Inbox Vectorization</h2>
-        <p className="text-center text-sm text-gray-600 mb-5">
-            To enable semantic search over your emails, they need to be vectorized and stored. This process can take a few minutes.
-        </p>
-        <div className="flex justify-center items-center mb-5 space-x-3">
-            <span>Inbox Vectorization Status: </span>
-            <span className={getStatusClasses(inboxStatus)}>
-            {inboxStatus ? inboxStatus.charAt(0).toUpperCase() + inboxStatus.slice(1).replace('_', ' ') : 'Loading...'}
-            </span>
-            <button
-            className="py-1 px-3 text-xs rounded bg-amber-600 text-white cursor-pointer border-none"
-            onClick={handleRevectorize}
-            title="This will delete all existing email vector data and start from scratch. This action cannot be undone."
-            >
-            Re-vectorize
-            </button>
-        </div>
-        {embeddingConfigError && (
-            <div className="text-center p-2 mb-4 rounded-md text-sm bg-red-100 text-red-800">
-                {embeddingConfigError}
-            </div>
+        {showAdvancedSettings && (
+            <>
+                <div className={settingsSectionClasses}>
+                    <h2 className="text-center mb-5 text-2xl font-bold">Inbox Vectorization</h2>
+                    <p className="text-center text-sm text-gray-600 mb-5">
+                        To enable semantic search over your emails, they need to be vectorized and stored. This process can take a few minutes.
+                    </p>
+                    <div className="flex justify-center items-center mb-5 space-x-3">
+                        <span>Inbox Vectorization Status: </span>
+                        <span className={getStatusClasses(inboxStatus)}>
+                        {inboxStatus ? inboxStatus.charAt(0).toUpperCase() + inboxStatus.slice(1).replace('_', ' ') : 'Loading...'}
+                        </span>
+                        <button
+                        className="py-1 px-3 text-xs rounded bg-amber-600 text-white cursor-pointer border-none"
+                        onClick={handleRevectorize}
+                        title="This will delete all existing email vector data and start from scratch. This action cannot be undone."
+                        >
+                        Re-vectorize
+                        </button>
+                    </div>
+                    {embeddingConfigError && (
+                        <div className="text-center p-2 mb-4 rounded-md text-sm bg-red-100 text-red-800">
+                            {embeddingConfigError}
+                        </div>
+                    )}
+                    <div className={settingRowClasses}>
+                        <label className={labelClasses} htmlFor="embedding-model">Embedding Model:</label>
+                        <div className="flex-1">
+                        <select
+                            id="embedding-model"
+                            name="EMBEDDING_MODEL"
+                            value={settings.EMBEDDING_MODEL || ''}
+                            onChange={handleEmbeddingModelChange}
+                            className={inputClasses}
+                        >
+                            {embeddingModels.map(model => (
+                            <option key={model.model_name_from_key} value={model.model_name_from_key}>
+                                {model.provider} - {model.model_name}
+                            </option>
+                            ))}
+                        </select>
+                        {selectedEmbeddingModel && !selectedEmbeddingModel.api_key_provided && (
+                            <p className="text-red-500 text-xs mt-1">
+                            Warning: API key for this model's provider ({selectedEmbeddingModel.provider}) is not configured.
+                            </p>
+                        )}
+                        </div>
+                    </div>
+                </div>
+                <div className={settingsSectionClasses}>
+                    <h2 className="text-center mb-5 text-2xl font-bold">Tone of Voice</h2>
+                    <p className="text-center text-sm text-gray-600 mb-5">
+                        This is an auto-generated analysis of your writing style based on your emails.
+                    </p>
+                    <div className="flex justify-center items-center mb-5 space-x-3">
+                        <span>Tone of Voice Status: </span>
+                        <span className={getStatusClasses(toneAnalysisStatus)}>
+                        {toneAnalysisStatus ? toneAnalysisStatus.charAt(0).toUpperCase() + toneAnalysisStatus.slice(1).replace('_', ' ') : 'Loading...'}
+                        </span>
+                        <button
+                        className="py-1 px-3 text-xs rounded bg-amber-600 text-white cursor-pointer border-none disabled:bg-gray-400 disabled:cursor-not-allowed"
+                        onClick={handleRerunToneAnalysis}
+                        disabled={inboxStatus !== 'completed' || toneAnalysisStatus === 'running'}
+                        title={inboxStatus !== 'completed' ? "Inbox vectorization must be complete before running analysis." : "Re-run the tone of voice analysis based on your latest emails."}
+                        >
+                        Re-run Analysis
+                        </button>
+                    </div>
+                    <div className="bg-gray-100 p-4 rounded-md">
+                        {toneOfVoiceProfile && Object.keys(toneOfVoiceProfile).length > 0 ? (
+                        Object.entries(toneOfVoiceProfile).map(([lang, profile]) => (
+                            <ExpandableProfile
+                                key={lang}
+                                language={lang}
+                                profile={typeof profile === 'string' ? profile : JSON.stringify(profile)}
+                            />
+                        ))
+                        ) : (
+                        <p>No tone of voice profile found.</p>
+                        )}
+                    </div>
+                    {toneAnalysisMessage && (
+                        <div className={`text-center p-2 mt-4 rounded-md text-sm bg-red-100 text-red-800`}>
+                            {toneAnalysisMessage}
+                        </div>
+                    )}
+                </div>
+            </>
         )}
-        <div className={settingRowClasses}>
-            <label className={labelClasses} htmlFor="embedding-model">Embedding Model:</label>
-            <div className="flex-1">
-            <select
-                id="embedding-model"
-                name="EMBEDDING_MODEL"
-                value={settings.EMBEDDING_MODEL || ''}
-                onChange={handleEmbeddingModelChange}
-                className={inputClasses}
-            >
-                {embeddingModels.map(model => (
-                <option key={model.model_name_from_key} value={model.model_name_from_key}>
-                    {model.provider} - {model.model_name}
-                </option>
-                ))}
-            </select>
-            {selectedEmbeddingModel && !selectedEmbeddingModel.api_key_provided && (
-                <p className="text-red-500 text-xs mt-1">
-                Warning: API key for this model's provider ({selectedEmbeddingModel.provider}) is not configured.
-                </p>
-            )}
-            </div>
-        </div>
-        </div>
-        <div className={settingsSectionClasses}>
-        <h2 className="text-center mb-5 text-2xl font-bold">Tone of Voice</h2>
-        <p className="text-center text-sm text-gray-600 mb-5">
-            This is an auto-generated analysis of your writing style based on your emails.
-        </p>
-        <div className="flex justify-center items-center mb-5 space-x-3">
-            <span>Tone of Voice Status: </span>
-            <span className={getStatusClasses(toneAnalysisStatus)}>
-            {toneAnalysisStatus ? toneAnalysisStatus.charAt(0).toUpperCase() + toneAnalysisStatus.slice(1).replace('_', ' ') : 'Loading...'}
-            </span>
-            <button
-            className="py-1 px-3 text-xs rounded bg-amber-600 text-white cursor-pointer border-none disabled:bg-gray-400 disabled:cursor-not-allowed"
-            onClick={handleRerunToneAnalysis}
-            disabled={inboxStatus !== 'completed' || toneAnalysisStatus === 'running'}
-            title={inboxStatus !== 'completed' ? "Inbox vectorization must be complete before running analysis." : "Re-run the tone of voice analysis based on your latest emails."}
-            >
-            Re-run Analysis
-            </button>
-        </div>
-        <div className="bg-gray-100 p-4 rounded-md">
-            {toneOfVoiceProfile && Object.keys(toneOfVoiceProfile).length > 0 ? (
-            Object.entries(toneOfVoiceProfile).map(([lang, profile]) => (
-                <ExpandableProfile
-                    key={lang}
-                    language={lang}
-                    profile={typeof profile === 'string' ? profile : JSON.stringify(profile)}
-                />
-            ))
-            ) : (
-            <p>No tone of voice profile found.</p>
-            )}
-        </div>
-        {toneAnalysisMessage && (
-            <div className={`text-center p-2 mt-4 rounded-md text-sm bg-red-100 text-red-800`}>
-                {toneAnalysisMessage}
-            </div>
-        )}
-        </div>
         </div>
   </div>
   );
