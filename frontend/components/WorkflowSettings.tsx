@@ -20,7 +20,7 @@ import CreateStepModal from './CreateStepModal';
 import StepEditor from './workflow/StepEditor';
 import TriggerSettings from './workflow/TriggerSettings';
 import StepTypeHelp from './help/StepTypeHelp';
-import { HelpCircle, Workflow as WorkflowIcon, Brain } from 'lucide-react';
+import { HelpCircle, Workflow as WorkflowIcon, Brain, AlertCircle } from 'lucide-react';
 
 interface WorkflowSettingsProps {
   workflow: Workflow;
@@ -619,7 +619,7 @@ const WorkflowSettings: React.FC<WorkflowSettingsProps> = ({ workflow, onWorkflo
                 >
                   ×
                 </button>
-                <div className="flex items-center">
+                <div className="flex items-center pb-4">
                   <span className="text-gray-500 font-bold text-lg mr-4">{index + 2}</span>
                   <div>
                     <p className="font-semibold">{step.name}</p>
@@ -627,6 +627,15 @@ const WorkflowSettings: React.FC<WorkflowSettingsProps> = ({ workflow, onWorkflo
                 </div>
                 {editingStep?.uuid !== step.uuid && (
                   <div className="absolute bottom-2 right-2 flex items-center space-x-2">
+                    {(step.type === 'custom_llm' || step.type === 'custom_agent') &&
+                      (hasTrigger || index > 0) &&
+                      !step.system_prompt.includes('<<trigger_output>>') &&
+                      !step.system_prompt.includes('<<step_output.') && (
+                        <span className="flex items-center gap-1 px-2 py-1 bg-red-100 text-red-800 text-xs rounded-full">
+                          <AlertCircle size={12} />
+                          No Input
+                        </span>
+                    )}
                     <span className="px-2 py-1 bg-gray-100 text-gray-600 text-xs rounded-full">
                       {step.type.replace('_', ' ')}
                     </span>

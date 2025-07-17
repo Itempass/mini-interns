@@ -1,8 +1,9 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { CustomAgentStep, WorkflowStep, getAvailableLLMModels, LLMModel, getAvailableTools, Tool } from '../../../services/workflows_api';
-import { Copy } from 'lucide-react';
+import { Copy, AlertCircle } from 'lucide-react';
 import PlaceholderTextEditor from './PlaceholderTextEditor';
+import NoReferencesHelp from '../../help/NoReferencesHelp';
 
 interface EditCustomAgentStepProps {
   step: CustomAgentStep;
@@ -21,6 +22,12 @@ const EditCustomAgentStep: React.FC<EditCustomAgentStepProps> = ({ step, onSave,
   const [isPromptDirty, setIsPromptDirty] = useState(false);
   const [showCopyMessage, setShowCopyMessage] = useState(false);
   const copyTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const [showNoReferencesHelp, setShowNoReferencesHelp] = useState(false);
+
+  const hasNoReferences =
+    (hasTrigger || (precedingSteps && precedingSteps.length > 0)) &&
+    !currentStep.system_prompt.includes('<<trigger_output>>') &&
+    !currentStep.system_prompt.includes('<<step_output.');
 
   useEffect(() => {
     const fetchData = async () => {
@@ -102,7 +109,18 @@ const EditCustomAgentStep: React.FC<EditCustomAgentStepProps> = ({ step, onSave,
     <div className="p-6">
       <div className="space-y-4">
         <div>
-          <label htmlFor="step-system-prompt" className="block text-sm font-medium text-gray-700">System Prompt</label>
+          <label className="block text-sm font-medium text-gray-700">System Prompt</label>
+          {hasNoReferences && (
+            <div className="mt-1">
+              <span 
+                className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium text-red-800 bg-red-100 rounded-full cursor-pointer hover:bg-red-200"
+                onClick={() => setShowNoReferencesHelp(true)}
+              >
+                <AlertCircle size={12} />
+                No references to previous outputs found!
+              </span>
+            </div>
+          )}
           <div className="relative">
             <PlaceholderTextEditor
               value={currentStep.system_prompt}
@@ -197,6 +215,11 @@ const EditCustomAgentStep: React.FC<EditCustomAgentStepProps> = ({ step, onSave,
             </div>
           )}
         </div>
+      </div>
+      
+      {/* Help Sidebar */}
+      <div className={`fixed top-0 right-0 h-full transition-all duration-300 ease-in-out bg-white shadow-lg border-l overflow-y-auto z-20 ${showNoReferencesHelp ? 'w-full max-w-2xl' : 'w-0'}`}>
+        {showNoReferencesHelp && <NoReferencesHelp onClose={() => setShowNoReferencesHelp(false)} />}
       </div>
     </div>
   );
