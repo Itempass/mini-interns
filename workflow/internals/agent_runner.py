@@ -177,25 +177,6 @@ async def run_agent_step(
 
     logger.info(f"Providing {len(tools)} enabled and available tools to the LLM.")
 
-    # Add the built-in tool for retrieving step output
-    get_output_tool = {
-        "type": "function",
-        "function": {
-            "name": "get_step_output",
-            "description": "Retrieves the full, raw output data from a previous step in the workflow using its unique output ID.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "output_id": {
-                        "type": "string",
-                        "description": "The UUID of the output data to retrieve. This is found in the compressed JSON reference provided in the prompt.",
-                    }
-                },
-                "required": ["output_id"],
-            },
-        },
-    }
-    tools.append(get_output_tool)
     
     try:
         max_cycles = 10  # A reasonable limit for agent execution cycles
@@ -252,14 +233,9 @@ async def run_agent_step(
                 tool_call_details_map[i] = tool_call
                 function_name = tool_call.function.name
                 
-                if function_name == "get_step_output":
-                    tool_results_coroutines.append(
-                        _handle_get_step_output(tool_call, instance.user_id)
-                    )
-                else:
-                    tool_results_coroutines.append(
-                        _handle_mcp_tool_call(tool_call, mcp_clients)
-                    )
+                tool_results_coroutines.append(
+                    _handle_mcp_tool_call(tool_call, mcp_clients)
+                )
 
             tool_results = await asyncio.gather(*tool_results_coroutines)
 
@@ -383,25 +359,6 @@ async def _resolve_tool_arguments(tool_calls: list, user_id: str) -> list:
 
     return tool_calls
 
-async def _handle_get_step_output(tool_call, user_id) -> str:
-    """
-    Handles the built-in 'get_step_output' tool call.
-    """
-    try:
-        args = json.loads(tool_call.function.arguments)
-        output_id = args.get("output_id")
-        if not output_id:
-            return "Error: `output_id` is required."
-        
-        output_data = await workflow_client.get_output_data(output_id, user_id)
-        if not output_data:
-            return f"Error: No output data found for ID {output_id}."
-        
-        return output_data.markdown_representation
-
-    except (json.JSONDecodeError, AttributeError, Exception) as e:
-        logger.warning(f"Could not process get_step_output call: {e}", exc_info=True)
-        return f"Error processing tool call: {e}"
 
 async def _handle_mcp_tool_call(tool_call, mcp_clients: dict[str, MCPClient]) -> str:
     """Handles a standard tool call to an MCP server."""

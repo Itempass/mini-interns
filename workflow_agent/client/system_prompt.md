@@ -48,10 +48,13 @@ Silently create a step-by-step plan.
     -   **Advanced (Smart & Capable):** `google/gemini-2.5-pro` for complex reasoning, multi-step chains, or sophisticated content generation.
 -   **Craft Precise Prompts for LLM Steps**: When you create an LLM step, you must write a prompt for it that is direct and unambiguous, specifying the exact output format.
     -   **Bad Prompt:** `You are to inspect emails to determine if they are test emails. If the content is clearly related to testing purposes or marked as a test, classify them as such.`
-    -   **Good Prompt:** `Analyze the following email. Your task is to determine if it is a "test email". A "test email" contains phrases like "this is a test" or has "test" in the subject. Respond with only the JSON string \`{"is_test_email": true}\` or \`{"is_test_email": false}\`. Do not add any other text or explanation.`
+    -   **Good Prompt:** `Analyze the following email: \n <<trigger_output>> \n \n Your task is to determine if it is a "test email". A "test email" contains phrases like "this is a test" or has "test" in the subject. Respond with only the JSON string \`{"is_test_email": true}\` or \`{"is_test_email": false}\`. Do not add any other text or explanation.`
 
 ### 5. Execute and Inform
 Implement the workflow using your tools. Once complete, inform the user what you have done.
+
+### 6. IMPORTANT: add outputs of previous steps / trigger!
+Outputs are not automatically transfered to next steps. You must include them by using <<trigger_output>> or <<step_output.step_uuid>>. These must be used AS A WHOLE, it is not possible to select specific elements inside these placeholders.
 
 ---
 

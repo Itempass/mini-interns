@@ -778,6 +778,13 @@ const WorkflowSettings: React.FC<WorkflowSettingsProps> = ({ workflow, onWorkflo
                             No Input
                           </span>
                       )}
+                      {step.type === 'custom_agent' &&
+                        (!Object.values((step as any).tools || {}).some((tool: any) => tool.enabled)) && (
+                          <span className="flex items-center gap-1 px-2 py-1 bg-red-100 text-red-800 text-xs rounded-full">
+                            <AlertCircle size={12} />
+                            No Tools
+                          </span>
+                      )}
                       {('model' in step) && (
                         <span className="flex items-center px-2 py-1 bg-blue-100 text-blue-600 text-xs rounded-full">
                           <Brain size={12} className="mr-1" />

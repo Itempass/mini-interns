@@ -29,6 +29,8 @@ const EditCustomAgentStep: React.FC<EditCustomAgentStepProps> = ({ step, onSave,
     !currentStep.system_prompt.includes('<<trigger_output>>') &&
     !currentStep.system_prompt.includes('<<step_output.');
 
+  const hasNoSelectedTools = !Object.values(currentStep.tools || {}).some(tool => tool.enabled);
+
   useEffect(() => {
     const fetchData = async () => {
       setIsLoading(true);
@@ -186,6 +188,16 @@ const EditCustomAgentStep: React.FC<EditCustomAgentStepProps> = ({ step, onSave,
 
         <div>
           <label className="block text-sm font-medium text-gray-700">Tools</label>
+          {hasNoSelectedTools && (
+            <div className="mt-1">
+              <span
+                className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium text-red-800 bg-red-100 rounded-full"
+              >
+                <AlertCircle size={12} />
+                This agent has no tools and cannot do anything.
+              </span>
+            </div>
+          )}
           {isLoading ? <p className="text-sm text-gray-500">Loading tools...</p> : (
             <div className="mt-2 space-y-2 border rounded-md p-4 bg-white max-h-60 overflow-y-auto">
               {availableTools
