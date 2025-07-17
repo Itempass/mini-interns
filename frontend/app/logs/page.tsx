@@ -4,7 +4,7 @@ import LogsList from '../../components/LogsList';
 import LogDetail from '../../components/LogDetail';
 import TopBar from '../../components/TopBar';
 import { addReview, getLogEntry, LogEntry } from '../../services/api';
-import VersionCheck from '../../components/VersionCheck';
+
 
 type SubmissionStatus = 'idle' | 'sending' | 'success' | 'error';
 
@@ -69,8 +69,10 @@ const LogsPage = () => {
   };
 
   return (
-    <div>
-      <VersionCheck />
+    <div className="min-h-screen relative" style={{
+      backgroundImage: 'radial-gradient(#E5E7EB 1px, transparent 1px)',
+      backgroundSize: '24px 24px'
+    }}>
       <TopBar />
       <div className="p-10 max-w-7xl mx-auto font-sans">
         <h1 className="text-center mb-5 text-2xl font-bold text-gray-800">Agent Logs</h1>

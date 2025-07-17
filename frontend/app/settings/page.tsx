@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { getSettings, setSettings, AppSettings, EmbeddingModel, initializeInbox, getInboxInitializationStatus, testImapConnection, reinitializeInbox, getVersion, getToneOfVoiceProfile, rerunToneAnalysis, getToneOfVoiceStatus } from '../../services/api';
 import { Copy, HelpCircle } from 'lucide-react';
 import TopBar from '../../components/TopBar';
-import VersionCheck from '../../components/VersionCheck';
+
 import Link from 'next/link';
 import GoogleAppPasswordHelp from '../../components/help/GoogleAppPasswordHelp';
 import ReactMarkdown from 'react-markdown';
@@ -289,8 +289,10 @@ const SettingsPage = () => {
   const selectedEmbeddingModel = embeddingModels.find(m => m.model_name_from_key === settings.EMBEDDING_MODEL);
   
   return (
-    <div className="flex flex-col h-screen">
-      <VersionCheck />
+    <div className="flex flex-col h-screen relative" style={{
+      backgroundImage: 'radial-gradient(#E5E7EB 1px, transparent 1px)',
+      backgroundSize: '24px 24px'
+    }}>
       <TopBar />
       <div className="flex flex-1 overflow-hidden">
         <div className="flex-1 overflow-y-auto">

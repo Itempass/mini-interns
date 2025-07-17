@@ -110,7 +110,7 @@ const WorkflowChat: React.FC<WorkflowChatProps> = ({ workflowId, onWorkflowUpdat
   };
   
   return (
-    <div className="flex flex-col h-full bg-white border border-gray-200 rounded-lg">
+    <div className="flex flex-col h-full">
       <div className="p-4 border-b border-gray-200 flex items-center justify-between">
         <h3 className="text-lg font-semibold flex items-center"><Bot className="mr-2" /> Workflow Agent</h3>
         {isAgentThinking && <Loader2 className="w-5 h-5 animate-spin text-gray-500" />}

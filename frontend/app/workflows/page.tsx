@@ -4,7 +4,7 @@ import TopBar from '../../components/TopBar';
 import WorkflowSidebar from '../../components/WorkflowSidebar';
 import WorkflowSettings from '../../components/WorkflowSettings';
 import { Workflow, WorkflowWithDetails, getWorkflows } from '../../services/workflows_api';
-import VersionCheck from '../../components/VersionCheck';
+
 import ConnectionStatusIndicator from '../../components/ConnectionStatusIndicator';
 import NoWorkflowsView from '../../components/NoWorkflowsView';
 import WorkflowChat from '../../components/WorkflowChat';
@@ -75,12 +75,14 @@ const WorkflowsPage = () => {
   };
 
   return (
-    <div className="flex flex-col h-screen bg-white">
-      <VersionCheck />
+    <div className="flex flex-col h-screen relative" style={{
+      backgroundImage: 'radial-gradient(#E5E7EB 1px, transparent 1px)',
+      backgroundSize: '24px 24px'
+    }}>
       <div className="flex flex-col flex-grow overflow-hidden">
         <TopBar />
-        <div className="flex flex-1 overflow-hidden">
-          <div className="w-64 flex-shrink-0 flex flex-col bg-gray-50 border-r border-gray-200">
+        <div className="flex flex-1 overflow-hidden gap-4 p-4">
+          <div className="w-64 flex-shrink-0 flex flex-col bg-white border border-gray-300 rounded-lg overflow-hidden shadow-md">
             <div className="flex flex-col flex-grow overflow-y-auto">
               <WorkflowSidebar 
                 workflows={workflows}
@@ -89,20 +91,22 @@ const WorkflowsPage = () => {
                 onWorkflowsUpdate={fetchWorkflows}
               />
             </div>
-            <ConnectionStatusIndicator />
+            <div className="border-t border-gray-200">
+              <ConnectionStatusIndicator />
+            </div>
           </div>
-          <main className="flex-1 flex flex-col gap-4 p-4 bg-gray-100 overflow-y-auto">
+          <main className="flex-1 flex flex-col gap-4 overflow-y-auto">
             {selectedWorkflow ? (
               <>
                 <div className={`flex-1 flex-row gap-4 overflow-hidden ${isLogsExpanded ? 'hidden' : 'flex'}`}>
-                    <div className="flex-1 overflow-y-auto bg-white border border-gray-200 rounded-lg">
+                    <div className="flex-1 overflow-y-auto bg-white border border-gray-300 rounded-lg shadow-md">
                       <WorkflowSettings
                         key={selectedWorkflow.uuid}
                         workflow={selectedWorkflow}
                         onWorkflowUpdate={handleWorkflowUpdate}
                       />
                     </div>
-                    <div className="flex-1 flex flex-col">
+                    <div className="flex-1 flex flex-col bg-white border border-gray-300 rounded-lg shadow-md">
                       <WorkflowChat
                         workflowId={selectedWorkflow.uuid}
                         onWorkflowUpdate={handleWorkflowUpdate}
@@ -116,13 +120,13 @@ const WorkflowsPage = () => {
                     className="flex flex-row gap-4 cursor-pointer"
                     onClick={() => setIsLogsExpanded(false)}
                   >
-                    <div className="flex-1 p-4 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition">
+                    <div className="flex-1 p-4 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition shadow-md">
                         <h3 className="text-lg font-semibold flex items-center">
                             <WorkflowIcon className="w-5 h-5 mr-2" />
                             {selectedWorkflow.name}
                         </h3>
                     </div>
-                    <div className="flex-1 p-4 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition">
+                    <div className="flex-1 p-4 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition shadow-md">
                         <div className="flex items-center justify-between">
                           <h3 className="text-lg font-semibold flex items-center">
                               <Bot className="w-5 h-5 mr-2" />
@@ -135,7 +139,7 @@ const WorkflowsPage = () => {
                 )}
 
                 {/* Workflow Logs Section */}
-                <div className={`bg-white border border-gray-200 rounded-lg ${isLogsExpanded ? 'flex-1 flex flex-col' : 'flex-shrink-0'}`}>
+                <div className={`bg-white border border-gray-300 rounded-lg shadow-md ${isLogsExpanded ? 'flex-1 flex flex-col' : 'flex-shrink-0'}`}>
                   <div 
                     className="p-4 border-b border-gray-200 cursor-pointer"
                     onClick={() => setIsLogsExpanded(true)}
@@ -160,7 +164,7 @@ const WorkflowsPage = () => {
                 </div>
               </>
             ) : (
-              <div className="w-full">
+              <div className="w-full h-full flex-1">
                 <NoWorkflowsView />
               </div>
             )}
