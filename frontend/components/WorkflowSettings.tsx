@@ -36,11 +36,13 @@ const WorkflowSettings: React.FC<WorkflowSettingsProps> = ({ workflow, onWorkflo
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [isAddStepModalOpen, setIsAddStepModalOpen] = useState(false);
   const [editingStep, setEditingStep] = useState<WorkflowStep | null>(null);
+  const [stepPendingDelete, setStepPendingDelete] = useState<string | null>(null);
   const [showTriggerSelector, setShowTriggerSelector] = useState(false);
   const [showStepSelector, setShowStepSelector] = useState(false);
   const [isHelpPanelOpen, setIsHelpPanelOpen] = useState(false);
   const editingStepRef = useRef<HTMLDivElement>(null);
   const editingTriggerRef = useRef<HTMLDivElement>(null);
+  const stepPendingDeleteRef = useRef<HTMLDivElement>(null);
   const [isEditingName, setIsEditingName] = useState(false);
   const [workflowName, setWorkflowName] = useState('');
   const nameInputRef = useRef<HTMLInputElement>(null);
@@ -105,6 +107,30 @@ const WorkflowSettings: React.FC<WorkflowSettingsProps> = ({ workflow, onWorkflo
   }, [isEditingName]);
 
   useEffect(() => {
+    if (!stepPendingDelete) return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setStepPendingDelete(null);
+      }
+    };
+
+    const handleClickOutside = (event: MouseEvent) => {
+      if (stepPendingDeleteRef.current && !stepPendingDeleteRef.current.contains(event.target as Node)) {
+        setStepPendingDelete(null);
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    document.addEventListener('mousedown', handleClickOutside);
+
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [stepPendingDelete]);
+
+  useEffect(() => {
     fetchDetails();
   }, [workflow]);
 
@@ -113,6 +139,10 @@ const WorkflowSettings: React.FC<WorkflowSettingsProps> = ({ workflow, onWorkflo
 
     const handleClickOutside = (event: MouseEvent) => {
       if (editingTriggerRef.current && !editingTriggerRef.current.contains(event.target as Node)) {
+        // If the click is on a step, let its own handler take care of it.
+        if ((event.target as Element).closest('.workflow-step-container')) {
+          return;
+        }
         setEditingTrigger(null);
       }
     };
@@ -136,6 +166,7 @@ const WorkflowSettings: React.FC<WorkflowSettingsProps> = ({ workflow, onWorkflo
     if (editingTrigger) {
       setEditingTrigger(null);
     }
+    setStepPendingDelete(null);
     setEditingStep(prev => (prev?.uuid === clickedStep.uuid ? null : clickedStep));
   };
 
@@ -143,6 +174,7 @@ const WorkflowSettings: React.FC<WorkflowSettingsProps> = ({ workflow, onWorkflo
     if (editingStep) {
       setEditingStep(null);
     }
+    setStepPendingDelete(null);
     if (detailedWorkflow?.trigger) {
       setEditingTrigger(prev => (prev ? null : detailedWorkflow?.trigger));
     } else {
@@ -170,6 +202,10 @@ const WorkflowSettings: React.FC<WorkflowSettingsProps> = ({ workflow, onWorkflo
 
     const handleClickOutside = (event: MouseEvent) => {
       if (editingStepRef.current && !editingStepRef.current.contains(event.target as Node)) {
+        // If the click is on another step, let its own handler take care of it.
+        if ((event.target as Element).closest('.workflow-step-container') || (event.target as Element).closest('.workflow-trigger-container')) {
+          return;
+        }
         setEditingStep(null);
       }
     };
@@ -259,6 +295,7 @@ const WorkflowSettings: React.FC<WorkflowSettingsProps> = ({ workflow, onWorkflo
 
     const isSuccess = await removeWorkflowStep(detailedWorkflow.uuid, stepId);
     if (isSuccess) {
+      setStepPendingDelete(null);
       fetchDetails(); // Refetch details to update the UI
     } else {
       alert('Failed to delete step.'); // Simple error handling
@@ -394,7 +431,7 @@ const WorkflowSettings: React.FC<WorkflowSettingsProps> = ({ workflow, onWorkflo
         {hasTrigger ? (
           <div
             ref={editingTrigger ? editingTriggerRef : null}
-            className="border border-gray-300 rounded-lg bg-white transition-all duration-300"
+            className="workflow-trigger-container border border-gray-300 rounded-lg bg-white transition-all duration-300"
           >
             <div 
               className="p-6 hover:bg-gray-50 transition-colors relative cursor-pointer"
@@ -431,13 +468,11 @@ const WorkflowSettings: React.FC<WorkflowSettingsProps> = ({ workflow, onWorkflo
                   </p>
                 </div>
               </div>
-              {!editingTrigger && (
-                <div className="absolute bottom-2 right-2 flex items-center space-x-2">
-                  <span className="px-2 py-1 bg-gray-100 text-gray-600 text-xs rounded-full">
-                    trigger
-                  </span>
-                </div>
-              )}
+              <div className="absolute bottom-2 right-2 flex items-center space-x-2">
+                <span className="px-2 py-1 bg-gray-100 text-gray-600 text-xs rounded-full">
+                  trigger
+                </span>
+              </div>
             </div>
             
             {/* Trigger Settings */}
@@ -599,54 +634,69 @@ const WorkflowSettings: React.FC<WorkflowSettingsProps> = ({ workflow, onWorkflo
           {detailedWorkflow.steps.map((step, index) => (
             <div 
               key={step.uuid} 
-              ref={editingStep?.uuid === step.uuid ? editingStepRef : null}
-              className="bg-white border rounded-lg relative transition-all duration-300"
+              ref={editingStep?.uuid === step.uuid ? editingStepRef : (stepPendingDelete === step.uuid ? stepPendingDeleteRef : null)}
+              className="workflow-step-container bg-white border rounded-lg relative transition-all duration-300"
             >
               <div 
-                className="p-6 cursor-pointer hover:bg-gray-50 transition-colors"
-                onMouseDown={() => handleStepClick(step)}
+                className="p-6 cursor-pointer hover:bg-gray-50 transition-colors relative"
+                onClick={() => handleStepClick(step)}
               >
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (editingStep?.uuid === step.uuid) {
-                      setEditingStep(null);
-                    } else {
-                      handleDeleteStep(step.uuid);
-                    }
-                  }}
-                  className="absolute top-2 right-2 text-gray-400 hover:text-red-600 w-6 h-6 flex items-center justify-center z-10"
-                >
-                  ×
-                </button>
+                <div className="absolute top-2 right-2 flex items-center z-10 space-x-1">
+                  {stepPendingDelete === step.uuid && editingStep?.uuid !== step.uuid && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeleteStep(step.uuid);
+                      }}
+                      className="px-2 py-1 text-xs text-red-600 border border-red-600 rounded-md bg-white hover:bg-red-50"
+                    >
+                      delete?
+                    </button>
+                  )}
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (editingStep?.uuid === step.uuid) {
+                        setEditingStep(null);
+                      } else {
+                        setStepPendingDelete(current => (current === step.uuid ? null : step.uuid));
+                      }
+                    }}
+                    className="text-gray-400 hover:text-red-600 w-6 h-6 flex items-center justify-center"
+                  >
+                    ×
+                  </button>
+                </div>
                 <div className="flex items-center pb-4">
                   <span className="text-gray-500 font-bold text-lg mr-4">{index + 2}</span>
                   <div>
                     <p className="font-semibold">{step.name}</p>
                   </div>
                 </div>
-                {editingStep?.uuid !== step.uuid && (
-                  <div className="absolute bottom-2 right-2 flex items-center space-x-2">
-                    {(step.type === 'custom_llm' || step.type === 'custom_agent') &&
-                      (hasTrigger || index > 0) &&
-                      !step.system_prompt.includes('<<trigger_output>>') &&
-                      !step.system_prompt.includes('<<step_output.') && (
-                        <span className="flex items-center gap-1 px-2 py-1 bg-red-100 text-red-800 text-xs rounded-full">
-                          <AlertCircle size={12} />
-                          No Input
+                <div className="absolute bottom-2 right-2 flex items-center space-x-2">
+                  {editingStep?.uuid !== step.uuid && (
+                    <>
+                      {(step.type === 'custom_llm' || step.type === 'custom_agent') &&
+                        (hasTrigger || index > 0) &&
+                        !step.system_prompt.includes('<<trigger_output>>') &&
+                        !step.system_prompt.includes('<<step_output.') && (
+                          <span className="flex items-center gap-1 px-2 py-1 bg-red-100 text-red-800 text-xs rounded-full">
+                            <AlertCircle size={12} />
+                            No Input
+                          </span>
+                      )}
+                      {('model' in step) && (
+                        <span className="flex items-center px-2 py-1 bg-blue-100 text-blue-600 text-xs rounded-full">
+                          <Brain size={12} className="mr-1" />
+                          {step.model.split('/').pop()?.split(':')[0] || step.model}
                         </span>
-                    )}
-                    <span className="px-2 py-1 bg-gray-100 text-gray-600 text-xs rounded-full">
-                      {step.type.replace('_', ' ')}
-                    </span>
-                    {('model' in step) && (
-                      <span className="flex items-center px-2 py-1 bg-blue-100 text-blue-600 text-xs rounded-full">
-                        <Brain size={12} className="mr-1" />
-                        {step.model.split('/').pop()?.split(':')[0] || step.model}
-                      </span>
-                    )}
-                  </div>
-                )}
+                      )}
+                    </>
+                  )}
+                  <span className="px-2 py-1 bg-gray-100 text-gray-600 text-xs rounded-full">
+                    {step.type.replace('_', ' ')}
+                  </span>
+                </div>
               </div>
 
               {editingStep?.uuid === step.uuid && (
