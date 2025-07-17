@@ -55,7 +55,7 @@ async def get_mcp_servers():
     mcp_servers_vars = {
         key: value
         for key, value in os.environ.items()
-        if key.startswith("CONTAINERPORT_MCP_")
+        if key.startswith("CONTAINERPORT_MCP_") and key != "CONTAINERPORT_MCP_WORKFLOW_AGENT"
     }
 
     if not mcp_servers_vars:
