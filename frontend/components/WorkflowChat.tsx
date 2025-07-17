@@ -205,28 +205,19 @@ const WorkflowChat: React.FC<WorkflowChatProps> = ({ workflowId, onWorkflowUpdat
     setIsAgentThinking(false);
   };
 
-  const renderMessageContent = (message: ChatMessage) => {
-    if (message.role === 'assistant' && message.tool_calls) {
-      return (
-        <div className="text-gray-500 italic">
-          Thinking... (using tool: {message.tool_calls[0].function.name})
-        </div>
-      );
-    }
-    return (
-      <div className="prose prose-sm max-w-none">
-        <ReactMarkdown 
-          components={{
-            p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
-            code: ({ children }) => <code className="bg-gray-100 px-1 py-0.5 rounded text-sm">{children}</code>,
-            pre: ({ children }) => <pre className="bg-gray-100 p-2 rounded overflow-x-auto">{children}</pre>,
-          }}
-        >
-          {message.content}
-        </ReactMarkdown>
-      </div>
-    );
-  };
+  const renderTextWithMarkdown = (content: string) => (
+    <div className="prose prose-sm max-w-none">
+      <ReactMarkdown
+        components={{
+          p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+          code: ({ children }) => <code className="bg-gray-100 px-1 py-0.5 rounded text-sm">{children}</code>,
+          pre: ({ children }) => <pre className="bg-gray-100 p-2 rounded overflow-x-auto">{children}</pre>,
+        }}
+      >
+        {content}
+      </ReactMarkdown>
+    </div>
+  );
   
   return (
     <div className="flex flex-col h-full">
@@ -235,18 +226,51 @@ const WorkflowChat: React.FC<WorkflowChatProps> = ({ workflowId, onWorkflowUpdat
         {isAgentThinking && <Loader2 className="w-5 h-5 animate-spin text-gray-500" />}
       </div>
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {messages.map((msg, index) => (
-            <div key={index} className={`flex items-start gap-3 ${msg.role === 'user' ? 'justify-end' : ''}`}>
-                {msg.role !== 'user' && msg.role !== 'tool' && <Bot className="w-6 h-6 text-blue-500" />}
-                {msg.role === 'user' && <User className="w-6 h-6 text-green-500" />}
-                
-                {msg.role !== 'tool' && (
-                    <div className={`px-4 py-2 rounded-lg max-w-lg ${msg.role === 'user' ? 'bg-green-100 text-green-900' : 'bg-blue-100 text-blue-900'}`}>
-                        {renderMessageContent(msg)}
+        {messages.map((msg, index) => {
+          if (msg.role === 'tool') return null; // Do not render tool results directly
+
+          const hasContent = msg.content && msg.content.trim().length > 0;
+          const hasToolCalls = msg.tool_calls && msg.tool_calls.length > 0;
+          
+          if (msg.role === 'user') {
+            return (
+              <div key={index} className="flex items-start gap-3 justify-end">
+                <User className="w-6 h-6 text-green-500" />
+                <div className="px-4 py-2 rounded-lg max-w-lg bg-green-100 text-green-900">
+                  {renderTextWithMarkdown(msg.content)}
+                </div>
+              </div>
+            );
+          }
+
+          if (msg.role === 'assistant') {
+            return (
+              <div key={index} className="flex flex-col items-start gap-2">
+                {/* Render assistant's text content WITH icon if it exists */}
+                {hasContent && (
+                  <div className="flex items-start gap-3">
+                    <Bot className="w-6 h-6 text-blue-500" />
+                    <div className="px-4 py-2 rounded-lg max-w-lg bg-blue-100 text-blue-900">
+                      {renderTextWithMarkdown(msg.content)}
                     </div>
+                  </div>
                 )}
-            </div>
-        ))}
+                {/* Render tool call information if it exists */}
+                {hasToolCalls && msg.tool_calls.map((tool_call, tool_index) => (
+                  <div key={tool_index} className="flex items-start gap-3">
+                    {/* This spacer will indent the tool call to align with the message bubble, if a message bubble is present. */}
+                    {hasContent && <div className="w-6 h-6 flex-shrink-0" />}
+                    <div className={`px-4 py-2 rounded-lg max-w-lg bg-gray-100 text-gray-600 italic ${!hasContent ? 'ml-9' : ''}`}>
+                      Using tool: {tool_call.function.name}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            );
+          }
+          
+          return null;
+        })}
         {humanInputRequest && (
           <div className="flex items-start gap-3">
             <Bot className="w-6 h-6 text-blue-500" />

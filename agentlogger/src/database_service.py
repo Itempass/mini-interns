@@ -211,7 +211,7 @@ class DatabaseService:
                 total_workflows = total_workflows_cursor.fetchone()[0]
 
                 # 3. Fetch a page of parent workflow logs
-                main_query += " ORDER BY start_time DESC LIMIT ? OFFSET ?"
+                main_query += " ORDER BY DATETIME(start_time) DESC LIMIT ? OFFSET ?"
                 pagination_params = (limit, offset)
                 
                 workflows_cursor = conn.execute(main_query, tuple(params) + pagination_params)
@@ -233,7 +233,7 @@ class DatabaseService:
                         SELECT * FROM logs 
                         WHERE log_type IN ('custom_agent', 'custom_llm') 
                         AND workflow_instance_id IN ({placeholders})
-                        ORDER BY start_time ASC
+                        ORDER BY DATETIME(start_time) ASC
                         """,
                         workflow_instance_ids
                     )

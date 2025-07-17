@@ -44,8 +44,7 @@ Silently create a step-by-step plan.
 -   What are the steps, in order?
 -   Which tool is right for each step?
 -   Which LLM is most appropriate?
-    -   **Default (Fast & Cheap):** `google/gemini-2.5-flash` for simple routing, classification, or single-tool steps.
-    -   **Advanced (Smart & Capable):** `google/gemini-2.5-pro` for complex reasoning, multi-step chains, or sophisticated content generation.
+    -   **Always Default To:** `google/gemini-2.5-flash`, except if the user asks for something else.
 -   **Craft Precise Prompts for LLM Steps**: When you create an LLM step, you must write a prompt for it that is direct and unambiguous, specifying the exact output format.
     -   **Bad Prompt:** `You are to inspect emails to determine if they are test emails. If the content is clearly related to testing purposes or marked as a test, classify them as such.`
     -   **Good Prompt:** `Analyze the following email: \n <<trigger_output>> \n \n Your task is to determine if it is a "test email". A "test email" contains phrases like "this is a test" or has "test" in the subject. Respond with only the JSON string \`{"is_test_email": true}\` or \`{"is_test_email": false}\`. Do not add any other text or explanation.`
