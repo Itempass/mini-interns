@@ -4,6 +4,7 @@ import LogsList from '../../components/LogsList';
 import LogDetail from '../../components/LogDetail';
 import TopBar from '../../components/TopBar';
 import { addReview, getLogEntry, LogEntry } from '../../services/api';
+import LogsSidebar from '../../components/LogsSidebar';
 
 
 type SubmissionStatus = 'idle' | 'sending' | 'success' | 'error';
@@ -69,15 +70,24 @@ const LogsPage = () => {
   };
 
   return (
-    <div className="min-h-screen relative" style={{
+    <div className="flex flex-col h-screen relative" style={{
       backgroundImage: 'radial-gradient(#E5E7EB 1px, transparent 1px)',
       backgroundSize: '24px 24px'
     }}>
       <TopBar />
-      <div className="p-10 max-w-7xl mx-auto font-sans">
-        <h1 className="text-center mb-5 text-2xl font-bold text-gray-800">Agent Logs</h1>
-        
-        <LogsList onSelectLog={handleSelectLog} />
+      <div className="flex flex-1 overflow-hidden gap-4 p-4">
+        <div className="w-64 flex-shrink-0 flex flex-col bg-white border border-gray-300 rounded-lg overflow-hidden shadow-md">
+          <LogsSidebar />
+        </div>
+
+        <main className="flex-1 bg-white border border-gray-300 rounded-lg shadow-md flex flex-col overflow-hidden">
+            <div className="p-4 border-b border-gray-200">
+                <h2 className="text-lg font-semibold">Agent Logs</h2>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4">
+                <LogsList onSelectLog={handleSelectLog} />
+            </div>
+        </main>
 
         {isModalOpen && (
           <div className="fixed inset-0 z-50 overflow-y-auto bg-gray-900 bg-opacity-75 flex justify-center items-center">

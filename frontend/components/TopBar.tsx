@@ -36,16 +36,16 @@ const TopBar: React.FC<TopBarProps> = () => {
           Workflows
         </button>
         <button
-          className={getButtonClasses('settings')}
-          onClick={() => router.push('/settings')}
-        >
-          Settings
-        </button>
-        <button
           className={getButtonClasses('logs')}
           onClick={() => router.push('/logs')}
         >
           Logs
+        </button>
+        <button
+          className={getButtonClasses('settings')}
+          onClick={() => router.push('/settings')}
+        >
+          Settings
         </button>
       </nav>
     </div>
