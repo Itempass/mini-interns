@@ -6,6 +6,7 @@ import TopBar from '../../components/TopBar';
 import GoogleAppPasswordHelp from '../../components/help/GoogleAppPasswordHelp';
 import SettingsSidebar from '../../components/settings/SettingsSidebar';
 import ImapSettings from '../../components/settings/ImapSettings';
+import McpServersSettings from '../../components/settings/McpServersSettings';
 
 const SettingsPage = () => {
   const [settings, setSettingsState] = useState<AppSettings>({});
@@ -23,6 +24,7 @@ const SettingsPage = () => {
   const [toneAnalysisStatus, setToneAnalysisStatus] = useState<string | null>(null);
   const [toneAnalysisMessage, setToneAnalysisMessage] = useState<string>('');
   const [showGmailWarning, setShowGmailWarning] = useState(false);
+  const [selectedCategory, setSelectedCategory] = useState('imap');
 
   const hasUnsavedChanges = JSON.stringify(settings) !== JSON.stringify(initialSettings);
 
@@ -277,36 +279,43 @@ const SettingsPage = () => {
       <TopBar />
       <div className="flex flex-1 overflow-hidden gap-4 p-4">
         <div className="w-64 flex-shrink-0 flex flex-col bg-white border border-gray-300 rounded-lg overflow-hidden shadow-md">
-            <SettingsSidebar version={version} />
+            <SettingsSidebar 
+                version={version} 
+                selectedCategory={selectedCategory}
+                setSelectedCategory={setSelectedCategory}
+            />
         </div>
         
         <div className="flex-1 bg-white border border-gray-300 rounded-lg shadow-md overflow-y-auto">
-            <ImapSettings 
-                settings={settings}
-                initialSettings={initialSettings}
-                embeddingModels={embeddingModels}
-                inboxStatus={inboxStatus}
-                testStatus={testStatus}
-                testMessage={testMessage}
-                saveStatus={saveStatus}
-                setHelpPanelOpen={setHelpPanelOpen}
-                showEmbeddingModelSaved={showEmbeddingModelSaved}
-                embeddingConfigError={embeddingConfigError}
-                toneOfVoiceProfile={toneOfVoiceProfile}
-                toneAnalysisStatus={toneAnalysisStatus}
-                toneAnalysisMessage={toneAnalysisMessage}
-                showGmailWarning={showGmailWarning}
-                hasUnsavedChanges={hasUnsavedChanges}
-                handleSave={handleSave}
-                handleInputChange={handleInputChange}
-                handleImapServerBlur={handleImapServerBlur}
-                handleEmbeddingModelChange={handleEmbeddingModelChange}
-                handleTestConnection={handleTestConnection}
-                handleRevectorize={handleRevectorize}
-                handleRerunToneAnalysis={handleRerunToneAnalysis}
-                getStatusClasses={getStatusClasses}
-                setSettingsState={setSettingsState}
-            />
+            {selectedCategory === 'imap' && (
+                <ImapSettings 
+                    settings={settings}
+                    initialSettings={initialSettings}
+                    embeddingModels={embeddingModels}
+                    inboxStatus={inboxStatus}
+                    testStatus={testStatus}
+                    testMessage={testMessage}
+                    saveStatus={saveStatus}
+                    setHelpPanelOpen={setHelpPanelOpen}
+                    showEmbeddingModelSaved={showEmbeddingModelSaved}
+                    embeddingConfigError={embeddingConfigError}
+                    toneOfVoiceProfile={toneOfVoiceProfile}
+                    toneAnalysisStatus={toneAnalysisStatus}
+                    toneAnalysisMessage={toneAnalysisMessage}
+                    showGmailWarning={showGmailWarning}
+                    hasUnsavedChanges={hasUnsavedChanges}
+                    handleSave={handleSave}
+                    handleInputChange={handleInputChange}
+                    handleImapServerBlur={handleImapServerBlur}
+                    handleEmbeddingModelChange={handleEmbeddingModelChange}
+                    handleTestConnection={handleTestConnection}
+                    handleRevectorize={handleRevectorize}
+                    handleRerunToneAnalysis={handleRerunToneAnalysis}
+                    getStatusClasses={getStatusClasses}
+                    setSettingsState={setSettingsState}
+                />
+            )}
+            {selectedCategory === 'mcp' && <McpServersSettings />}
         </div>
 
         {isHelpPanelOpen && (

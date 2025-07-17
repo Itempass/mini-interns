@@ -3,18 +3,37 @@ import React from 'react';
 
 interface SettingsSidebarProps {
   version: string;
+  selectedCategory: string;
+  setSelectedCategory: (category: string) => void;
 }
 
-const SettingsSidebar: React.FC<SettingsSidebarProps> = ({ version }) => {
+const SettingsSidebar: React.FC<SettingsSidebarProps> = ({ version, selectedCategory, setSelectedCategory }) => {
+  const getListItemClasses = (category: string) => {
+    const baseClasses = "p-2 rounded-md cursor-pointer font-semibold";
+    if (selectedCategory === category) {
+      return `${baseClasses} border-2 border-black`;
+    }
+    return `${baseClasses} hover:bg-gray-100`;
+  };
+
   return (
     <div className="flex flex-col h-full">
       <div className="flex justify-between items-center p-4 border-b border-gray-200">
         <h2 className="text-lg font-semibold">Settings</h2>
       </div>
       <div className="flex-1 overflow-y-auto p-4">
-        <ul>
-          <li className="p-2 rounded-md cursor-pointer font-semibold border-2 border-black">
+        <ul className="space-y-2">
+          <li
+            className={getListItemClasses('imap')}
+            onClick={() => setSelectedCategory('imap')}
+          >
             IMAP Settings
+          </li>
+          <li
+            className={getListItemClasses('mcp')}
+            onClick={() => setSelectedCategory('mcp')}
+          >
+            MCP Servers
           </li>
         </ul>
       </div>
