@@ -2,7 +2,7 @@ import asyncio
 import json
 import logging
 import os
-from typing import List
+from typing import List, Tuple
 from uuid import UUID
 
 from fastmcp import Client as MCPClient
@@ -10,7 +10,7 @@ from fastmcp.client.transports import StreamableHttpTransport
 from openai import OpenAI
 
 from shared.config import settings
-from workflow_agent.client.models import ChatMessage
+from workflow_agent.client.models import ChatMessage, HumanInputRequired
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +38,7 @@ def _format_mcp_tools_for_openai(tools) -> list[dict]:
 
 async def run_agent_turn(
     conversation: List[ChatMessage], user_id: UUID, workflow_uuid: UUID
-) -> List[ChatMessage]:
+) -> Tuple[List[ChatMessage], HumanInputRequired | None]:
     """
     Runs a single turn of the workflow agent. This is a state machine driven by
     the role of the last message in the conversation history.
@@ -50,12 +50,38 @@ async def run_agent_turn(
         error_message = "Error: OPENROUTER_API_KEY not configured."
         logger.error(error_message)
         conversation.append(ChatMessage(role="assistant", content=error_message))
-        return conversation
+        return conversation, None
 
     llm_client = OpenAI(
         base_url="https://openrouter.ai/api/v1",
         api_key=settings.OPENROUTER_API_KEY,
     )
+
+    last_message = conversation[-1]
+
+    # Pre-emptively check for human input requests to avoid creating an unnecessary MCP connection.
+    if last_message.role == "assistant" and last_message.tool_calls:
+        for tool_call in last_message.tool_calls:
+            if tool_call['function']['name'] == 'feature_request':
+                logger.info("Human input required for feature_request. Bypassing MCP connection.")
+                try:
+                    args = json.loads(tool_call['function']['arguments'])
+                    human_input_required = HumanInputRequired(
+                        type='feature_request',
+                        tool_call_id=tool_call['id'],
+                        data={
+                            "name": args.get("suggested_name", ""),
+                            "description": args.get("suggested_description", ""),
+                        },
+                    )
+                    # We don't execute the tool, just return the request for input
+                    return conversation, human_input_required
+                except (json.JSONDecodeError, KeyError) as e:
+                    logger.error(f"Error processing feature_request arguments: {e}")
+                    # Fallback to returning an error message in the conversation
+                    error_message = f"Internal error processing your request: {e}"
+                    conversation.append(ChatMessage(role="assistant", content=error_message))
+                    return conversation, None
 
     mcp_url = f"http://localhost:{settings.CONTAINERPORT_MCP_WORKFLOW_AGENT}/mcp"
     headers = {
@@ -66,12 +92,11 @@ async def run_agent_turn(
     mcp_client = MCPClient(transport)
 
     async with mcp_client:
-        last_message = conversation[-1]
-
         if last_message.role == "assistant" and last_message.tool_calls:
             # STATE: LLM requested tool execution.
             logger.info("Agent is executing tools.")
             tool_calls = last_message.tool_calls
+            
             tool_coroutines = []
             
             for tool_call in tool_calls:
@@ -137,4 +162,4 @@ async def run_agent_turn(
         # If the last message is from the assistant without tool calls, we do nothing.
         # The turn is considered complete.
 
-    return conversation 
+    return conversation, None 

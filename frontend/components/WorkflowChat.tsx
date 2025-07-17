@@ -2,9 +2,10 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { v4 as uuidv4 } from 'uuid';
-import { ChatMessage, runWorkflowAgentChatStep } from '../services/workflows_api';
+import { ChatMessage, runWorkflowAgentChatStep, submitHumanInput, ChatStepResponse } from '../services/workflows_api';
 import { Send, Bot, User, Loader2, Square } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
+import FeatureRequestForm from './chat_input/FeatureRequestForm';
 
 interface WorkflowChatProps {
   workflowId: string;
@@ -12,11 +13,18 @@ interface WorkflowChatProps {
   onBusyStatusChange?: (isBusy: boolean) => void;
 }
 
+interface HumanInputRequest {
+  type: string;
+  tool_call_id: string;
+  data: any;
+}
+
 const WorkflowChat: React.FC<WorkflowChatProps> = ({ workflowId, onWorkflowUpdate, onBusyStatusChange }) => {
   const [conversationId, setConversationId] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [userInput, setUserInput] = useState('');
   const [isAgentThinking, setIsAgentThinking] = useState(false);
+  const [humanInputRequest, setHumanInputRequest] = useState<HumanInputRequest | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -61,6 +69,44 @@ const WorkflowChat: React.FC<WorkflowChatProps> = ({ workflowId, onWorkflowUpdat
     abortControllerRef.current = new AbortController();
 
     await runConversation(newMessages);
+  };
+
+  const handleFeatureRequestSubmit = async (formData: { name: string; description: string }) => {
+    if (!humanInputRequest) return;
+
+    setIsAgentThinking(true);
+
+    const submission = {
+      conversation_id: conversationId,
+      messages: messages,
+      tool_call_id: humanInputRequest.tool_call_id,
+      user_input: formData,
+    };
+
+    try {
+      const response = await submitHumanInput(workflowId, submission, abortControllerRef.current?.signal);
+      
+      if (response === 'aborted') {
+        console.log('Submission interrupted by user.');
+        setIsAgentThinking(false);
+        return;
+      }
+
+      if (response) {
+        setMessages(response.messages);
+        setHumanInputRequest(null); // Clear the form request
+        // The conversation continues from where it left off
+        await runConversation(response.messages);
+      } else {
+        // Handle API error
+        alert("Sorry, there was an error submitting your request. Please try again.");
+        setIsAgentThinking(false);
+      }
+    } catch (error) {
+      console.error("Submission failed:", error);
+      alert("A critical error occurred. Please check the console and try again.");
+      setIsAgentThinking(false);
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -114,11 +160,17 @@ const WorkflowChat: React.FC<WorkflowChatProps> = ({ workflowId, onWorkflowUpdat
       }
 
       if (response) {
-        conversationState = response.messages;
-        setMessages(conversationState);
-        isComplete = response.is_complete;
-        
-        onWorkflowUpdate();
+        // Check for human input request before continuing the loop
+        if (response.human_input_required) {
+          setMessages(response.messages);
+          setHumanInputRequest(response.human_input_required);
+          isComplete = true; // Stop the loop, wait for human input
+        } else {
+          conversationState = response.messages;
+          setMessages(conversationState);
+          isComplete = response.is_complete;
+          onWorkflowUpdate();
+        }
       } else {
         // Handle API error
         const errorMessage: ChatMessage = {
@@ -174,7 +226,19 @@ const WorkflowChat: React.FC<WorkflowChatProps> = ({ workflowId, onWorkflowUpdat
                 )}
             </div>
         ))}
-        {isAgentThinking && (
+        {humanInputRequest && (
+          <div className="flex items-start gap-3">
+            <Bot className="w-6 h-6 text-blue-500" />
+            <div className="px-4 py-2 rounded-lg max-w-lg bg-blue-100 text-blue-900 w-full">
+              <FeatureRequestForm
+                request={humanInputRequest}
+                onSubmit={handleFeatureRequestSubmit}
+                isSubmitting={isAgentThinking}
+              />
+            </div>
+          </div>
+        )}
+        {isAgentThinking && !humanInputRequest && (
             <div className="flex items-start gap-3">
                 <Bot className="w-6 h-6 text-blue-500" />
                 <div className="px-4 py-2 rounded-lg bg-blue-100 text-blue-900">
@@ -185,35 +249,36 @@ const WorkflowChat: React.FC<WorkflowChatProps> = ({ workflowId, onWorkflowUpdat
         <div ref={messagesEndRef} />
       </div>
       <div className="p-4 border-t border-gray-200">
-        <div className="flex items-end gap-2">
-          <textarea
-            ref={textareaRef}
-            value={userInput}
-            onChange={handleInputChange}
-            onKeyDown={handleKeyDown}
-            placeholder="Tell the agent what to do..."
-            className="flex-1 p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none leading-normal whitespace-pre-wrap"
-            disabled={isAgentThinking}
-            style={{ minHeight: '2.5rem', height: '2.5rem', maxHeight: '12rem', overflowY: 'hidden' }}
-          />
-          {isAgentThinking ? (
-            <button
-              type="button"
-              onClick={handleInterrupt}
-              className="p-2 bg-red-500 text-white rounded-lg hover:bg-red-600"
-            >
-              <Square className="w-5 h-5" />
-            </button>
-          ) : (
-            <button
-              type="submit"
-              className="p-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-gray-400"
-              disabled={!userInput.trim()}
-            >
-              <Send className="w-5 h-5" />
-            </button>
-          )}
-        </div>
+          <div className="flex items-end gap-2">
+            <textarea
+              ref={textareaRef}
+              value={userInput}
+              onChange={handleInputChange}
+              onKeyDown={handleKeyDown}
+              placeholder={humanInputRequest ? "Please fill out the form above to continue." : "Tell the agent what to do..."}
+              className="flex-1 p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none leading-normal whitespace-pre-wrap"
+              disabled={isAgentThinking || humanInputRequest !== null}
+              style={{ minHeight: '2.5rem', height: '2.5rem', maxHeight: '12rem', overflowY: 'hidden' }}
+            />
+            {isAgentThinking && !humanInputRequest ? (
+              <button
+                type="button"
+                onClick={handleInterrupt}
+                className="p-2 bg-red-500 text-white rounded-lg hover:bg-red-600"
+              >
+                <Square className="w-5 h-5" />
+              </button>
+            ) : (
+              <button
+                type="submit"
+                onClick={handleSendMessage}
+                className="p-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-gray-400"
+                disabled={!userInput.trim() || humanInputRequest !== null}
+              >
+                <Send className="w-5 h-5" />
+              </button>
+            )}
+          </div>
       </div>
     </div>
   );

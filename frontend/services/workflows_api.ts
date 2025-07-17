@@ -215,6 +215,18 @@ export interface ChatStepResponse {
     conversation_id: string;
     messages: ChatMessage[];
     is_complete: boolean;
+    human_input_required?: {
+        type: string;
+        tool_call_id: string;
+        data: any;
+    } | null;
+}
+
+export interface HumanInputSubmission {
+    conversation_id: string;
+    messages: ChatMessage[];
+    tool_call_id: string;
+    user_input: any;
 }
 
 export const getAvailableTriggerTypes = async (): Promise<TriggerType[]> => {
@@ -320,6 +332,41 @@ export const runWorkflowAgentChatStep = async (
             return 'aborted';
         }
         console.error('An error occurred during the chat step:', error);
+        return null;
+    }
+};
+
+export const submitHumanInput = async (
+    workflowId: string,
+    submission: HumanInputSubmission,
+    signal?: AbortSignal
+): Promise<ChatStepResponse | 'aborted' | null> => {
+    try {
+        const response = await fetch(`${API_URL}/workflows/${workflowId}/chat/submit_human_input`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(submission),
+            signal,
+        });
+
+        if (signal?.aborted) {
+            return 'aborted';
+        }
+
+        if (!response.ok) {
+            console.error('Failed to submit human input. Status:', response.status);
+            const errorText = await response.text();
+            console.error('Error details:', errorText);
+            return null;
+        }
+        return await response.json();
+    } catch (error: any) {
+        if (error.name === 'AbortError') {
+            return 'aborted';
+        }
+        console.error('An error occurred while submitting human input:', error);
         return null;
     }
 };

@@ -5,8 +5,6 @@ from uuid import UUID, uuid4
 import json
 from pathlib import Path
 
-from pyairtable import Api
-
 import workflow.agent_client as agent_client
 import workflow.client as workflow_client
 import workflow.llm_client as llm_client
@@ -32,16 +30,20 @@ VALID_LLM_MODELS = get_valid_llm_model_ids()
 
 
 @mcp_builder.tool()
-async def feature_request(name: str, description: str) -> str:
+async def feature_request(suggested_name: str, suggested_description: str) -> str:
     """
-    Captures a feature request from the user. Both a name and a description for the
-    feature are required. The system may ask the user to confirm or edit the
-    details before final submission. Returns a confirmation message upon successful capture.
+    Proposes a feature request to the user for confirmation. Call this when you have a clear
+    idea for a new feature. The system will show a form to the user pre-filled with the
+    suggested_name and suggested_description you provide. The user can then edit them
+    before final submission. Returns a confirmation message upon submission.
     """
-    logger.info(f"--- Feature Request Captured ---\nName: {name}\nDescription: {description}\n---------------------------------")
+    # This function is a placeholder. The backend orchestrates the human-in-the-loop
+    # flow when this tool is called. The real logic happens after user input.
+    # The new implementation will capture the arguments and return a confirmation.
+    logger.info(f"--- Feature Request Captured ---\nName: {suggested_name}\nDescription: {suggested_description}\n---------------------------------")
     
     confirmation_message = (
-        f"Feature request '{name}' with description '{description}' has been successfully captured. "
+        f"Feature request '{suggested_name}' with description '{suggested_description}' has been successfully captured. "
         "Acknowledge this and ask how else you can help."
     )
     return confirmation_message

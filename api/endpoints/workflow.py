@@ -28,7 +28,7 @@ from ..types.api_models.workflow import (
     UpdateStepRequest,
     UpdateTriggerRequest,
 )
-from workflow_agent.client.models import ChatRequest, ChatStepResponse
+from workflow_agent.client.models import ChatMessage, ChatRequest, ChatStepResponse
 from .auth import get_current_user_id
 from agentlogger.src.client import upsert_log_entry_sync, get_log_entry
 from agentlogger.src.models import LogEntry, Message as LoggerMessage
@@ -609,3 +609,35 @@ async def workflow_agent_chat_step(
     except Exception as e:
         logger.error(f"Error during agent chat step for workflow {workflow_uuid}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="An error occurred during the agent chat turn.") 
+
+
+@router.post(
+    "/{workflow_uuid}/chat/submit_human_input",
+    response_model=ChatStepResponse,
+    summary="Submit user input and resume a paused workflow agent chat",
+    tags=["Workflow Agent"],
+)
+async def submit_human_input(
+    workflow_uuid: UUID,
+    submission: Dict[str, Any], # The frontend will send the raw submission object
+    user_id: UUID = Depends(get_current_user_id),
+):
+    """
+    Receives user input from the frontend form, packages it into the
+    `human_input` field of a standard ChatRequest, and sends it to the
+    unified `run_chat_step` function to continue the conversation.
+    """
+    # Reconstruct the ChatRequest, placing the user's submission
+    # into the new `human_input` field.
+    chat_request = ChatRequest(
+        conversation_id=submission['conversation_id'],
+        messages=[ChatMessage(**msg) for msg in submission['messages']],
+        human_input={
+            "tool_call_id": submission['tool_call_id'],
+            "user_input": submission['user_input'],
+        }
+    )
+
+    return await workflow_agent_client.run_chat_step(
+        request=chat_request, user_id=user_id, workflow_uuid=workflow_uuid
+    ) 
