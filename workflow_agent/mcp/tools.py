@@ -1,7 +1,11 @@
+import logging
+import os
 from typing import Any, Dict, List, Optional
 from uuid import UUID, uuid4
 import json
 from pathlib import Path
+
+from pyairtable import Api
 
 import workflow.agent_client as agent_client
 import workflow.client as workflow_client
@@ -10,6 +14,8 @@ import workflow.trigger_client as trigger_client
 from workflow_agent.mcp.dependencies import get_context_from_headers
 from workflow_agent.mcp.mcp_builder import mcp_builder
 from workflow_agent.mcp.prompt_validator import validate_prompt_references
+
+logger = logging.getLogger(__name__)
 
 
 def get_valid_llm_model_ids() -> List[str]:
@@ -23,6 +29,22 @@ def get_valid_llm_model_ids() -> List[str]:
         return []
 
 VALID_LLM_MODELS = get_valid_llm_model_ids()
+
+
+@mcp_builder.tool()
+async def feature_request(name: str, description: str) -> str:
+    """
+    Captures a feature request from the user. Both a name and a description for the
+    feature are required. The system may ask the user to confirm or edit the
+    details before final submission. Returns a confirmation message upon successful capture.
+    """
+    logger.info(f"--- Feature Request Captured ---\nName: {name}\nDescription: {description}\n---------------------------------")
+    
+    confirmation_message = (
+        f"Feature request '{name}' with description '{description}' has been successfully captured. "
+        "Acknowledge this and ask how else you can help."
+    )
+    return confirmation_message
 
 
 @mcp_builder.tool()
