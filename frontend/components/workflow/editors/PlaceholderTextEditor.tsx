@@ -36,6 +36,10 @@ const PlaceholderTextEditor: React.FC<PlaceholderTextEditorProps> = ({
       '<span contenteditable="false" class="inline-block px-2 py-1 mx-0.5 bg-green-100 text-green-800 text-xs font-medium rounded-full select-none cursor-default" data-placeholder="&lt;&lt;trigger_output&gt;&gt;">trigger output</span>'
     );
 
+    html = html.replace(/&lt;&lt;CURRENT_DATE\.([^&]+)&gt;&gt;/g, (match, timezone) => {
+      return `<span contenteditable="false" class="inline-block px-2 py-1 mx-0.5 bg-purple-100 text-purple-800 text-xs font-medium rounded-full select-none cursor-default" data-placeholder="${match}">current date (${timezone})</span>`;
+    });
+
     html = html.replace(/&lt;&lt;step_output\.([a-f0-9-]+)&gt;&gt;/g, (match, uuid) => {
       const stepIndex = precedingSteps.findIndex(step => step.uuid === uuid);
       const text = stepIndex >= 0 ? `step ${stepIndex + 2} output` : 'unknown step';

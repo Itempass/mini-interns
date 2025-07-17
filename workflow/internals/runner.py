@@ -5,6 +5,7 @@ import re
 from uuid import UUID
 from typing import Any, Dict, List
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from agentlogger.src.client import save_log_entry
 from agentlogger.src.models import LogEntry, Message
@@ -84,6 +85,23 @@ def _prepare_input(
         placeholder = match.group(1).strip()
         logger.info(f"RUNNER_DEBUG: Processing placeholder '<<{placeholder}>>'")
 
+        # Handle built-in dynamic values
+        if placeholder.startswith("CURRENT_DATE"):
+            parts = placeholder.split('.')
+            timezone_str = parts[1] if len(parts) > 1 else 'UTC'
+            try:
+                tz = ZoneInfo(timezone_str)
+                current_date = datetime.now(tz).strftime('%Y-%m-%d')
+                logger.info(f"RUNNER_DEBUG: Replacing '<<{placeholder}>>' with current date '{current_date}' for timezone '{timezone_str}'")
+                return current_date
+            except ZoneInfoNotFoundError:
+                logger.warning(f"RUNNER_DEBUG: Invalid timezone '{timezone_str}' for placeholder '<<{placeholder}>>'. Falling back to UTC.")
+                return datetime.now(timezone.utc).strftime('%Y-%m-%d')
+            except Exception as e:
+                logger.error(f"RUNNER_DEBUG: Error processing date for '<<{placeholder}>>': {e}. Falling back to UTC.", exc_info=True)
+                return datetime.now(timezone.utc).strftime('%Y-%m-%d')
+
+        # Handle step outputs
         lookup_key = placeholder
         if placeholder.startswith("step_output."):
             try:

@@ -1,9 +1,10 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { CustomAgentStep, WorkflowStep, getAvailableLLMModels, LLMModel, getAvailableTools, Tool } from '../../../services/workflows_api';
-import { Copy, AlertCircle } from 'lucide-react';
+import { Copy, AlertCircle, Calendar } from 'lucide-react';
 import PlaceholderTextEditor from './PlaceholderTextEditor';
 import NoReferencesHelp from '../../help/NoReferencesHelp';
+import { useTimezone } from '../../../hooks/useTimezone';
 
 interface EditCustomAgentStepProps {
   step: CustomAgentStep;
@@ -23,6 +24,7 @@ const EditCustomAgentStep: React.FC<EditCustomAgentStepProps> = ({ step, onSave,
   const [showCopyMessage, setShowCopyMessage] = useState(false);
   const copyTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [showNoReferencesHelp, setShowNoReferencesHelp] = useState(false);
+  const { timezone } = useTimezone();
 
   const hasNoReferences =
     (hasTrigger || (precedingSteps && precedingSteps.length > 0)) &&
@@ -107,6 +109,15 @@ const EditCustomAgentStep: React.FC<EditCustomAgentStepProps> = ({ step, onSave,
     }
   };
 
+  const copyDatePlaceholder = () => {
+    if (timezone) {
+      copyPlaceholder(`<<CURRENT_DATE.${timezone}>>`);
+    } else {
+      copyPlaceholder('<<CURRENT_DATE.UTC>>');
+      console.warn("Timezone not yet available, falling back to UTC for placeholder.");
+    }
+  };
+
   return (
     <div className="p-6">
       <div className="space-y-4">
@@ -144,9 +155,17 @@ const EditCustomAgentStep: React.FC<EditCustomAgentStepProps> = ({ step, onSave,
           </div>
 
           {/* Output Placeholders */}
-          {(hasTrigger || precedingSteps.length > 0) && (
+          {(hasTrigger || precedingSteps.length > 0 || timezone) && (
             <div className="mt-2 flex flex-wrap items-center gap-2">
-              <p className="text-sm text-gray-600">Insert previous outputs into prompt:</p>
+              <p className="text-sm text-gray-600">Insert placeholders:</p>
+              <button
+                type="button"
+                onClick={copyDatePlaceholder}
+                className="px-3 py-1 bg-purple-100 text-purple-800 text-sm rounded-full hover:bg-purple-200 transition-colors flex items-center gap-1"
+              >
+                <Calendar size={12} />
+                current date
+              </button>
               {hasTrigger && (
                 <button
                   type="button"

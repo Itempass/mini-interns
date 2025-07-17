@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { CustomLLMStep, WorkflowStep, getAvailableLLMModels, LLMModel } from '../../../services/workflows_api';
 import CreateEvaluationTemplateModal from '../../prompt_optimizer/CreateEvaluationTemplateModal';
-import { Copy, AlertCircle } from 'lucide-react';
+import { Copy, AlertCircle, Calendar } from 'lucide-react';
 import PlaceholderTextEditor from './PlaceholderTextEditor';
 import NoReferencesHelp from '../../help/NoReferencesHelp';
+import { useTimezone } from '../../../hooks/useTimezone';
 
 interface EditCustomLLMStepProps {
   step: CustomLLMStep;
@@ -23,6 +24,7 @@ const EditCustomLLMStep: React.FC<EditCustomLLMStepProps> = ({ step, onSave, onC
   const [showCopyMessage, setShowCopyMessage] = useState(false);
   const copyTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [showNoReferencesHelp, setShowNoReferencesHelp] = useState(false);
+  const { timezone } = useTimezone();
 
   const hasNoReferences =
     (hasTrigger || (precedingSteps && precedingSteps.length > 0)) &&
@@ -89,6 +91,16 @@ const EditCustomLLMStep: React.FC<EditCustomLLMStepProps> = ({ step, onSave, onC
     }
   };
 
+  const copyDatePlaceholder = () => {
+    if (timezone) {
+      copyPlaceholder(`<<CURRENT_DATE.${timezone}>>`);
+    } else {
+      // Fallback or alert, though timezone should generally be available
+      copyPlaceholder('<<CURRENT_DATE.UTC>>');
+      console.warn("Timezone not yet available, falling back to UTC for placeholder.");
+    }
+  };
+
   return (
     <>
       <div className="p-6">
@@ -127,9 +139,17 @@ const EditCustomLLMStep: React.FC<EditCustomLLMStepProps> = ({ step, onSave, onC
             </div>
 
             {/* Output Placeholders */}
-            {(hasTrigger || precedingSteps.length > 0) && (
+            {(hasTrigger || precedingSteps.length > 0 || timezone) && (
               <div className="mt-2 flex flex-wrap items-center gap-2">
-                <p className="text-sm text-gray-600">Insert previous outputs into prompt:</p>
+                <p className="text-sm text-gray-600">Insert placeholders:</p>
+                <button
+                  type="button"
+                  onClick={copyDatePlaceholder}
+                  className="px-3 py-1 bg-purple-100 text-purple-800 text-sm rounded-full hover:bg-purple-200 transition-colors flex items-center gap-1"
+                >
+                  <Calendar size={12} />
+                  current date
+                </button>
                 {hasTrigger && (
                   <button
                     type="button"
