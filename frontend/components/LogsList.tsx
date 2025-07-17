@@ -1,6 +1,7 @@
 'use client';
 import React, { useState, useEffect, Fragment } from 'react';
 import { getGroupedLogEntries, LogEntry, GroupedLog } from '../services/api';
+import { Download } from 'lucide-react';
 
 interface LogsListProps {
   onSelectLog: (logId: string) => void;
@@ -70,7 +71,7 @@ const LogsList: React.FC<LogsListProps> = ({ onSelectLog, workflowId, logType })
     URL.revokeObjectURL(url);
   };
 
-  const thClasses = "p-3 text-left font-bold text-white bg-gray-600 border-t border-b border-gray-300";
+  const thClasses = "p-3 text-left font-semibold text-gray-600 bg-gray-50 border-b border-gray-200";
   const tdClasses = "p-3 border-b border-gray-200 align-top";
 
   const renderLogRow = (log: LogEntry, isChild: boolean) => {
@@ -128,42 +129,44 @@ const LogsList: React.FC<LogsListProps> = ({ onSelectLog, workflowId, logType })
   
   return (
     <div>
-      <div className="flex items-center justify-between mb-5">
-        <h2 className="m-0 text-xl font-bold">Logs</h2>
+      <div className="flex items-center justify-end mb-5">
         <button
           onClick={handleDownload}
           disabled={groupedLogs.length === 0}
-          className="px-4 py-2 text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:bg-gray-400"
+          title="Download logs as JSON"
+          className="p-2 bg-white text-gray-600 hover:bg-gray-100 rounded-lg border border-gray-300 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          Download as JSON
+          <Download className="w-5 h-5" />
         </button>
       </div>
-      <div className="overflow-x-auto shadow-md rounded-lg">
-        <table className="w-full bg-white border-collapse">
-          <thead>
-            <tr>
-              <th className={`${thClasses} rounded-tl-lg`}>Type</th>
-              <th className={thClasses}>Name</th>
-              <th className={thClasses}>Start Time</th>
-              <th className={thClasses}>Duration</th>
-              <th className={thClasses}>Status</th>
-              <th className={`${thClasses} rounded-tr-lg`}>Log ID</th>
-            </tr>
-          </thead>
-          <tbody>
-            {groupedLogs.map(({ workflow_log, step_logs }) => (
-              <Fragment key={workflow_log.id}>
-                {renderLogRow(workflow_log, false)}
-                {workflow_log.log_type === 'workflow' && workflow_log.workflow_instance_id && expandedWorkflows[workflow_log.workflow_instance_id] && (
-                  step_logs.map(stepLog => renderLogRow(stepLog, true))
-                )}
-              </Fragment>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      {groupedLogs.length > 0 &&
+        <div className="overflow-x-auto rounded-lg border border-gray-200">
+          <table className="w-full bg-white border-collapse">
+            <thead>
+              <tr>
+                <th className={`${thClasses} rounded-tl-lg`}>Type</th>
+                <th className={thClasses}>Name</th>
+                <th className={thClasses}>Start Time</th>
+                <th className={thClasses}>Duration</th>
+                <th className={thClasses}>Status</th>
+                <th className={`${thClasses} rounded-tr-lg`}>Log ID</th>
+              </tr>
+            </thead>
+            <tbody>
+              {groupedLogs.map(({ workflow_log, step_logs }) => (
+                <Fragment key={workflow_log.id}>
+                  {renderLogRow(workflow_log, false)}
+                  {workflow_log.log_type === 'workflow' && workflow_log.workflow_instance_id && expandedWorkflows[workflow_log.workflow_instance_id] && (
+                    step_logs.map(stepLog => renderLogRow(stepLog, true))
+                  )}
+                </Fragment>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      }
       {loading && <div className="p-5 text-center">Loading...</div>}
-      {!loading && hasMore && (
+      {!loading && hasMore && groupedLogs.length > 0 && (
         <div className="mt-5 text-center">
           <button
             onClick={handleLoadMore}
@@ -174,7 +177,7 @@ const LogsList: React.FC<LogsListProps> = ({ onSelectLog, workflowId, logType })
         </div>
       )}
       {!loading && groupedLogs.length === 0 && (
-        <p className="p-5 text-center bg-white rounded-lg shadow-md mt-4">No logs found.</p>
+        <p className="p-5 text-center bg-white rounded-lg shadow-md mt-4">As soon as your workflow has executed for the first time, logs will appear here.</p>
       )}
     </div>
   );

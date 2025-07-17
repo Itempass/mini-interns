@@ -26,7 +26,7 @@ AVAILABLE_TRIGGER_TYPES = [
     {
         "id": "new_email",
         "name": "New Email",
-        "description": "Triggers when a new email is received.",
+        "description": "Checks your inbox every minute for new emails.",
         "initial_data_description": "The full content and metadata of the new email.",
     }
 ]
