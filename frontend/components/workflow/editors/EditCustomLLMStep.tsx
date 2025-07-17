@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { CustomLLMStep, WorkflowStep, getAvailableLLMModels, LLMModel } from '../../../services/workflows_api';
 import CreateEvaluationTemplateModal from '../../prompt_optimizer/CreateEvaluationTemplateModal';
+import { Copy } from 'lucide-react';
+import PlaceholderTextEditor from './PlaceholderTextEditor';
 
 interface EditCustomLLMStepProps {
   step: CustomLLMStep;
@@ -14,10 +16,11 @@ const EditCustomLLMStep: React.FC<EditCustomLLMStepProps> = ({ step, onSave, onC
   const [currentStep, setCurrentStep] = useState(step);
   const [availableModels, setAvailableModels] = useState<LLMModel[]>([]);
   const [isLoadingModels, setIsLoadingModels] = useState(true);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [initialPrompt, setInitialPrompt] = useState(step.system_prompt);
   const [isPromptDirty, setIsPromptDirty] = useState(false);
   const [isOptimizerOpen, setIsOptimizerOpen] = useState(false);
+  const [showCopyMessage, setShowCopyMessage] = useState(false);
+  const copyTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     const fetchModels = async () => {
@@ -35,14 +38,21 @@ const EditCustomLLMStep: React.FC<EditCustomLLMStepProps> = ({ step, onSave, onC
     fetchModels();
   }, []); // Run only once on mount
 
+  useEffect(() => {
+    return () => {
+      if (copyTimeoutRef.current) {
+        clearTimeout(copyTimeoutRef.current);
+      }
+    };
+  }, []);
+
   const handleModelChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const newStep = { ...currentStep, model: e.target.value };
     setCurrentStep(newStep);
     onSave(newStep);
   };
 
-  const handlePromptChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const newValue = e.target.value;
+  const handlePromptChange = (newValue: string) => {
     setCurrentStep({ ...currentStep, system_prompt: newValue });
     setIsPromptDirty(newValue !== initialPrompt);
   };
@@ -53,23 +63,22 @@ const EditCustomLLMStep: React.FC<EditCustomLLMStepProps> = ({ step, onSave, onC
     setIsPromptDirty(false);
   };
 
-  const insertPlaceholder = (placeholder: string) => {
-    const textarea = textareaRef.current;
-    if (textarea) {
-      const start = textarea.selectionStart;
-      const end = textarea.selectionEnd;
-      const currentValue = currentStep.system_prompt;
-      const newValue = currentValue.substring(0, start) + placeholder + currentValue.substring(end);
+  const copyPlaceholder = async (placeholder: string) => {
+    try {
+      await navigator.clipboard.writeText(placeholder);
+      setShowCopyMessage(true);
       
-      const newStep = { ...currentStep, system_prompt: newValue };
-      setCurrentStep(newStep);
-      setIsPromptDirty(newValue !== initialPrompt);
+      // Clear any existing timeout
+      if (copyTimeoutRef.current) {
+        clearTimeout(copyTimeoutRef.current);
+      }
       
-      // Set cursor position after the inserted placeholder
-      setTimeout(() => {
-        textarea.focus();
-        textarea.setSelectionRange(start + placeholder.length, start + placeholder.length);
-      }, 0);
+      // Set timeout to hide message after 3 seconds
+      copyTimeoutRef.current = setTimeout(() => {
+        setShowCopyMessage(false);
+      }, 3000);
+    } catch (err) {
+      console.error('Failed to copy to clipboard:', err);
     }
   };
 
@@ -80,23 +89,22 @@ const EditCustomLLMStep: React.FC<EditCustomLLMStepProps> = ({ step, onSave, onC
           <div>
             <label htmlFor="step-system-prompt" className="block text-sm font-medium text-gray-700">System Prompt</label>
             <div className="relative">
-              <textarea
-                ref={textareaRef}
-                id="step-system-prompt"
+              <PlaceholderTextEditor
                 value={currentStep.system_prompt}
                 onChange={handlePromptChange}
-                rows={10}
-                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 font-mono text-sm"
+                onSave={handlePromptSave}
                 placeholder="e.g., You are a helpful assistant."
+                className="mt-1"
+                hasTrigger={hasTrigger}
+                precedingSteps={precedingSteps}
+                showSaveButton={isPromptDirty}
+                rows={10}
               />
               
-              {isPromptDirty && (
-                <button
-                  onClick={handlePromptSave}
-                  className="absolute bottom-3 right-3 px-2 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700"
-                >
-                  click to save
-                </button>
+              {showCopyMessage && (
+                <div className="absolute bottom-3 left-1/2 transform -translate-x-1/2 px-2 py-1 bg-white bg-opacity-40 backdrop-blur-sm text-gray-800 text-xs rounded border border-gray-300 border-opacity-40 shadow-sm">
+                  Copied! Paste inside your system prompt
+                </div>
               )}
             </div>
 
@@ -107,9 +115,10 @@ const EditCustomLLMStep: React.FC<EditCustomLLMStepProps> = ({ step, onSave, onC
                 {hasTrigger && (
                   <button
                     type="button"
-                    onClick={() => insertPlaceholder('<<trigger_output>>')}
-                    className="px-3 py-1 bg-green-100 text-green-800 text-sm rounded-full hover:bg-green-200 transition-colors"
+                    onClick={() => copyPlaceholder('<<trigger_output>>')}
+                    className="px-3 py-1 bg-green-100 text-green-800 text-sm rounded-full hover:bg-green-200 transition-colors flex items-center gap-1"
                   >
+                    <Copy size={12} />
                     trigger output
                   </button>
                 )}
@@ -117,9 +126,10 @@ const EditCustomLLMStep: React.FC<EditCustomLLMStepProps> = ({ step, onSave, onC
                   <button
                     key={precedingStep.uuid}
                     type="button"
-                    onClick={() => insertPlaceholder(`<<step_output.${precedingStep.uuid}>>`)}
-                    className="px-3 py-1 bg-blue-100 text-blue-800 text-sm rounded-full hover:bg-blue-200 transition-colors"
+                    onClick={() => copyPlaceholder(`<<step_output.${precedingStep.uuid}>>`)}
+                    className="px-3 py-1 bg-blue-100 text-blue-800 text-sm rounded-full hover:bg-blue-200 transition-colors flex items-center gap-1"
                   >
+                    <Copy size={12} />
                     step {index + 2} output
                   </button>
                 ))}
@@ -157,7 +167,7 @@ const EditCustomLLMStep: React.FC<EditCustomLLMStepProps> = ({ step, onSave, onC
               <button
                 type="button"
                 onClick={() => setIsOptimizerOpen(true)}
-                className="px-4 py-1 bg-blue-500 text-white text-sm font-medium rounded-md hover:bg-blue-600 whitespace-nowrap"
+                className="px-4 py-1 bg-white text-black border border-black text-sm font-medium rounded-md hover:bg-gray-100 whitespace-nowrap"
               >
                 Optimize...
               </button>
