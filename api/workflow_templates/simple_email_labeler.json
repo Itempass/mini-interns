@@ -1,0 +1,5 @@
+{
+  "name": "Email Labeler",
+  "description": "Labels emails according to your label definitions. Make sure that the labels exist in gmail first!",
+  "workflow_start_message": "Let's build an email labeler workflow. We will use the IMAP tool to get emails and the Gmail tool to label them."
+} 

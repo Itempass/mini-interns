@@ -11,6 +11,8 @@ interface WorkflowChatProps {
   workflowId: string;
   onWorkflowUpdate: () => void;
   onBusyStatusChange?: (isBusy: boolean) => void;
+  initialChatMessage?: string;
+  clearInitialChatMessage: () => void;
 }
 
 interface HumanInputRequest {
@@ -19,7 +21,7 @@ interface HumanInputRequest {
   data: any;
 }
 
-const WorkflowChat: React.FC<WorkflowChatProps> = ({ workflowId, onWorkflowUpdate, onBusyStatusChange }) => {
+const WorkflowChat: React.FC<WorkflowChatProps> = ({ workflowId, onWorkflowUpdate, onBusyStatusChange, initialChatMessage, clearInitialChatMessage }) => {
   const [conversationId, setConversationId] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [userInput, setUserInput] = useState('');
@@ -28,18 +30,37 @@ const WorkflowChat: React.FC<WorkflowChatProps> = ({ workflowId, onWorkflowUpdat
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const prevWorkflowId = useRef<string | null>(null);
 
   useEffect(() => {
     onBusyStatusChange?.(isAgentThinking);
   }, [isAgentThinking, onBusyStatusChange]);
 
   useEffect(() => {
-    const newConversationId = uuidv4();
-    setConversationId(newConversationId);
-    setMessages([
-        { role: 'assistant', content: "Hello! I'll help you create a workflow. Please describe to me what you want to make." }
-    ]);
-  }, [workflowId]); 
+    const welcomeMessage: ChatMessage = { role: 'assistant', content: "Hello! I'll help you create a workflow. Please describe to me what you want to make." };
+    
+    // Only reset and start a new conversation if the workflowId has actually changed.
+    if (prevWorkflowId.current !== workflowId) {
+      prevWorkflowId.current = workflowId;
+      const newConversationId = uuidv4();
+      setConversationId(newConversationId);
+      
+      if (initialChatMessage) {
+        const userMessage: ChatMessage = { role: 'user', content: initialChatMessage };
+        const newMessages = [welcomeMessage, userMessage];
+        setMessages(newMessages);
+        
+        setIsAgentThinking(true);
+        if (abortControllerRef.current) abortControllerRef.current.abort();
+        abortControllerRef.current = new AbortController();
+
+        runConversation(newMessages);
+        clearInitialChatMessage();
+      } else {
+        setMessages([welcomeMessage]);
+      }
+    }
+  }, [workflowId, initialChatMessage]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });

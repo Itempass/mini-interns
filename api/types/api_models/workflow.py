@@ -37,3 +37,7 @@ class AddStepRequest(BaseModel):
 
 
 UpdateStepRequest = CustomLLM | CustomAgent | StopWorkflowChecker 
+
+
+class CreateFromTemplateRequest(BaseModel):
+    template_id: str

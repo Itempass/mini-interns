@@ -8,15 +8,15 @@ interface WorkflowSidebarProps {
   workflows: Workflow[];
   onSelectWorkflow: (workflow: Workflow | null) => void;
   selectedWorkflow: Workflow | null;
-  onWorkflowsUpdate: (newWorkflow?: Workflow) => void;
+  onWorkflowsUpdate: (newWorkflow?: Workflow, startMessage?: string) => void;
 }
 
 const WorkflowSidebar: React.FC<WorkflowSidebarProps> = ({ workflows, onSelectWorkflow, selectedWorkflow, onWorkflowsUpdate }) => {
   const [isCreateModalOpen, setCreateModalOpen] = useState(false);
   const [menuOpenFor, setMenuOpenFor] = useState<string | null>(null);
 
-  const handleWorkflowCreated = (newWorkflow: Workflow) => {
-    onWorkflowsUpdate(newWorkflow);
+  const handleWorkflowCreated = (response: { workflow: Workflow, workflow_start_message?: string }) => {
+    onWorkflowsUpdate(response.workflow, response.workflow_start_message);
     setCreateModalOpen(false);
   };
 

@@ -79,6 +79,17 @@ export interface WorkflowWithDetails {
     updated_at: string;
 }
 
+export interface Template {
+    id: string;
+    name: string;
+    description: string;
+}
+
+export interface WorkflowFromTemplateResponse {
+    workflow: Workflow;
+    workflow_start_message?: string;
+}
+
 export const getWorkflows = async (): Promise<Workflow[]> => {
     try {
         const response = await fetch(`${API_URL}/workflows`);
@@ -130,6 +141,38 @@ export const createWorkflow = async (workflowData: CreateWorkflowRequest): Promi
         return await response.json();
     } catch (error) {
         console.error('An error occurred while creating the workflow:', error);
+        return null;
+    }
+};
+
+export const getWorkflowTemplates = async (): Promise<Template[]> => {
+    try {
+        const response = await fetch(`${API_URL}/workflows/templates`);
+        if (!response.ok) {
+            throw new Error('Failed to fetch workflow templates');
+        }
+        return await response.json();
+    } catch (error) {
+        console.error('Error fetching workflow templates:', error);
+        return [];
+    }
+};
+
+export const createWorkflowFromTemplate = async (templateId: string): Promise<WorkflowFromTemplateResponse | null> => {
+    try {
+        const response = await fetch(`${API_URL}/workflows/from-template`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ template_id: templateId }),
+        });
+        if (!response.ok) {
+            throw new Error('Failed to create workflow from template');
+        }
+        return await response.json();
+    } catch (error) {
+        console.error('Error creating workflow from template:', error);
         return null;
     }
 };

@@ -18,6 +18,7 @@ const WorkflowsPage = () => {
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [isLogsExpanded, setIsLogsExpanded] = useState(false);
   const [isAgentBusy, setIsAgentBusy] = useState(false);
+  const [initialChatMessage, setInitialChatMessage] = useState<string | undefined>(undefined);
 
   // State for log detail modal
   const [selectedLogId, setSelectedLogId] = useState<string | null>(null);
@@ -25,12 +26,13 @@ const WorkflowsPage = () => {
   const [isLogModalOpen, setIsLogModalOpen] = useState(false);
   const [isLoadingLog, setIsLoadingLog] = useState(false);
 
-  const fetchWorkflows = async (newlyCreated?: Workflow) => {
+  const fetchWorkflows = async (newlyCreated?: Workflow, startMessage?: string) => {
     const freshWorkflows = await getWorkflows();
     setWorkflows(freshWorkflows);
 
     if (newlyCreated) {
       setSelectedWorkflow(newlyCreated);
+      setInitialChatMessage(startMessage);
     } else if (selectedWorkflow) {
       const updatedSelectedWorkflow = freshWorkflows.find(w => w.uuid === selectedWorkflow.uuid);
       setSelectedWorkflow(updatedSelectedWorkflow || (freshWorkflows.length > 0 ? freshWorkflows[0] : null));
@@ -88,7 +90,7 @@ const WorkflowsPage = () => {
                 workflows={workflows}
                 onSelectWorkflow={handleSelectWorkflow} 
                 selectedWorkflow={selectedWorkflow} 
-                onWorkflowsUpdate={fetchWorkflows}
+                onWorkflowsUpdate={(workflow, startMessage) => fetchWorkflows(workflow, startMessage)}
               />
             </div>
             <div className="border-t border-gray-200">
@@ -104,6 +106,8 @@ const WorkflowsPage = () => {
                         workflowId={selectedWorkflow.uuid}
                         onWorkflowUpdate={handleWorkflowUpdate}
                         onBusyStatusChange={setIsAgentBusy}
+                        initialChatMessage={initialChatMessage}
+                        clearInitialChatMessage={() => setInitialChatMessage(undefined)}
                       />
                     </div>
                     <div className="flex-1 overflow-y-auto bg-white border border-gray-300 rounded-lg shadow-md">
