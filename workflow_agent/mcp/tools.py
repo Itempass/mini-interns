@@ -4,6 +4,15 @@ from typing import Any, Dict, List, Optional
 from uuid import UUID, uuid4
 import json
 from pathlib import Path
+import httpx
+import asyncio
+
+from mcp_servers.imap_mcpserver.src.imap_client.client import (
+    get_all_labels,
+    get_messages_from_folder,
+)
+from mcp_servers.imap_mcpserver.src.imap_client.models import EmailMessage
+from shared.config import settings
 
 import workflow.agent_client as agent_client
 import workflow.client as workflow_client
@@ -298,4 +307,150 @@ async def update_step_mcp_tools(
 
     step_to_update.tools = new_tools_dict
     updated_step = await workflow_client.update_step(step_to_update, user_uuid)
-    return updated_step.model_dump() 
+    return updated_step.model_dump()
+
+
+async def _get_llm_response(prompt: str, model: str) -> str:
+    """
+    Makes a call to an LLM to get a response for a given prompt.
+    """
+    try:
+        # Use a generic endpoint if possible, or configure based on model provider
+        # For this temporary solution, we can hardcode the OpenRouter endpoint
+        api_url = "https://openrouter.ai/api/v1/chat/completions"
+        api_key = settings.OPENROUTER_API_KEY
+
+        if not api_key:
+            logger.error("OpenRouter API key is not configured.")
+            return "Error: LLM service not configured."
+
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                api_url,
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": model,
+                    "messages": [{"role": "user", "content": prompt}],
+                },
+                timeout=60.0,
+            )
+            response.raise_for_status()
+            data = response.json()
+            return data["choices"][0]["message"]["content"]
+    except httpx.HTTPStatusError as e:
+        logger.error(
+            f"LLM API request failed with status {e.response.status_code}: {e.response.text}"
+        )
+        return f"Error: LLM request failed with status {e.response.status_code}."
+    except Exception as e:
+        logger.error(
+            f"An unexpected error occurred during LLM request: {e}", exc_info=True
+        )
+        return "Error: An unexpected error occurred while contacting the LLM."
+
+
+def _build_llm_prompt(emails: List[EmailMessage], label_name: str) -> str:
+    """
+    Builds a detailed prompt for the LLM to generate a label description.
+    """
+    email_summaries = []
+    for i, email in enumerate(emails, 1):
+        # Decode subject if needed
+        subject = email.subject
+        from_ = email.from_
+        snippet = (
+            (email.body_cleaned[:200] + "...")
+            if len(email.body_cleaned) > 200
+            else email.body_cleaned
+        )
+
+        summary = f"Email {i}:\n"
+        summary += f"From: {from_}\n"
+        summary += f"Subject: {subject}\n"
+        summary += f"Snippet: {snippet}\n"
+        email_summaries.append(summary)
+
+    prompt = (
+        f"You are an expert AI assistant tasked with creating a concise and accurate description for an email label based on a sample of emails.\n\n"
+        f"The label is named: '{label_name}'\n\n"
+        f"Here are {len(emails)} sample emails that have been assigned this label:\n\n"
+        f"{'---'.join(email_summaries)}\n\n"
+        f"Based on these examples, please generate a summary description that captures the essence of what this label represents. "
+        f"The description should be clear and helpful for a user to understand when this label should be applied. It should include examples of the type of emails that should be labeled with this label. Be specific"
+        f"Focus on the common themes, senders, or content types. Do not include any preamble, just the description itself."
+    )
+    return prompt
+
+
+async def _process_single_label(label_name: str) -> tuple[str, str | None]:
+    """
+    Fetches emails for a single label and generates a description.
+    Returns the label name and the new description, or None if it fails.
+    """
+    logger.info(f"Processing label: {label_name}")
+    # Fetch up to 10 sample emails for the label
+    sample_emails = await get_messages_from_folder(label_name, count=10)
+
+    if not sample_emails:
+        logger.info(f"No emails found for label '{label_name}'. Skipping.")
+        return label_name, None
+
+    logger.info(
+        f"Found {len(sample_emails)} emails for label '{label_name}'. Generating description."
+    )
+
+    # Generate a new description using the LLM
+    prompt = _build_llm_prompt(sample_emails, label_name)
+    # Use a dedicated, fast model for description generation
+    new_description = await _get_llm_response(prompt, "google/gemini-2.5-flash")
+
+    if new_description.startswith("Error:"):
+        logger.error(f"Could not generate description for {label_name}: {new_description}")
+        return label_name, None
+
+    return label_name, new_description
+
+
+@mcp_builder.tool()
+async def get_email_labels_with_descriptions() -> str:
+    """
+    Fetches all labels from the user's email inbox, generates a description for each based on its content,
+    and returns them as a markdown formatted list. This is useful for understanding how emails are currently organized.
+    """
+    logger.info("Starting label description generation from tool.")
+    try:
+        # 1. Fetch all available labels from the IMAP server
+        available_labels = await get_all_labels()
+        if not available_labels:
+            logger.warning("No labels found in the user's inbox.")
+            return "No labels found in your inbox."
+
+        logger.info(f"Found {len(available_labels)} labels in inbox: {available_labels}")
+
+        # 2. Create and run description generation tasks in parallel
+        tasks = [_process_single_label(label_name) for label_name in available_labels]
+        results = await asyncio.gather(*tasks)
+
+        # 3. Format results into markdown
+        markdown_output = (
+            "Here are your email labels and their generated descriptions:\n\n"
+        )
+        descriptions_found = False
+        for label_name, desc in results:
+            if desc:
+                markdown_output += f"* **{label_name}**: {desc}\n"
+                descriptions_found = True
+
+        if not descriptions_found:
+            return "Could not generate descriptions for any of your labels. This might be because they are all empty."
+
+        return markdown_output
+
+    except Exception as e:
+        logger.error(
+            f"An error occurred during label description generation: {e}", exc_info=True
+        )
+        return "Sorry, an unexpected error occurred while generating label descriptions." 
