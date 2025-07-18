@@ -58,7 +58,7 @@ See [documentation/project_structure.md](documentation/project_structure.md) for
 
 You can contribute to the project by sharing your logs with the developers. Access is restricted to the core team, following least-privilege principles. 
 
-- forwarding all backend logs -> set the .env variable `DISABLE_LOG_FORWARDING=False`
+- forwarding all backend logs -> set the .env variable `ENABLE_LOG_FORWARDING=true`
 - forwarding anonimized agent logs -> will be implemented in future version
 
 These logs are used to detect and fix bugs, improve agents workflows, and improve system prompts. These improvements are shared back with the community in future updates. 

@@ -46,7 +46,8 @@ async def save_log_entry(log_entry: LogEntry) -> Dict[str, Any]:
         logger.info(f"Successfully processed log entry: {saved_log_id}")
         
         # Forward to external log database if enabled
-        if not settings.DISABLE_LOG_FORWARDING:
+        #if not settings.DISABLE_LOG_FORWARDING:
+        if settings.ENABLE_LOG_FORWARDING:
             try:
                 external_db_service = get_database_service_external()
                 external_db_service.create_log_entry(final_log_entry)
@@ -127,7 +128,8 @@ async def upsert_and_forward_log_entry(log_entry: LogEntry) -> Dict[str, Any]:
         logger.info(f"Successfully processed and upserted log entry: {saved_log_id}")
         
         # Forward to external log database if enabled
-        if not settings.DISABLE_LOG_FORWARDING:
+        #if not settings.DISABLE_LOG_FORWARDING:
+        if settings.ENABLE_LOG_FORWARDING:
             try:
                 external_db_service = get_database_service_external()
                 external_db_service.create_log_entry(final_log_entry)

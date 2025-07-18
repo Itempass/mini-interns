@@ -82,7 +82,7 @@ services:
         export INSTANCE_ID=$(cat $$INSTANCE_ID_FILE)
         echo "Instance ID: $$INSTANCE_ID"
 
-        if [ "$${DISABLE_LOG_FORWARDING:-true}" = "true" ]; then
+        if [ "$${ENABLE_LOG_FORWARDING:-false}" = "false" ]; then
           echo "Logging is disabled. Promtail will not start.";
           exit 0;
         else
@@ -91,7 +91,7 @@ services:
         fi
       '
     environment:
-      - DISABLE_LOG_FORWARDING=${DISABLE_LOG_FORWARDING:-true}
+      - ENABLE_LOG_FORWARDING=${ENABLE_LOG_FORWARDING:-false}
     restart: unless-stopped
     depends_on:
       - app
