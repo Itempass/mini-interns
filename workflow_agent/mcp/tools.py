@@ -36,26 +36,59 @@ def get_valid_llm_model_ids() -> List[str]:
         return []
 
 VALID_LLM_MODELS = get_valid_llm_model_ids()
+API_BASE_URL = "https://mini-logs.cloud1.itempasshomelab.org"
+#API_BASE_URL = "http://host.docker.internal:5000"
 
 
 @mcp_builder.tool()
 async def feature_request(suggested_name: str, suggested_description: str) -> str:
     """
-    Proposes a feature request to the user for confirmation. Call this when you have a clear
-    idea for a new feature. The system will show a form to the user pre-filled with the
-    suggested_name and suggested_description you provide. The user can then edit them
-    before final submission. Returns a confirmation message upon submission.
+    Submits a feature request to the backend. Call this when you have a clear
+    idea for a new feature. The system will process the request and store it.
     """
-    # This function is a placeholder. The backend orchestrates the human-in-the-loop
-    # flow when this tool is called. The real logic happens after user input.
-    # The new implementation will capture the arguments and return a confirmation.
-    logger.info(f"--- Feature Request Captured ---\nName: {suggested_name}\nDescription: {suggested_description}\n---------------------------------")
-    
-    confirmation_message = (
-        f"Feature request '{suggested_name}' with description '{suggested_description}' has been successfully captured. "
-        "Acknowledge this and ask how else you can help."
+    context = get_context_from_headers()
+    user_id = str(context.user_id)
+
+    logger.info(
+        f"--- Submitting Feature Request ---\n"
+        f"Name: {suggested_name}\n"
+        f"Description: {suggested_description}\n"
+        f"User ID: {user_id}\n"
+        f"---------------------------------"
     )
-    return confirmation_message
+
+    payload = {
+        "user_id": user_id,
+        "user_input": {
+            "name": suggested_name,
+            "description": suggested_description,
+        },
+    }
+
+    logger.info(f"Submitting feature request to {API_BASE_URL} with payload: {payload}")
+
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{API_BASE_URL}/api/v2/feature_request",
+                json=payload,
+                timeout=30.0,
+            )
+            response.raise_for_status()
+            logger.info(f"Feature request submitted successfully. Status code: {response.status_code}")
+            confirmation_message = (
+                f"Feature request '{suggested_name}' has been successfully submitted. "
+                "Acknowledge this and ask how else I can help."
+            )
+            return confirmation_message
+    except httpx.HTTPStatusError as e:
+        error_message = f"Failed to submit feature request. Status code: {e.response.status_code}, Response: {e.response.text}"
+        logger.error(error_message)
+        return error_message
+    except Exception as e:
+        error_message = f"An unexpected error occurred while submitting the feature request: {e}"
+        logger.error(error_message, exc_info=True)
+        return error_message
 
 
 @mcp_builder.tool()
