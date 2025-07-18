@@ -9,6 +9,7 @@ definitions and the execution instances of these checker steps.
 
 from typing import List, Optional
 from uuid import UUID
+import logging
 
 from workflow.internals.database import (
     _create_step_in_db,
@@ -23,29 +24,40 @@ from workflow.models import (
     StepOutputData,
     StopWorkflowChecker,
     StopWorkflowCheckerInstanceModel,
-    StopWorkflowCondition,
 )
+
+logger = logging.getLogger(__name__)
 
 
 #
 # Definition Management
 #
 async def create(
-    name: str, stop_conditions: List[StopWorkflowCondition], user_id: UUID
+    name: str,
+    user_id: UUID,
+    check_mode: str = "stop_if_output_contains",
+    match_values: Optional[List[str]] = None,
+    step_to_check_uuid: Optional[UUID] = None,
 ) -> StopWorkflowChecker:
     """
     Creates a new, standalone StopWorkflowChecker step definition.
 
     Args:
         name: A user-defined name for the checker step.
-        stop_conditions: A list of conditions to evaluate.
         user_id: The ID of the user creating the step.
+        check_mode: The condition to check for.
+        match_values: A list of strings to look for in the output.
+        step_to_check_uuid: The UUID of the step whose output should be inspected.
 
     Returns:
         The created StopWorkflowChecker object.
     """
     checker_step = StopWorkflowChecker(
-        user_id=user_id, name=name, stop_conditions=stop_conditions
+        user_id=user_id,
+        name=name,
+        check_mode=check_mode,
+        match_values=match_values or [],
+        step_to_check_uuid=step_to_check_uuid,
     )
     await _create_step_in_db(step=checker_step, user_id=user_id)
     return checker_step
@@ -82,7 +94,25 @@ async def update(
     Returns:
         The updated StopWorkflowChecker object.
     """
-    await _update_step_in_db(step=checker_model, user_id=user_id)
+    logger.debug(f"Received checker_model for update: {checker_model}")
+
+    # The database layer's JSON serializer cannot handle UUID objects.
+    # We need to temporarily convert the UUID to a string for the DB call.
+    original_uuid = checker_model.step_to_check_uuid
+    try:
+        if isinstance(original_uuid, UUID):
+            # Use object.__setattr__ to bypass Pydantic's validation, which would
+            # otherwise convert our string back into a UUID object.
+            logger.debug(f"Temporarily converting step_to_check_uuid ({original_uuid}) to string for DB serialization.")
+            object.__setattr__(checker_model, 'step_to_check_uuid', str(original_uuid))
+
+        await _update_step_in_db(step=checker_model, user_id=user_id)
+    finally:
+        # Always restore the original UUID object to the model to ensure
+        # consistency for any subsequent operations in the call stack.
+        logger.debug(f"Restoring original UUID to checker_model.")
+        object.__setattr__(checker_model, 'step_to_check_uuid', original_uuid)
+    
     return checker_model
 
 

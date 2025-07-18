@@ -47,20 +47,15 @@ export interface CustomAgentStep {
     generated_summary?: string;
 }
 
-export interface StopWorkflowCondition {
-    step_definition_uuid: string;
-    extraction_json_path: string;
-    operator: 'equals' | 'not_equals' | 'contains' | 'greater_than' | 'less_than';
-    target_value: any;
-}
-
 export interface StopWorkflowCheckerStep {
     uuid: string;
     user_id: string;
     name: string;
     description: string;
     type: 'stop_checker';
-    stop_conditions: StopWorkflowCondition[];
+    step_to_check_uuid: string | null;
+    check_mode: 'stop_if_output_contains' | 'continue_if_output_contains';
+    match_values: string[];
 }
 
 export type WorkflowStep = CustomLLMStep | CustomAgentStep | StopWorkflowCheckerStep;

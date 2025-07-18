@@ -7,7 +7,7 @@ from typing import List, Dict, Any, Optional, Literal
 from pydantic import BaseModel, Field
 import uuid
 
-LogType = Literal['workflow', 'custom_agent', 'custom_llm', 'workflow_agent']
+LogType = Literal['workflow', 'custom_agent', 'custom_llm', 'workflow_agent', 'stop_checker']
 
 class Message(BaseModel):
     """Individual message in a conversation"""

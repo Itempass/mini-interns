@@ -31,20 +31,65 @@ class DatabaseService:
             logger.info(f"Created database directory: {db_dir}")
 
     def initialize_database(self):
-        """Initialize database with schema"""
+        """
+        Initialize database with schema and run migrations if necessary.
+        """
         try:
-            schema_path = os.path.join(os.path.dirname(__file__), "schema.sql")
-            with open(schema_path, 'r') as f:
-                schema_sql = f.read()
-
             with sqlite3.connect(self.db_path) as conn:
-                conn.executescript(schema_sql)
-                conn.commit()
+                cursor = conn.cursor()
 
+                # Check if the 'logs' table needs migration for 'stop_checker'
+                cursor.execute("PRAGMA table_info(logs)")
+                table_info = cursor.fetchone()
+                
+                needs_migration = False
+                if table_info:
+                    # Get the CREATE statement for the logs table
+                    cursor.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='logs'")
+                    create_sql_row = cursor.fetchone()
+                    if create_sql_row:
+                        create_sql = create_sql_row[0]
+                        # If 'stop_checker' is not in the CHECK constraint, we need to migrate
+                        if "'stop_checker'" not in create_sql:
+                            needs_migration = True
+                            logger.info("Detected old schema for 'logs' table. Migration required.")
+                
+                if needs_migration:
+                    logger.info("Starting schema migration for 'logs' table...")
+                    # 1. Rename the old table
+                    conn.execute("ALTER TABLE logs RENAME TO logs_old;")
+                    logger.info("Renamed 'logs' to 'logs_old'.")
+
+                    # 2. Create the new table with the updated schema
+                    schema_path = os.path.join(os.path.dirname(__file__), "schema.sql")
+                    with open(schema_path, 'r') as f:
+                        schema_sql = f.read()
+                    conn.executescript(schema_sql)
+                    logger.info("Created new 'logs' table with updated schema.")
+
+                    # 3. Copy data from the old table to the new one
+                    conn.execute("""
+                        INSERT INTO logs (id, reference_string, log_type, workflow_id, workflow_instance_id, workflow_name, step_id, step_instance_id, step_name, messages, needs_review, feedback, start_time, end_time, anonymized)
+                        SELECT id, reference_string, log_type, workflow_id, workflow_instance_id, workflow_name, step_id, step_instance_id, step_name, messages, needs_review, feedback, start_time, end_time, anonymized
+                        FROM logs_old;
+                    """)
+                    logger.info("Copied data from 'logs_old' to new 'logs' table.")
+
+                    # 4. Drop the old table
+                    conn.execute("DROP TABLE logs_old;")
+                    logger.info("Dropped 'logs_old' table. Migration complete.")
+                else:
+                     # If no migration is needed, still ensure the table is created if it doesn't exist
+                    schema_path = os.path.join(os.path.dirname(__file__), "schema.sql")
+                    with open(schema_path, 'r') as f:
+                        schema_sql = f.read()
+                    conn.executescript(schema_sql)
+
+                conn.commit()
             logger.info(f"Database initialized at: {self.db_path}")
 
         except Exception as e:
-            logger.error(f"Failed to initialize database: {e}")
+            logger.error(f"Failed to initialize database: {e}", exc_info=True)
             raise
 
     def create_log_entry(self, log_entry: LogEntry) -> str:
@@ -231,7 +276,7 @@ class DatabaseService:
                     children_cursor = conn.execute(
                         f"""
                         SELECT * FROM logs 
-                        WHERE log_type IN ('custom_agent', 'custom_llm') 
+                        WHERE log_type IN ('custom_agent', 'custom_llm', 'stop_checker') 
                         AND workflow_instance_id IN ({placeholders})
                         ORDER BY DATETIME(start_time) ASC
                         """,

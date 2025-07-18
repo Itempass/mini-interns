@@ -208,7 +208,7 @@ async def add_new_step(
     elif step_type == "custom_agent":
         new_step = await agent_client.create(name=name, user_id=user_id, model=model or default_model, system_prompt="")
     elif step_type == "stop_checker":
-        new_step = await checker_client.create(name=name, user_id=user_id, stop_conditions=[])
+        new_step = await checker_client.create(name=name, user_id=user_id)
     else:
         raise ValueError(f"Unknown step type: {step_type}")
 

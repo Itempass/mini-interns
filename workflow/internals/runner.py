@@ -13,12 +13,14 @@ import workflow.client as workflow_client
 import workflow.internals.database as db
 from workflow.internals import llm_runner
 from workflow.internals import agent_runner
+from workflow.internals import checker_runner
 from workflow.internals.output_processor import create_output_data, generate_summary
 from workflow.models import (
     CustomAgent,
     CustomLLM,
     StepOutputData,
     StopWorkflowChecker,
+    StopWorkflowCheckerInstanceModel,
     WorkflowInstanceModel,
     WorkflowStep,
     WorkflowStepInstance,
@@ -45,6 +47,9 @@ def _prepare_input(
     prepared_config = step_definition.model_dump()
     system_prompt = prepared_config.get("system_prompt", "")
     if not system_prompt:
+        # For checker steps, we don't need to prepare any system prompt
+        if isinstance(step_definition, StopWorkflowChecker):
+            return prepared_config
         return prepared_config
 
     # Create a unified dictionary of all available outputs, keyed by their source name.
@@ -55,7 +60,11 @@ def _prepare_input(
     
     logger.info(f"RUNNER_DEBUG: Found {len(workflow_instance.step_instances)} step instances in workflow")
     for i, inst in enumerate(workflow_instance.step_instances):
-        logger.info(f"RUNNER_DEBUG: Step instance {i}: type={type(inst).__name__}, has_output={inst.output is not None}")
+        # Checker instances have no output and should be skipped
+        if isinstance(inst, StopWorkflowCheckerInstanceModel):
+            continue
+            
+        logger.info(f"RUNNER_DEBUG: Step instance {i}: type={type(inst).__name__}, has_output={hasattr(inst, 'output') and inst.output is not None}")
         logger.info(f"RUNNER_DEBUG: Step instance {i} attributes: {list(vars(inst).keys())}")
         
         if inst.output:
@@ -67,8 +76,8 @@ def _prepare_input(
                 def_uuid = inst.agent_definition_uuid
                 logger.info(f"RUNNER_DEBUG: Step instance {i} has agent_definition_uuid: {def_uuid}")
             elif hasattr(inst, 'checker_definition_uuid'):
-                def_uuid = inst.checker_definition_uuid
-                logger.info(f"RUNNER_DEBUG: Step instance {i} has checker_definition_uuid: {def_uuid}")
+                # Checker steps don't produce output for other steps to consume
+                continue
 
             if def_uuid:
                 logger.info(f"RUNNER_DEBUG: Found previous step instance of type {type(inst).__name__} with output. Storing output under key {str(def_uuid)}.")
@@ -205,7 +214,60 @@ async def run_workflow(instance_uuid: UUID, user_id: UUID):
                     instance.step_instances.append(agent_instance)
                     await db._update_workflow_instance_in_db(instance, user_id)
                 elif step_def.type == "stop_checker":
-                    logger.info("stop checker not implemented")
+                    # Create the instance model for the checker
+                    checker_instance = StopWorkflowCheckerInstanceModel(
+                        user_id=user_id,
+                        workflow_instance_uuid=instance_uuid,
+                        status="running",
+                        checker_definition_uuid=step_def.uuid,
+                    )
+                    instance.step_instances.append(checker_instance)
+                    await db._update_workflow_instance_in_db(instance, user_id)
+                    
+                    # Collate all previous step outputs
+                    step_outputs = {}
+                    if instance.trigger_output:
+                        step_outputs["trigger_output"] = instance.trigger_output # Although trigger can't be checked yet
+                    for inst in instance.step_instances:
+                        # Checker instances have no output and should be skipped
+                        if isinstance(inst, StopWorkflowCheckerInstanceModel):
+                            continue
+                        if inst.output:
+                            def_uuid = getattr(inst, 'llm_definition_uuid', None) or getattr(inst, 'agent_definition_uuid', None)
+                            if def_uuid:
+                                step_outputs[def_uuid] = inst.output
+
+                    result = await checker_runner.run_checker_step(
+                        instance=checker_instance,
+                        step_definition=step_def,
+                        step_outputs=step_outputs
+                    )
+
+                    checker_instance.status = "completed"
+                    checker_instance.finished_at = datetime.now(timezone.utc)
+                    await db._update_workflow_instance_in_db(instance, user_id)
+
+                    # Create a log entry for the checker step
+                    checker_log_entry = LogEntry(
+                        user_id=str(user_id),
+                        log_type='stop_checker',
+                        step_id=str(step_def.uuid),
+                        step_name=step_def.name,
+                        workflow_instance_id=str(instance.uuid),
+                        messages=[
+                            Message(role="system", content=f"Input to be evaluated:\n\n---\n{result.evaluated_input}\n---"),
+                            Message(role="system", content=f"Result: {result.reason}")
+                        ],
+                        start_time=checker_instance.started_at,
+                        end_time=checker_instance.finished_at,
+                    )
+                    await save_log_entry(checker_log_entry)
+
+                    if result.should_stop:
+                        logger.info(f"Workflow {instance.uuid} stopped by checker step {step_def.name} ({step_def.uuid}).")
+                        instance.status = "stopped"
+                        await db._update_workflow_instance_in_db(instance, user_id)
+                        break # Exit the while loop
 
                 logger.info(f"RUNNER_DEBUG: End of loop for step {step_uuid}. Total instances on workflow model: {len(instance.step_instances)}")
 

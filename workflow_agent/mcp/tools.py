@@ -343,6 +343,64 @@ async def update_step_mcp_tools(
     return updated_step.model_dump()
 
 
+@mcp_builder.tool()
+async def update_checker_step_settings(
+    step_uuid: str,
+    check_mode: str,
+    match_values: List[str],
+    step_to_check_uuid: Optional[str] = None,
+) -> dict:
+    """
+    Updates the settings for a 'stop_checker' step. This step performs a simple,
+    case-insensitive text search on the output of a previous step.
+
+    The output of the step being checked (e.g., a JSON object) is converted to a
+    plain text string before the check is performed.
+
+    Args:
+        step_uuid: The UUID of the checker step to update.
+        check_mode: The condition to check for. Must be either 'stop_if_output_contains' or 'continue_if_output_contains'.
+        match_values: A list of strings to search for in the output text. If any value is found, the condition is met.
+        step_to_check_uuid: The UUID of the preceding step whose output should be checked.
+    """
+    context = get_context_from_headers()
+    user_uuid = context.user_id
+    workflow_uuid = context.workflow_uuid
+
+    if check_mode not in ["stop_if_output_contains", "continue_if_output_contains"]:
+        raise ValueError("Invalid check_mode. Must be 'stop_if_output_contains' or 'continue_if_output_contains'.")
+
+    workflow = await workflow_client.get_with_details(workflow_uuid, user_uuid)
+    if not workflow:
+        raise ValueError("Workflow not found")
+
+    step_to_update = next((s for s in workflow.steps if str(s.uuid) == step_uuid), None)
+    if not step_to_update:
+        raise ValueError(f"Step with UUID '{step_uuid}' not found in workflow.")
+
+    if step_to_update.type != "stop_checker":
+        raise TypeError("This tool can only be used on steps of type 'stop_checker'.")
+
+    # Validate that step_to_check_uuid is a real preceding step
+    if step_to_check_uuid:
+        step_index = -1
+        for i, step in enumerate(workflow.steps):
+            if str(step.uuid) == step_uuid:
+                step_index = i
+                break
+        
+        preceding_step_uuids = {str(s.uuid) for s in workflow.steps[:step_index]}
+        if step_to_check_uuid not in preceding_step_uuids:
+            raise ValueError(f"Step UUID '{step_to_check_uuid}' is not a valid preceding step for the checker.")
+
+    step_to_update.step_to_check_uuid = UUID(step_to_check_uuid) if step_to_check_uuid else None
+    step_to_update.check_mode = check_mode
+    step_to_update.match_values = match_values
+
+    updated_step = await workflow_client.update_step(step_to_update, user_uuid)
+    return updated_step.model_dump()
+
+
 async def _get_llm_response(prompt: str, model: str) -> str:
     """
     Makes a call to an LLM to get a response for a given prompt.

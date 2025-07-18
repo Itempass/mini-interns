@@ -6,15 +6,6 @@ from pydantic import BaseModel, Field, field_validator
 
 
 # 4.1. Workflow and Step Definitions
-class StopWorkflowCondition(BaseModel):
-    """Defines a rule to evaluate against a step's output."""
-
-    step_definition_uuid: UUID  # The step whose output to inspect
-    extraction_json_path: str  # JSONPath to extract value from the step's raw_data
-    operator: Literal["equals", "not_equals", "contains", "greater_than", "less_than"]
-    target_value: Any
-
-
 class CustomLLM(BaseModel):
     """A workflow step definition that calls an LLM without tools."""
 
@@ -54,10 +45,19 @@ class StopWorkflowChecker(BaseModel):
     name: str = Field(..., description="A unique, user-defined name for this step.")
     description: str = Field(default="", description="A description of what this step does.")
     type: Literal["stop_checker"] = "stop_checker"
-    stop_conditions: List[StopWorkflowCondition] = Field(...)
+    step_to_check_uuid: Optional[UUID] = None # The step whose output to inspect
+    check_mode: Literal["stop_if_output_contains", "continue_if_output_contains"] = "stop_if_output_contains"
+    match_values: List[str] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     # This step does not produce output for other steps to consume.
+
+
+class CheckerResult(BaseModel):
+    """The result of a StopWorkflowChecker execution."""
+    should_stop: bool
+    reason: str
+    evaluated_input: str
 
 
 WorkflowStep = Union[CustomLLM, CustomAgent, StopWorkflowChecker]

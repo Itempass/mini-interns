@@ -4,7 +4,7 @@
 CREATE TABLE IF NOT EXISTS logs (
     id TEXT PRIMARY KEY,
     reference_string TEXT,
-    log_type TEXT CHECK(log_type IN ('workflow', 'custom_agent', 'custom_llm', 'workflow_agent')) NOT NULL,
+    log_type TEXT CHECK(log_type IN ('workflow', 'custom_agent', 'custom_llm', 'workflow_agent', 'stop_checker')) NOT NULL,
     workflow_id TEXT,
     workflow_instance_id TEXT,
     workflow_name TEXT,
