@@ -62,7 +62,7 @@ def add_log_review(log_id: str, review_request: AddReviewRequest):
     Add a review to a log.
     """
     try:
-        result = add_review(log_id, review_request.feedback, review_request.needs_review, review_request.log_data)
+        result = add_review(log_id, review_request.feedback, True, review_request.log_data)
         if not result.get("success"):
             error_detail = result.get("error", "Failed to add review.")
             if "not found" in error_detail:

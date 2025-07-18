@@ -31,7 +31,7 @@ from ..types.api_models.workflow import (
 )
 from workflow_agent.client.models import ChatMessage, ChatRequest, ChatStepResponse
 from .auth import get_current_user_id
-from agentlogger.src.client import upsert_log_entry_sync, get_log_entry
+from agentlogger.src.client import upsert_and_forward_log_entry, get_log_entry
 from agentlogger.src.models import LogEntry, Message as LoggerMessage
 
 
@@ -665,6 +665,7 @@ async def workflow_agent_chat_step(
 
             log_entry = LogEntry(
                 id=request.conversation_id,
+                user_id=str(user_id),
                 log_type='workflow_agent',
                 workflow_id=str(workflow_uuid),
                 workflow_name=workflow.name if workflow else "Workflow Configuration Agent",
@@ -674,7 +675,7 @@ async def workflow_agent_chat_step(
                 start_time=start_time,
                 end_time=end_time,
             )
-            upsert_log_entry_sync(log_entry)
+            await upsert_and_forward_log_entry(log_entry)
         except Exception as e:
             logger.error(f"Failed to log workflow agent turn for conversation {request.conversation_id}: {e}", exc_info=True)
         # --- End Logging ---

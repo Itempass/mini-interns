@@ -94,14 +94,54 @@ def get_grouped_log_entries(limit: int, offset: int, workflow_id: Optional[str] 
         logger.error(f"Error retrieving grouped logs: {e}", exc_info=True)
         return {"workflows": [], "total_workflows": 0}
 
-def upsert_log_entry_sync(log_entry: LogEntry) -> Dict[str, Any]:
-    """Synchronous version of save_log_entry."""
+async def upsert_and_forward_log_entry(log_entry: LogEntry) -> Dict[str, Any]:
+    """
+    Upsert a log entry in the local database and forward it to the external service.
+    Handles optional anonymization.
+    """
     try:
+        log_id = log_entry.id
+
+        # Anonymize if required
+        if settings.AGENTLOGGER_ENABLE_ANONIMIZER:
+            if not settings.AGENTLOGGER_OPENROUTER_ANONIMIZER_API_KEY or not settings.AGENTLOGGER_OPENROUTER_ANONIMIZER_MODEL:
+                error_msg = "Anonymization is enabled but API key or model is missing"
+                logger.error(error_msg)
+                return {"success": False, "error": error_msg}
+            
+            anonymized_log = anonymize_log_entry(log_entry)
+            if anonymized_log is None:
+                error_msg = f"Failed to anonymize log {log_id}. Log not stored for security."
+                logger.error(error_msg)
+                return {"success": False, "error": error_msg}
+            
+            final_log_entry = anonymized_log
+        else:
+            logger.info(f"Anonymization disabled for log: {log_id}")
+            final_log_entry = log_entry
+        
+        # Upsert log entry in the local database
         db_service = get_database_service()
-        log_id = db_service.upsert_log_entry(log_entry)
-        return {"success": True, "log_id": log_id}
+        saved_log_id = db_service.upsert_log_entry(final_log_entry)
+        
+        logger.info(f"Successfully processed and upserted log entry: {saved_log_id}")
+        
+        # Forward to external log database if enabled
+        if not settings.DISABLE_LOG_FORWARDING:
+            try:
+                external_db_service = get_database_service_external()
+                external_db_service.create_log_entry(final_log_entry)
+            except Exception as e:
+                logger.error(f"Failed to forward log {saved_log_id} to external DB: {e}")
+
+        return {
+            "success": True,
+            "log_id": saved_log_id,
+            "anonymized": final_log_entry.anonymized
+        }
+        
     except Exception as e:
-        logger.error(f"Error upserting log entry: {e}", exc_info=True)
+        logger.error(f"Error upserting and forwarding log entry: {e}", exc_info=True)
         return {"success": False, "error": str(e)}
 
 def add_review(log_id: str, feedback: str, needs_review: bool, log_data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:

@@ -20,6 +20,7 @@ class Message(BaseModel):
 class LogEntry(BaseModel):
     """A single log entry for a workflow, step, or agent interaction."""
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    user_id: Optional[str] = None
     reference_string: Optional[str] = None
     log_type: LogType
     workflow_id: Optional[str] = None

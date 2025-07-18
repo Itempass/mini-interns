@@ -12,6 +12,7 @@ import { Search, Bot, Workflow as WorkflowIcon, Loader2 } from 'lucide-react';
 import LogsList from '../../components/LogsList';
 import LogDetail from '../../components/LogDetail';
 import { LogEntry, getLogEntry } from '../../services/api';
+import FeedbackForm from '../../components/FeedbackForm';
 
 const WorkflowsPage = () => {
   const [selectedWorkflow, setSelectedWorkflow] = useState<Workflow | null>(null);
@@ -191,6 +192,9 @@ const WorkflowsPage = () => {
               ) : (
                 <div>Log not found.</div>
               )}
+            </div>
+            <div className="flex justify-end p-4 border-t bg-gray-50">
+              {selectedLog && <FeedbackForm log={selectedLog} />}
             </div>
           </div>
         </div>

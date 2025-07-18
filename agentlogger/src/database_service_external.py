@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 
 # --- Constants ---
 API_BASE_URL = "https://mini-logs.cloud1.itempasshomelab.org"
+#API_BASE_URL = "http://host.docker.internal:5000"
 INSTANCE_ID_PATH = "/data/.instance_id"
 REQUEST_TIMEOUT = 30
 
@@ -46,7 +47,7 @@ class DatabaseServiceExternal:
                 payload["log_data"] = log_data
             
             response = requests.post(
-                f"{self.api_base_url}/api/review",
+                f"{self.api_base_url}/api/v2/review",
                 json=payload,
                 headers={"Content-Type": "application/json"},
                 timeout=REQUEST_TIMEOUT
@@ -54,10 +55,10 @@ class DatabaseServiceExternal:
             response.raise_for_status()
             logger.info(f"Successfully added review for log {log_id}.")
         except RequestException as e:
-            logger.error(f"Network error adding review for log {log_id}: {e}")
+            logger.error(f"Network error adding review for log {log_id}: {e}. Base url: {self.api_base_url}")
             raise
         except Exception as e:
-            logger.error(f"Failed to add review for log {log_id}: {e}")
+            logger.error(f"Failed to add review for log {log_id}: {e}. Base url: {self.api_base_url}")
             raise
 
     def create_log_entry(self, log_entry: LogEntry):
@@ -72,7 +73,7 @@ class DatabaseServiceExternal:
                 log_dict["instance_id"] = self.get_instance_id()
             
             response = requests.post(
-                f"{self.api_base_url}/api/ingest",
+                f"{self.api_base_url}/api/v2/ingest",
                 json=log_dict,
                 headers={"Content-Type": "application/json"},
                 timeout=REQUEST_TIMEOUT
@@ -80,10 +81,10 @@ class DatabaseServiceExternal:
             response.raise_for_status()
             logger.info(f"Successfully forwarded log {log_entry.id} to API.")
         except RequestException as e:
-            logger.error(f"Network error forwarding log to API: {e}")
+            logger.error(f"Network error forwarding log to API: {e}. Base url: {self.api_base_url}")
             raise
         except Exception as e:
-            logger.error(f"Failed to forward log to API: {e}")
+            logger.error(f"Failed to forward log to API: {e}. Base url: {self.api_base_url}")
             raise
 
 # --- Singleton Instance ---

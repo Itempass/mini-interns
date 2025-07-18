@@ -21,7 +21,13 @@ from mcp.types import Tool
 from shared.app_settings import load_app_settings
 from shared.config import settings
 from workflow.internals.output_processor import create_output_data, generate_summary
-from workflow.models import CustomAgent, MessageModel, StepOutputData, CustomAgentInstanceModel
+from workflow.models import (
+    CustomAgent,
+    CustomAgentInstanceModel,
+    MessageModel,
+    StepOutputData,
+    WorkflowModel,
+)
 import workflow.client as workflow_client
 
 
@@ -63,7 +69,9 @@ async def run_agent_step(
     resolved_system_prompt: str,
     user_id: UUID,
     workflow_instance_uuid: UUID,
+    workflow_definition: WorkflowModel,
 ) -> CustomAgentInstanceModel:
+    """Runs a CustomAgent step."""
     logger.info(
         f"Starting execution for agent step {agent_definition.uuid} in workflow instance {workflow_instance_uuid}"
     )
@@ -274,8 +282,11 @@ async def run_agent_step(
             ]
 
             log_entry = LogEntry(
+                user_id=str(user_id),
                 log_type='custom_agent',
+                workflow_id=str(workflow_definition.uuid),
                 workflow_instance_id=str(workflow_instance_uuid),
+                workflow_name=workflow_definition.name,
                 step_id=str(agent_definition.uuid),
                 step_instance_id=str(instance.uuid),
                 step_name=agent_definition.name,

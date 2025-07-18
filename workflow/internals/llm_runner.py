@@ -13,7 +13,7 @@ from mcp_servers.tone_of_voice_mcpserver.src.services.openrouter_service import 
     openrouter_service,
 )
 from workflow.internals.output_processor import create_output_data, generate_summary
-from workflow.models import CustomLLM, CustomLLMInstanceModel, MessageModel, StepOutputData
+from workflow.models import CustomLLM, CustomLLMInstanceModel, MessageModel, StepOutputData, WorkflowModel
 from shared.config import settings
 
 logger = logging.getLogger(__name__)
@@ -24,6 +24,7 @@ async def run_llm_step(
     resolved_system_prompt: str,
     user_id: UUID,
     workflow_instance_uuid: UUID,
+    workflow_definition: WorkflowModel,
 ) -> CustomLLMInstanceModel:
     """Runs a CustomLLM step."""
     logger.info(f"Starting execution for LLM step {llm_definition.uuid}")
@@ -87,8 +88,11 @@ async def run_llm_step(
             ]
             
             log_entry = LogEntry(
+                user_id=str(user_id),
                 log_type='custom_llm',
+                workflow_id=str(workflow_definition.uuid),
                 workflow_instance_id=str(workflow_instance_uuid),
+                workflow_name=workflow_definition.name,
                 step_id=str(llm_definition.uuid),
                 step_instance_id=str(instance.uuid),
                 step_name=llm_definition.name,

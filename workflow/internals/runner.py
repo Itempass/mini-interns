@@ -148,6 +148,7 @@ async def run_workflow(instance_uuid: UUID, user_id: UUID):
             return
 
         log_entry = LogEntry(
+            user_id=str(user_id),
             log_type='workflow',
             workflow_id=str(workflow_def.uuid),
             workflow_instance_id=str(instance.uuid),
@@ -184,20 +185,27 @@ async def run_workflow(instance_uuid: UUID, user_id: UUID):
 
                 step_instance: WorkflowStepInstance = None
                 if step_def.type == "custom_llm":
-                    step_instance = await llm_runner.run_llm_step(
-                        step_def, prepared_config["system_prompt"], user_id, instance.uuid
+                    llm_instance = await llm_runner.run_llm_step(
+                        llm_definition=step_def,
+                        resolved_system_prompt=prepared_config["system_prompt"],
+                        user_id=user_id,
+                        workflow_instance_uuid=instance_uuid,
+                        workflow_definition=workflow_def,
                     )
+                    instance.step_instances.append(llm_instance)
+                    await db._update_workflow_instance_in_db(instance, user_id)
                 elif step_def.type == "custom_agent":
-                    step_instance = await agent_runner.run_agent_step(
-                        step_def, prepared_config["system_prompt"], user_id, instance.uuid
+                    agent_instance = await agent_runner.run_agent_step(
+                        agent_definition=step_def,
+                        resolved_system_prompt=prepared_config["system_prompt"],
+                        user_id=user_id,
+                        workflow_instance_uuid=instance_uuid,
+                        workflow_definition=workflow_def,
                     )
+                    instance.step_instances.append(agent_instance)
+                    await db._update_workflow_instance_in_db(instance, user_id)
                 elif step_def.type == "stop_checker":
                     logger.info("stop checker not implemented")
-
-                # After the step runs, append its instance to the main workflow instance.
-                if step_instance:
-                    instance.step_instances.append(step_instance)
-                    await db._update_workflow_instance_in_db(instance, user_id)
 
                 logger.info(f"RUNNER_DEBUG: End of loop for step {step_uuid}. Total instances on workflow model: {len(instance.step_instances)}")
 

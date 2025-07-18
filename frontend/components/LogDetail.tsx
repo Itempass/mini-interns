@@ -46,7 +46,6 @@ const LogDetail: React.FC<LogDetailProps> = ({ log }) => {
         <DetailRow label="End Time" value={log.end_time ? new Date(log.end_time).toLocaleString() : 'N/A'} />
         <DetailRow label="Duration" value={duration !== null ? `${(duration / 1000).toFixed(2)}s` : 'N/A'} />
         <DetailRow label="Anonymized" value={log.anonymized ? 'Yes' : 'No'} />
-        <DetailRow label="Needs Review" value={log.needs_review ? 'Yes' : 'No'} />
         <DetailRow label="Feedback" value={log.feedback} />
       </div>
 
