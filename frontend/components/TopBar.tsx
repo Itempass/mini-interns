@@ -2,6 +2,7 @@
 import React from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import VersionCheck from './VersionCheck';
+import { Github } from 'lucide-react';
 
 interface TopBarProps {}
 
@@ -25,10 +26,10 @@ const TopBar: React.FC<TopBarProps> = () => {
         <div className="w-8 h-8 rounded-full border-2 border-black flex items-center justify-center bg-transparent">
           <span className="text-black font-bold text-sm">B</span>
         </div>
-        <h1 className="text-gray-900 text-xl font-bold m-0">Brewdock - The AI Agent Factory</h1>
+        <h1 className="text-gray-900 text-xl font-bold m-0">Brewdock - The opensource Agent Factory</h1>
         <VersionCheck />
       </div>
-      <nav className="flex gap-2">
+      <nav className="flex items-center gap-2">
         <button
           className={getButtonClasses('agent')}
           onClick={() => router.push('/workflows')}
@@ -47,6 +48,16 @@ const TopBar: React.FC<TopBarProps> = () => {
         >
           Settings
         </button>
+        <div className="border-l border-gray-300 h-6"></div>
+        <a
+          href="https://github.com/Itempass/brewdock"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="py-1.5 px-3 border-2 rounded cursor-pointer text-sm font-bold transition-all duration-200 ease-in-out bg-white text-black border-black hover:bg-gray-50 flex items-center gap-2"
+        >
+          <Github size={16} />
+          Star us on Github
+        </a>
       </nav>
     </div>
   );
