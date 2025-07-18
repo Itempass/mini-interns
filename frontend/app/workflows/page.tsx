@@ -77,7 +77,7 @@ const WorkflowsPage = () => {
   };
 
   return (
-    <div className="flex flex-col h-screen relative" style={{
+    <div className="flex flex-col h-screen relative bg-gray-50" style={{
       backgroundImage: 'radial-gradient(#E5E7EB 1px, transparent 1px)',
       backgroundSize: '24px 24px'
     }}>
