@@ -27,6 +27,47 @@ def init_workflow_db():
             
             cursor = conn.cursor()
 
+            # --- Schema Initialization ---
+            # Execute schema files first to ensure all tables are created before we try to alter them.
+            
+            # Execute each statement from the workflow schema file
+            schema_path = os.path.join('workflow', 'schema.sql')
+            logger.info(f"Reading schema from {schema_path}")
+            with open(schema_path, 'r') as f:
+                sql_script = f.read()
+            for statement in sql_script.split(';'):
+                statement = statement.strip()
+                if statement:
+                    try:
+                        cursor.execute(statement)
+                    except mysql.connector.Error as err:
+                        if err.errno == 1061:  # ER_DUP_KEYNAME for MySQL
+                            logger.info(f"Ignoring duplicate key/index error for workflow schema: {err}")
+                        else:
+                            raise err
+
+            # Execute each statement from the prompt_optimizer schema file
+            optimizer_schema_path = os.path.join('prompt_optimizer', 'schema.sql')
+            if os.path.exists(optimizer_schema_path):
+                logger.info(f"Reading schema from {optimizer_schema_path}")
+                with open(optimizer_schema_path, 'r') as f:
+                    optimizer_sql_script = f.read()
+                for statement in optimizer_sql_script.split(';'):
+                    statement = statement.strip()
+                    if statement:
+                        try:
+                            cursor.execute(statement)
+                        except mysql.connector.Error as err:
+                            if err.errno == 1061:  # ER_DUP_KEYNAME for MySQL
+                                logger.info(f"Ignoring duplicate key/index error for optimizer schema: {err}")
+                            else:
+                                raise err
+            else:
+                logger.warning(f"Schema file not found at {optimizer_schema_path}. Skipping.")
+
+            # --- Migrations ---
+            # Now that tables are created, run all migrations.
+
             # --- Start of Evaluation Template Polling Status Migration ---
             cursor.execute("SELECT COUNT(*) FROM information_schema.columns WHERE table_name = 'evaluation_templates' AND column_name = 'status' AND table_schema = %s", (settings.MYSQL_DATABASE,))
             if cursor.fetchone()[0] == 0:
@@ -81,44 +122,6 @@ def init_workflow_db():
                 logger.info("Dropping obsolete 'workflow_step_uuid' column from 'evaluation_runs'...")
                 cursor.execute("ALTER TABLE evaluation_runs DROP COLUMN workflow_step_uuid")
             # --- End of Decoupling Migration ---
-            
-            schema_path = os.path.join('workflow', 'schema.sql')
-            logger.info(f"Reading schema from {schema_path}")
-
-            with open(schema_path, 'r') as f:
-                sql_script = f.read()
-            
-            # Execute each statement from the workflow schema file
-            for statement in sql_script.split(';'):
-                statement = statement.strip()
-                if statement:
-                    try:
-                        cursor.execute(statement)
-                    except mysql.connector.Error as err:
-                        if err.errno == 1061:  # ER_DUP_KEYNAME for MySQL
-                            logger.info(f"Ignoring duplicate key/index error for workflow schema: {err}")
-                        else:
-                            raise err
-
-            # Execute each statement from the prompt_optimizer schema file
-            optimizer_schema_path = os.path.join('prompt_optimizer', 'schema.sql')
-            if os.path.exists(optimizer_schema_path):
-                logger.info(f"Reading schema from {optimizer_schema_path}")
-                with open(optimizer_schema_path, 'r') as f:
-                    optimizer_sql_script = f.read()
-                
-                for statement in optimizer_sql_script.split(';'):
-                    statement = statement.strip()
-                    if statement:
-                        try:
-                            cursor.execute(statement)
-                        except mysql.connector.Error as err:
-                            if err.errno == 1061:  # ER_DUP_KEYNAME for MySQL
-                                logger.info(f"Ignoring duplicate key/index error for optimizer schema: {err}")
-                            else:
-                                raise err
-            else:
-                logger.warning(f"Schema file not found at {optimizer_schema_path}. Skipping.")
             
             conn.commit()
             cursor.close()
