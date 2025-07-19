@@ -18,9 +18,9 @@ export interface EvaluationTemplateLight {
 
 export interface EvaluationTemplate {
   uuid: string;
-  user_id: string;
   name: string;
-  description?: string;
+  description: string | null;
+  user_id: string;
   data_source_config: {
     tool: string;
     params: Record<string, any>;
@@ -28,10 +28,13 @@ export interface EvaluationTemplate {
   field_mapping_config: {
     input_field: string;
     ground_truth_field: string;
+    ground_truth_transform?: string;
   };
-  cached_data: any[];
+  cached_data: Record<string, any>[];
   created_at: string;
   updated_at: string;
+  status: 'processing' | 'completed' | 'failed';
+  processing_error: string | null;
 }
 
 export interface EvaluationTemplateCreate {
@@ -44,6 +47,7 @@ export interface EvaluationTemplateCreate {
     field_mapping_config: {
       input_field: string;
       ground_truth_field: string;
+      ground_truth_transform?: string;
     };
 }
 
@@ -58,6 +62,7 @@ export interface EvaluationTemplateUpdate {
   field_mapping_config: {
     input_field: string;
     ground_truth_field: string;
+    ground_truth_transform?: string;
   };
 }
 

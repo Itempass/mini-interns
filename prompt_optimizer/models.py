@@ -18,6 +18,7 @@ class FieldMappingConfig(BaseModel):
     """Defines how to map fields from the fetched data to evaluation roles."""
     input_field: str = Field(..., description="The key in a single data item to be used as the input for the LLM prompt.")
     ground_truth_field: str = Field(..., description="The key in a single data item to be used as the ground truth for comparison.")
+    ground_truth_transform: Optional[str] = None
 
 
 # --- Database / Core Models ---
@@ -34,8 +35,10 @@ class EvaluationTemplate(BaseModel):
     data_source_config: DataSourceConfig
     field_mapping_config: FieldMappingConfig
     cached_data: List[Dict[str, Any]] = Field(default_factory=list)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    status: str = "processing"
+    processing_error: Optional[str] = None
 
 class EvaluationTemplateLight(BaseModel):
     """A lightweight version of EvaluationTemplate for list views, excluding heavy data."""

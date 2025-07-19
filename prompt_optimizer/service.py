@@ -12,7 +12,7 @@ import ast
 from mcp_servers.imap_mcpserver.src.imap_client.client import get_emails, get_all_labels, get_all_special_use_folders, get_complete_thread, EmailMessage
 from . import database
 
-from .models import EvaluationTemplate, EvaluationTemplateCreate, EvaluationRun, TestCaseResult
+from .models import EvaluationTemplate, EvaluationTemplateCreate, EvaluationRun, TestCaseResult, DataSourceConfig, FieldMappingConfig
 from .llm_client import call_llm, LLMClientError
 
 logger = logging.getLogger(__name__)
@@ -50,6 +50,36 @@ def _parse_llm_output(raw_output: str) -> Dict[str, Any] | str:
         return raw_output
 
 
+def _apply_ground_truth_transform(dataset: List[Dict[str, Any]], field_mapping: "FieldMappingConfig") -> List[Dict[str, Any]]:
+    """Applies a transformation to the ground truth field of a dataset."""
+    ground_truth_field = field_mapping.ground_truth_field
+    transform = field_mapping.ground_truth_transform
+
+    if not ground_truth_field or not transform or transform == "none":
+        return dataset
+
+    logger.info(f"Applying transform '{transform}' to field '{ground_truth_field}'")
+    
+    transformed_dataset = []
+    for item in dataset:
+        new_item = item.copy()
+        original_value = new_item.get(ground_truth_field)
+
+        if original_value is not None:
+            if transform == "join_comma":
+                if isinstance(original_value, list):
+                    new_item[ground_truth_field] = ", ".join(map(str, original_value))
+                # If not a list, do nothing.
+            elif transform == "first_element":
+                if isinstance(original_value, list) and original_value:
+                    new_item[ground_truth_field] = original_value[0]
+                # If not a list or empty, do nothing.
+        
+        transformed_dataset.append(new_item)
+        
+    return transformed_dataset
+
+
 # --- Prompt Template Loading ---
 def _load_prompt_template(filename: str) -> Template:
     """Loads a Jinja2 template from the prompts directory."""
@@ -61,6 +91,44 @@ def _load_prompt_template(filename: str) -> Template:
     except FileNotFoundError:
         logger.error(f"Prompt template file not found: {filename}")
         raise
+
+
+async def process_data_snapshot_background(template_uuid: UUID, user_id: UUID, data_source_config: DataSourceConfig, field_mapping_config: FieldMappingConfig):
+    """
+    Background task to fetch, process, and save the data snapshot for a template.
+    This function is designed to be run by a background task runner (e.g., FastAPI's BackgroundTasks).
+    """
+    logger.info(f"Background task started: processing snapshot for template {template_uuid}")
+    try:
+        # 1. Fetch the full dataset
+        source_id = data_source_config.tool
+        config = data_source_config.params
+        source = data_source_registry.get_source(source_id)
+        dataset = await source.fetch_full_dataset(config, user_id)
+        
+        if not dataset:
+            logger.warning(f"Data source returned no data for template {template_uuid}. Saving empty snapshot.")
+
+        # 2. Apply transformations
+        transformed_dataset = _apply_ground_truth_transform(dataset, field_mapping_config)
+
+        # 3. Update the database with the data and "completed" status
+        database.update_template_snapshot_data(
+            uuid=template_uuid,
+            cached_data=transformed_dataset,
+            status="completed"
+        )
+        logger.info(f"Background task finished successfully for template {template_uuid}")
+
+    except Exception as e:
+        logger.error(f"Background task failed for template {template_uuid}: {e}", exc_info=True)
+        # Update the database with "failed" status and the error message
+        database.update_template_snapshot_data(
+            uuid=template_uuid,
+            cached_data=[],
+            status="failed",
+            error_message=str(e)
+        )
 
 
 # --- Data Source Abstraction ---
@@ -256,90 +324,47 @@ async def get_data_source_config_schema(source_id: str, user_id: UUID) -> Dict[s
     return await source.get_config_schema(user_id)
 
 async def fetch_data_source_sample(source_id: str, config: Dict[str, Any], user_id: UUID) -> Dict[str, Any]:
-    """Fetches a sample data item from a given data source using the provided config."""
+    """Public-facing function to fetch a single sample data item."""
     source = data_source_registry.get_source(source_id)
     return await source.fetch_sample(config, user_id)
 
 
-async def create_template_with_snapshot(
-    create_request: EvaluationTemplateCreate,
+async def update_template_with_snapshot(
+    template: EvaluationTemplate,
+    update_request: EvaluationTemplateCreate,
     user_id: UUID
 ) -> EvaluationTemplate:
     """
-    Orchestrates the creation of a new EvaluationTemplate.
-    1. Fetches the full dataset from the specified source to create a snapshot.
-    2. Creates the full EvaluationTemplate model with the data snapshot.
-    3. Saves it to the database.
+    Updates an existing evaluation template.
+
+    If the data source configuration has changed, it sets the status to 'processing'
+    and returns immediately, relying on a background task to fetch the new data.
+    Otherwise, it just updates the metadata.
     """
-    logger.info(f"Creating evaluation template '{create_request.name}' for user {user_id}")
+    # Check if the data source config has actually changed.
+    # We compare the incoming request's config with the stored template's config.
+    if update_request.data_source_config != template.data_source_config:
+        logger.info(f"Data source config changed for template {template.uuid}. Refetching data in background.")
+        # Config has changed. Update metadata, set status to 'processing', and let the background task handle data.
+        template.name = update_request.name
+        template.description = update_request.description
+        template.data_source_config = update_request.data_source_config
+        template.field_mapping_config = update_request.field_mapping_config
+        template.status = "processing" # This signals the background task to run
+        template.cached_data = [] # Clear out the old data
+        template.processing_error = None
+        template.updated_at = datetime.now(timezone.utc)
+    else:
+        logger.info(f"Data source config unchanged for template {template.uuid}. Updating metadata only.")
+        # Config is the same. Just update the name and description.
+        template.name = update_request.name
+        template.description = update_request.description
+        template.field_mapping_config = update_request.field_mapping_config # Allow field mapping to change without refetch
+        template.updated_at = datetime.now(timezone.utc)
 
-    # Step 1: Fetch the data for the static snapshot using the new abstraction.
-    source_id = create_request.data_source_config.tool # Re-purposing 'tool' as the source_id
-    source = data_source_registry.get_source(source_id)
-    
-    cached_data = await source.fetch_full_dataset(
-        config=create_request.data_source_config.params,
-        user_id=user_id
-    )
-
-    if not cached_data:
-        logger.warning(f"Evaluation template '{create_request.name}' was created with an empty data snapshot.")
-
-    # Step 2: Create the full EvaluationTemplate object.
-    new_template = EvaluationTemplate(
-        user_id=user_id,
-        name=create_request.name,
-        description=create_request.description,
-        data_source_config=create_request.data_source_config,
-        field_mapping_config=create_request.field_mapping_config,
-        cached_data=cached_data
-    )
-
-    # Step 3: Save the complete template to the database.
-    try:
-        created_template = database.create_evaluation_template(new_template)
-        logger.info(f"Successfully saved new evaluation template {created_template.uuid}")
-        return created_template
-    except Exception as e:
-        logger.error(f"Error creating evaluation template {create_request.name}: {e}", exc_info=True)
-        raise
-
-async def update_template_with_snapshot(
-    template: EvaluationTemplate,
-) -> EvaluationTemplate:
-    """
-    Orchestrates the update of an existing EvaluationTemplate.
-    1. Re-fetches the full dataset to create a new snapshot if the config has changed.
-    2. Updates the timestamp.
-    3. Saves the updated template to the database.
-    """
-    logger.info(f"Updating evaluation template '{template.name}' for user {template.user_id}")
-
-    # Step 1: Re-fetch the data for the static snapshot.
-    source_id = template.data_source_config.tool
-    source = data_source_registry.get_source(source_id)
-    
-    cached_data = await source.fetch_full_dataset(
-        config=template.data_source_config.params,
-        user_id=template.user_id
-    )
-
-    if not cached_data:
-        logger.warning(f"Evaluation template '{template.name}' is being updated with an empty data snapshot.")
-
-    # Update the cached data and the timestamp
-    template.cached_data = cached_data
-    template.updated_at = datetime.utcnow()
-
-
-    # Step 2: Save the updated template to the database.
-    try:
-        updated_template = database.update_evaluation_template(template)
-        logger.info(f"Successfully updated evaluation template {updated_template.uuid}")
-        return updated_template
-    except Exception as e:
-        logger.error(f"Error updating evaluation template {template.uuid}: {e}", exc_info=True)
-        raise
+    # Save the changes to the database
+    updated_template = database.update_evaluation_template(template)
+    return updated_template
 
 
 # --- Evaluation Helper Functions ---

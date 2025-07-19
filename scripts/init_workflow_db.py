@@ -27,6 +27,18 @@ def init_workflow_db():
             
             cursor = conn.cursor()
 
+            # --- Start of Evaluation Template Polling Status Migration ---
+            cursor.execute("SELECT COUNT(*) FROM information_schema.columns WHERE table_name = 'evaluation_templates' AND column_name = 'status' AND table_schema = %s", (settings.MYSQL_DATABASE,))
+            if cursor.fetchone()[0] == 0:
+                logger.info("Adding 'status' column to 'evaluation_templates'...")
+                cursor.execute("ALTER TABLE evaluation_templates ADD COLUMN status VARCHAR(50) DEFAULT 'completed'")
+
+            cursor.execute("SELECT COUNT(*) FROM information_schema.columns WHERE table_name = 'evaluation_templates' AND column_name = 'processing_error' AND table_schema = %s", (settings.MYSQL_DATABASE,))
+            if cursor.fetchone()[0] == 0:
+                logger.info("Adding 'processing_error' column to 'evaluation_templates'...")
+                cursor.execute("ALTER TABLE evaluation_templates ADD COLUMN processing_error TEXT")
+            # --- End of Evaluation Template Polling Status Migration ---
+
             # --- Start of Targeted Migration ---
             # Check if the 'created_at' column exists in 'evaluation_runs'
             cursor.execute("""

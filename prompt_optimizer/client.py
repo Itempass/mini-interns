@@ -33,28 +33,31 @@ def list_templates_light(user_id: UUID) -> List[EvaluationTemplateLight]:
     """
     return database.list_evaluation_templates_light(user_id)
 
-async def create_template(
+def create_template(
     create_request: EvaluationTemplateCreate,
     user_id: UUID
 ) -> EvaluationTemplate:
     """
-    Public client function to create a new Evaluation Template.
-    This orchestrates fetching the data snapshot and saving the template.
+    Public client function to create a new Evaluation Template record
+    in the database with a 'processing' status.
     """
-    return await service.create_template_with_snapshot(create_request, user_id)
+    new_template = EvaluationTemplate(
+        user_id=user_id,
+        name=create_request.name,
+        description=create_request.description,
+        data_source_config=create_request.data_source_config,
+        field_mapping_config=create_request.field_mapping_config,
+    )
+    return database.create_evaluation_template(new_template)
 
-async def update_template(
-    template: EvaluationTemplate,
-    user_id: UUID
-) -> EvaluationTemplate:
-    """
-    Public client function to update an existing Evaluation Template.
-    This orchestrates re-fetching the data snapshot and saving the template.
-    """
-    # Ensure the user ID matches the one making the request for security.
+
+async def update_template(template: EvaluationTemplate, update_request: EvaluationTemplateCreate, user_id: UUID) -> EvaluationTemplate:
+    # Check for permissions before proceeding
     if template.user_id != user_id:
-        raise PermissionError("User not authorized to update this template.")
-    return await service.update_template_with_snapshot(template)
+        raise PermissionError("User does not have permission to update this template.")
+    
+    # The service layer will handle the logic of whether to refetch data or not
+    return await service.update_template_with_snapshot(template, update_request, user_id)
 
 
 def list_templates(user_id: UUID) -> List[EvaluationTemplate]:

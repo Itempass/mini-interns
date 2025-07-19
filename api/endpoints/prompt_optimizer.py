@@ -95,19 +95,31 @@ async def fetch_data_source_sample(
     status_code=201,
     summary="Create a new Evaluation Template"
 )
-async def create_evaluation_template(
+def create_evaluation_template(
     create_request: EvaluationTemplateCreate,
+    background_tasks: BackgroundTasks,
     user_id: UUID = Depends(get_current_user_id)
 ):
     """
     Creates a new Evaluation Template.
 
-    This endpoint is the final step in the process. It takes the user's
-    complete configuration, fetches the full dataset to create a static
-    snapshot, and saves the template to the database.
+    This endpoint creates a template record with a "processing" status,
+    then adds a background task to fetch and process the actual data snapshot.
+    The client should poll the template's status until it becomes "completed".
     """
     try:
-        created_template = await prompt_optimizer_client.create_template(create_request, user_id)
+        # This now only creates the template with "processing" status
+        created_template = prompt_optimizer_client.create_template(create_request, user_id)
+        
+        # Add the heavy data processing to a background task
+        background_tasks.add_task(
+            service.process_data_snapshot_background,
+            template_uuid=created_template.uuid,
+            user_id=user_id,
+            data_source_config=created_template.data_source_config,
+            field_mapping_config=created_template.field_mapping_config
+        )
+        
         return created_template
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to create evaluation template: {e}")
@@ -120,6 +132,7 @@ async def create_evaluation_template(
 async def update_evaluation_template(
     template_uuid: UUID,
     template_update: EvaluationTemplateCreate, # Use the create model for the body
+    background_tasks: BackgroundTasks,
     user_id: UUID = Depends(get_current_user_id)
 ):
     """
@@ -129,17 +142,23 @@ async def update_evaluation_template(
     create a new static snapshot, and saves the updated template.
     """
     try:
-        # Construct the full template object for the update
-        full_template_data = EvaluationTemplate(
-            uuid=template_uuid,
-            user_id=user_id,
-            name=template_update.name,
-            description=template_update.description,
-            data_source_config=template_update.data_source_config,
-            field_mapping_config=template_update.field_mapping_config,
-            # cached_data will be populated by the service
-        )
-        updated_template = await prompt_optimizer_client.update_template(full_template_data, user_id)
+        template = prompt_optimizer_client.get_template(template_uuid, user_id)
+        if not template:
+            raise HTTPException(status_code=404, detail="Evaluation template not found")
+
+        # This now only updates the metadata and sets status to "processing" if needed
+        updated_template = await prompt_optimizer_client.update_template(template, template_update, user_id)
+
+        # If the status was set to processing, it means we need to refetch the data
+        if updated_template.status == "processing":
+            background_tasks.add_task(
+                service.process_data_snapshot_background,
+                template_uuid=updated_template.uuid,
+                user_id=user_id,
+                data_source_config=updated_template.data_source_config,
+                field_mapping_config=updated_template.field_mapping_config
+            )
+
         return updated_template
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e))

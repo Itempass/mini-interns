@@ -38,6 +38,7 @@ const CreateEvaluationTemplateModal: React.FC<CreateEvaluationTemplateModalProps
     { name: 'Configure' },
     { name: 'Map Fields' },
     { name: 'Name & Save' },
+    { name: 'Run Evaluation' },
     { name: 'Finish' },
   ];
 
@@ -50,6 +51,7 @@ const CreateEvaluationTemplateModal: React.FC<CreateEvaluationTemplateModalProps
   const [sampleDataKeys, setSampleDataKeys] = useState<string[]>([]);
   const [inputField, setInputField] = useState<string>('');
   const [groundTruthField, setGroundTruthField] = useState<string>('');
+  const [groundTruthTransform, setGroundTruthTransform] = useState<string>('none');
   
   // Step 4 state
   const [templateName, setTemplateName] = useState('');
@@ -60,9 +62,39 @@ const CreateEvaluationTemplateModal: React.FC<CreateEvaluationTemplateModalProps
   const [currentRun, setCurrentRun] = useState<EvaluationRun | null>(null);
   const [isPolling, setIsPolling] = useState(false);
 
+  // New state for data snapshot polling
+  const [pollingTemplateUuid, setPollingTemplateUuid] = useState<string | null>(null);
+  const [isPollingData, setIsPollingData] = useState(false);
+
 
   // Step 5 state (Success)
   const [createdTemplate, setCreatedTemplate] = useState<EvaluationTemplate | null>(null);
+
+  const transformations = [
+    { id: 'none', name: 'None' },
+    { id: 'join_comma', name: 'Join array with comma' },
+    { id: 'first_element', name: 'Extract first element from array' },
+  ];
+
+  const applyTransform = (value: any, transform: string): any => {
+    if (value === undefined || value === null) return value;
+
+    switch (transform) {
+        case 'join_comma':
+            if (Array.isArray(value)) {
+                return value.join(', ');
+            }
+            return value;
+        case 'first_element':
+            if (Array.isArray(value) && value.length > 0) {
+                return value[0];
+            }
+            return value;
+        case 'none':
+        default:
+            return value;
+    }
+  };
 
   // Function to check for changes
   const checkForChanges = useCallback(() => {
@@ -83,7 +115,8 @@ const CreateEvaluationTemplateModal: React.FC<CreateEvaluationTemplateModalProps
       },
       field_mapping_config: {
         input_field: inputField,
-        ground_truth_field: groundTruthField
+        ground_truth_field: groundTruthField,
+        ground_truth_transform: groundTruthTransform === 'none' ? undefined : groundTruthTransform
       }
     };
 
@@ -100,7 +133,7 @@ const CreateEvaluationTemplateModal: React.FC<CreateEvaluationTemplateModalProps
     } else {
         setIsDirty(false);
     }
-  }, [mode, editingTemplate, templateName, templateDescription, selectedDataSource, configValues, inputField, groundTruthField]);
+  }, [mode, editingTemplate, templateName, templateDescription, selectedDataSource, configValues, inputField, groundTruthField, groundTruthTransform]);
 
   // Effect to run the check whenever a dependency changes
   useEffect(() => {
@@ -120,6 +153,7 @@ const CreateEvaluationTemplateModal: React.FC<CreateEvaluationTemplateModalProps
       setConfigSchema(null);
       setSampleData(null);
       setCreatedTemplate(null);
+      setGroundTruthTransform('none');
 
       setIsLoading(true);
       Promise.all([
@@ -163,6 +197,7 @@ const CreateEvaluationTemplateModal: React.FC<CreateEvaluationTemplateModalProps
       setTemplateDescription(fullTemplate.description || '');
       setInputField(fullTemplate.field_mapping_config.input_field);
       setGroundTruthField(fullTemplate.field_mapping_config.ground_truth_field);
+      setGroundTruthTransform(fullTemplate.field_mapping_config.ground_truth_transform || 'none');
       
       // Need to fetch the config schema to be able to render the config step
       const schema = await getDataSourceConfigSchema(fullTemplate.data_source_config.tool);
@@ -237,7 +272,42 @@ const CreateEvaluationTemplateModal: React.FC<CreateEvaluationTemplateModalProps
     }, 3000); // Poll every 3 seconds
 
     return () => clearInterval(interval);
-  }, [isPolling, currentRun]);
+  }, [isPolling, currentRun, getEvaluationRun]);
+
+
+  // Effect for polling template creation status
+  useEffect(() => {
+    if (!isPollingData || !pollingTemplateUuid) return;
+
+    const interval = setInterval(async () => {
+      try {
+        const template = await getEvaluationTemplate(pollingTemplateUuid);
+        if (template.status === 'completed') {
+          setIsPollingData(false);
+          setCreatedTemplate(template);
+          setIsLoading(false);
+          setStep(5); // Move to success step
+          clearInterval(interval);
+        } else if (template.status === 'failed') {
+          setIsPollingData(false);
+          setIsLoading(false);
+          setErrorMessage(template.processing_error || 'Data processing failed. Please check the logs.');
+          setStep(4); // Go back to the save step to show the error
+          clearInterval(interval);
+        }
+        // If status is "processing", we just continue polling.
+      } catch (error) {
+        console.error("Template status polling failed", error);
+        setErrorMessage('Failed to get template creation status.');
+        setIsPollingData(false);
+        setIsLoading(false);
+        clearInterval(interval);
+        setStep(4);
+      }
+    }, 3000); // Poll every 3 seconds
+
+    return () => clearInterval(interval);
+  }, [isPollingData, pollingTemplateUuid, getEvaluationTemplate]);
 
 
   const handleCreateNewClick = async () => {
@@ -323,7 +393,8 @@ const CreateEvaluationTemplateModal: React.FC<CreateEvaluationTemplateModalProps
         },
         field_mapping_config: {
             input_field: inputField,
-            ground_truth_field: groundTruthField
+            ground_truth_field: groundTruthField,
+            ground_truth_transform: groundTruthTransform === 'none' ? undefined : groundTruthTransform,
         }
     };
 
@@ -339,7 +410,6 @@ const CreateEvaluationTemplateModal: React.FC<CreateEvaluationTemplateModalProps
     try {
         let savedTemplate;
         if (mode === 'edit' && editingTemplate) {
-            // Only save if something has actually changed.
             if (isDirty) {
                  savedTemplate = await updateEvaluationTemplate(editingTemplate.uuid, templateData);
             } else {
@@ -348,9 +418,21 @@ const CreateEvaluationTemplateModal: React.FC<CreateEvaluationTemplateModalProps
         } else {
             savedTemplate = await createEvaluationTemplate(templateData as EvaluationTemplateCreate);
         }
-        setCreatedTemplate(savedTemplate);
-        setStep(5); // Move to the success step
+
+        // When creating a new template, always go to the processing step to await the background job.
+        // For edits, the status determines the next step.
+        if (mode === 'new' || savedTemplate.status === 'processing') {
+            setPollingTemplateUuid(savedTemplate.uuid);
+            setIsPollingData(true);
+            setStep(8); // Move to the new "processing" step
+        } else if (savedTemplate.status === 'completed') {
+            setCreatedTemplate(savedTemplate);
+            setStep(5); // This handles edits where data wasn't refetched
+        } else { // status === 'failed' or something unexpected
+            setErrorMessage(savedTemplate.processing_error || "An unknown error occurred during template creation.");
+        }
     } catch (err) {
+        console.error("DEBUG: Error in handleSave:", err);
         setErrorMessage(err.message || 'An unknown error occurred');
     } finally {
         setIsLoading(false);
@@ -496,6 +578,25 @@ const CreateEvaluationTemplateModal: React.FC<CreateEvaluationTemplateModalProps
                                 {sampleDataKeys.map(key => <option key={key} value={key}>{key}</option>)}
                             </select>
                         </div>
+                        <div>
+                          <label className="block text-sm font-medium">Ground Truth Post-processing</label>
+                          <select value={groundTruthTransform} onChange={e => setGroundTruthTransform(e.target.value)} className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md">
+                              {transformations.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                          </select>
+                        </div>
+                         <div className="mt-4 p-3 bg-gray-50 border border-gray-200 rounded-md">
+                             <h4 className="text-sm font-medium text-gray-600">Preview</h4>
+                             <div className="mt-2 space-y-1 text-xs bg-white p-2 rounded overflow-auto max-h-28">
+                                 <p className="break-words">
+                                     <span className="font-semibold text-gray-500">Original:</span>
+                                     <span> {JSON.stringify(sampleData[groundTruthField])}</span>
+                                 </p>
+                                 <p className="break-words">
+                                     <span className="font-semibold text-gray-500">Transformed:</span>
+                                     <span> {JSON.stringify(applyTransform(sampleData[groundTruthField], groundTruthTransform))}</span>
+                                 </p>
+                             </div>
+                         </div>
                     </div>
                 : <p className="text-sm text-gray-600 mt-4">No sample data found for this configuration. Try adjusting your parameters in the previous step.</p>)
             }
@@ -549,22 +650,33 @@ const CreateEvaluationTemplateModal: React.FC<CreateEvaluationTemplateModalProps
                 </div>
             </div>
         );
-      case 5: // Success and Download
+      case 5: // Run Evaluation
         return (
           <div>
-                <h3 className="text-lg font-medium text-green-700">Template Created Successfully!</h3>
+            <h3 className="text-lg font-medium text-green-700">Template Ready for Evaluation</h3>
             <p className="mt-2 text-sm text-gray-600">
-                    Your template "{createdTemplate?.name}" has been saved with a snapshot of {createdTemplate?.cached_data?.length || 0} records.
-                </p>
-                <div className="mt-6">
-                    <button
-                        onClick={handleDownloadSuccessSnapshot}
-                        className="w-full flex items-center justify-center px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md hover:bg-blue-700"
-                    >
-                        <Download className="mr-2 h-4 w-4" />
-                        Download Snapshot (.json)
-                    </button>
-                </div>
+              Your template "{createdTemplate?.name}" has been created with {createdTemplate?.cached_data?.length || 0} records. You can now run an evaluation or download the data snapshot.
+            </p>
+            <div className="mt-6 border-t pt-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <button
+                      onClick={() => createdTemplate && handleRunEvaluation(createdTemplate)}
+                      disabled={!createdTemplate || isLoading}
+                      className="w-full flex items-center justify-center px-4 py-3 text-sm font-medium text-white bg-green-600 border border-transparent rounded-md hover:bg-green-700 disabled:bg-green-300 disabled:cursor-not-allowed"
+                  >
+                      <X className="mr-2 h-4 w-4" />
+                      Run Evaluation
+                  </button>
+                  <button
+                      onClick={handleDownloadSuccessSnapshot}
+                      disabled={!createdTemplate}
+                      className="w-full flex items-center justify-center px-4 py-3 text-sm font-medium text-blue-700 bg-blue-100 border border-transparent rounded-md hover:bg-blue-200 disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed"
+                  >
+                      <Download className="mr-2 h-4 w-4" />
+                      Download Snapshot
+                  </button>
+              </div>
+            </div>
           </div>
         );
       case 6: // Running Evaluation
@@ -575,11 +687,20 @@ const CreateEvaluationTemplateModal: React.FC<CreateEvaluationTemplateModalProps
                 <p className="mt-2 text-sm text-gray-600">
                     Evaluating <span className="font-semibold">{runningTemplate?.name}</span>. This may take a few minutes.
                 </p>
-                <p className="mt-1 text-xs text-gray-500">You can safely close this window; the process will continue in the background.</p>
             </div>
         );
       case 7: // Results
         return <EvaluationResultsView run={currentRun} onClose={onClose} />;
+      case 8: // Processing Data Snapshot
+        return (
+            <div className="text-center p-8">
+                <Loader2 className="h-12 w-12 text-blue-600 animate-spin mx-auto" />
+                <h3 className="mt-4 text-lg font-medium text-gray-900">Processing Dataset...</h3>
+                <p className="mt-2 text-sm text-gray-600">
+                    We're fetching and preparing your data. This may take a few minutes.
+                </p>
+            </div>
+        );
       default:
         return null;
     }
@@ -588,6 +709,13 @@ const CreateEvaluationTemplateModal: React.FC<CreateEvaluationTemplateModalProps
   if (!isOpen) {
     return null;
   }
+
+  // Map internal step state to the visual step in the sidebar
+  let displayStep = step;
+  if (step === 6) displayStep = 5; // "Running..." loader should keep "Run Evaluation" active
+  if (step === 7) displayStep = 6; // "Results" view is the "Finish" step
+  if (step === 8) displayStep = 4; // "Processing..." loader should keep "Name & Save" active
+
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
@@ -614,7 +742,7 @@ const CreateEvaluationTemplateModal: React.FC<CreateEvaluationTemplateModalProps
           </div>}
           <div className="mt-6 flex space-x-8">
             <div className="w-1/4">
-              <StepSidebar steps={steps} currentStep={step} onStepClick={handleStepClick} />
+              <StepSidebar steps={steps} currentStep={displayStep} onStepClick={handleStepClick} />
             </div>
             <div className="w-3/4 pr-4">
                 <div className="min-h-[400px]">

@@ -1,14 +1,18 @@
+-- Describes the schema for the prompt_optimizer service.
+
 -- Stores the user-defined configuration for an evaluation dataset.
 CREATE TABLE IF NOT EXISTS evaluation_templates (
-    uuid CHAR(36) PRIMARY KEY,
-    user_id CHAR(36) NOT NULL,
+    uuid VARCHAR(36) PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
     description TEXT,
-    data_source_config JSON NOT NULL, -- e.g., {"tool": "imap.get_emails", "params": {"folder": "INBOX"}}
-    field_mapping_config JSON NOT NULL, -- e.g., {"input_field": "body_cleaned", "ground_truth_field": "labels"}
-    cached_data JSON NOT NULL, -- A snapshot of the data fetched using the config above.
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    user_id VARCHAR(36) NOT NULL,
+    data_source_config JSON,
+    field_mapping_config JSON,
+    cached_data JSON,
+    created_at TIMESTAMP,
+    updated_at TIMESTAMP,
+    status VARCHAR(50) DEFAULT 'completed',
+    processing_error TEXT
 );
 
 -- Add an index to optimize sorting and filtering by user and last update time.
@@ -21,7 +25,7 @@ CREATE TABLE IF NOT EXISTS evaluation_runs (
     user_id CHAR(36) NOT NULL,
     original_prompt TEXT NOT NULL,
     original_model VARCHAR(255) NOT NULL,
-    status VARCHAR(50) NOT NULL, -- e.g., 'running', 'completed', 'failed'
+    status VARCHAR(255) NOT NULL, -- e.g., 'running', 'completed', 'failed'
     summary_report JSON, -- e.g., {"v1_accuracy": 0.85, "v2_accuracy": 0.95}
     detailed_results JSON, -- Stores an array of all test cases and the refined prompt
     started_at TIMESTAMP,

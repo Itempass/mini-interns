@@ -7,7 +7,7 @@ import mysql.connector
 
 from shared.config import settings
 from .models import EvaluationTemplate, EvaluationTemplateLight, EvaluationRun
-from datetime import timezone
+from datetime import timezone, datetime
 
 logger = logging.getLogger(__name__)
 
@@ -34,8 +34,9 @@ def create_evaluation_template(template: EvaluationTemplate) -> EvaluationTempla
             sql = """
             INSERT INTO evaluation_templates (
                 uuid, user_id, name, description, data_source_config,
-                field_mapping_config, cached_data, created_at, updated_at
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                field_mapping_config, cached_data, created_at, updated_at,
+                status, processing_error
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """
             
             # Serialize Pydantic models and lists to JSON strings
@@ -52,7 +53,9 @@ def create_evaluation_template(template: EvaluationTemplate) -> EvaluationTempla
                 field_mapping_config_str,
                 cached_data_str,
                 template.created_at,
-                template.updated_at
+                template.updated_at,
+                template.status,
+                template.processing_error
             ))
             conn.commit()
             return template
@@ -103,6 +106,35 @@ def update_evaluation_template(template: EvaluationTemplate) -> EvaluationTempla
             return template
     except mysql.connector.Error as err:
         logger.error(f"Error updating evaluation template {template.uuid}: {err}")
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+def update_template_snapshot_data(uuid: UUID, cached_data: list, status: str, error_message: Optional[str] = None):
+    """Updates the cached_data, status, and processing_error fields for a specific template."""
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cursor:
+            sql = """
+            UPDATE evaluation_templates SET
+                cached_data = %s,
+                status = %s,
+                processing_error = %s,
+                updated_at = %s
+            WHERE uuid = %s
+            """
+            cursor.execute(sql, (
+                json.dumps(cached_data),
+                status,
+                error_message,
+                datetime.now(timezone.utc).isoformat(),
+                str(uuid)
+            ))
+            conn.commit()
+            logger.info(f"Successfully updated snapshot data for template {uuid}")
+    except mysql.connector.Error as err:
+        logger.error(f"Error updating template snapshot data for {uuid}: {err}")
         conn.rollback()
         raise
     finally:
