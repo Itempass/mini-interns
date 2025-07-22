@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0] - 2025-07-23
+
+### Added
+- **Interactive Workflow Agent**: A new agent to guide users through creating workflows step-by-step.
+- **Redesigned Workflow UI**: A new three-column layout for a more intuitive workflow building experience.
+- **Prompt Optimization Engine (Experimental)**: An engine to refine and evaluate prompts for LLM steps.
+- **Human-in-the-Loop for Feature Requests**: A mechanism for the agent to request human input.
+- **Structured Logging**: A new hierarchical logging system for better traceability.
+- **MCP Servers Settings**: A new placeholder section in the settings page to manage MCP servers (future update).
+- **Email Label Description Generation**: A tool to automatically generate descriptions for email labels (somewhat experimental).
+
+### Changed
+- **Workflow Creation**: Replaced static agent configuration with a dynamic, multi-step process.
+- **UI/UX**: Consistent layout, improved navigation, and real-time updates for a better user experience.
+- **Tagline**: Updated the tagline to "the opensource agent factory" and added a link to the GitHub page in the top bar.
+
+### Fixed
+- **Log Sorting**: Corrected log sorting in the UI.
+- **Email Label Parsing**: Fixed email label parsing for evaluation datasets in the prompt optimizer.
+- **IMAP Connection**: Added a warning if IMAP is not yet connected in the settings UI.
+- **Authentication**: Addressed an issue with the authentication middleware on Coolify deployments.
+- **Revectorization**: Fixed a bug in the revectorization script for fresh installs.
+- **Label Extraction**: Made label extraction in the email labeler language-agnostic.
+
+### Refactor
+- **API and Backend**: Refactored API endpoints and backend services to support the new workflow structure.
+- **Frontend Components**: Broke down large components into smaller, reusable ones for better maintainability.
+- **Logging**: Adapted the external logger to the new workflow structure and refactored the feedback UI.
+- **Workflow Logs**: Updated the workflow logs component UI and styling.
+- **Workflow Step UI**: Improved the workflow step creation UI and UX.
+
 ## [0.0.3] - 2025-07-09
 
 ### Added
@@ -94,6 +125,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Version display on the frontend settings page.
 - Created `CHANGELOG.md` to document changes.
 
-[Unreleased]: https://github.com/Itempass/mini-interns/compare/v0.0.3...HEAD
+[Unreleased]: https://github.com/Itempass/mini-interns/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/Itempass/mini-interns/compare/v0.0.3...v0.1.0
 [0.0.3]: https://github.com/Itempass/mini-interns/compare/v0.0.2...v0.0.3
 [0.0.2]: https://github.com/Itempass/mini-interns/compare/v0.0.1...v0.0.2 
