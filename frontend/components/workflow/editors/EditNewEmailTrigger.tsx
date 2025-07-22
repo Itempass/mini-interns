@@ -105,7 +105,7 @@ const EditNewEmailTrigger: React.FC<EditNewEmailTriggerProps> = ({ trigger, onSa
             rows={2} 
             className="mt-1 block w-full rounded-md border-gray-400 shadow-sm sm:text-sm p-2 border" 
           />
-          <p className="text-xs text-gray-600 mt-1">Stop processing emails from these specific addresses. Ex: spam@example.com, junk@mail.net</p>
+          <p className="text-xs text-gray-600 mt-1">Do not trigger if a new emails is coming from these specific addresses. Ex: spam@example.com, junk@mail.net</p>
           {filterErrors.email_blacklist && <p className="text-xs text-red-600 mt-1">{filterErrors.email_blacklist}</p>}
         </div>
         
@@ -118,7 +118,7 @@ const EditNewEmailTrigger: React.FC<EditNewEmailTriggerProps> = ({ trigger, onSa
             rows={2} 
             className="mt-1 block w-full rounded-md border-gray-400 shadow-sm sm:text-sm p-2 border" 
           />
-          <p className="text-xs text-gray-600 mt-1">If used, only emails from these addresses will proceed. Ex: boss@mycompany.com</p>
+          <p className="text-xs text-gray-600 mt-1">If used, only emails from these addresses will trigger the agent. Ex: boss@mycompany.com</p>
           {filterErrors.email_whitelist && <p className="text-xs text-red-600 mt-1">{filterErrors.email_whitelist}</p>}
         </div>
         
@@ -131,7 +131,7 @@ const EditNewEmailTrigger: React.FC<EditNewEmailTriggerProps> = ({ trigger, onSa
             rows={2} 
             className="mt-1 block w-full rounded-md border-gray-400 shadow-sm sm:text-sm p-2 border" 
           />
-          <p className="text-xs text-gray-600 mt-1">Stop processing emails from these domains. Ex: evil-corp.com, bad-actors.org</p>
+          <p className="text-xs text-gray-600 mt-1">Do not trigger if a new emails is coming from these specific domains. Ex: evil-corp.com, bad-actors.org</p>
           {filterErrors.domain_blacklist && <p className="text-xs text-red-600 mt-1">{filterErrors.domain_blacklist}</p>}
         </div>
         
@@ -144,7 +144,7 @@ const EditNewEmailTrigger: React.FC<EditNewEmailTriggerProps> = ({ trigger, onSa
             rows={2} 
             className="mt-1 block w-full rounded-md border-gray-400 shadow-sm sm:text-sm p-2 border" 
           />
-          <p className="text-xs text-gray-600 mt-1">If used, only emails from these domains will proceed. Ex: mycompany.com</p>
+          <p className="text-xs text-gray-600 mt-1">If used, only emails from these domains will trigger the agent. Ex: mycompany.com</p>
           {filterErrors.domain_whitelist && <p className="text-xs text-red-600 mt-1">{filterErrors.domain_whitelist}</p>}
         </div>
       </div>
