@@ -1,5 +1,5 @@
 {
   "name": "Repetitive Emaildrafter",
   "description": "Create a draft ONLY for repetitive emails. The agent first searches for similar emails you have answered before. ",
-  "workflow_start_message": "Let's build a repetitive email drafter workflow. Here is a template you can follow: \n \n 1. Trigger: new email \n 2. Agent Step: use tool find_similar_threads to find similar emails \n 3. LLM Step: Give output of trigger and of previous step to LLM to create a similar draft \n 4. Agent Step: add this draft as a reply using draft_reply tool"
+  "workflow_start_message": "Let's build a repetitive email drafter workflow. Here is a template you can follow: \n \n 1. Trigger: new email \n 2. Agent Step: use tool find_similar_threads to find similar emails \n 3. LLM Step: check if a reply is needed \n 4. Stop check: if no reply is needed, stop the workflow \n 5. LLM Step: Give output of trigger and of similar emails step to LLM to create a similar draft \n 6. Agent Step: add this draft as a reply using draft_reply tool"
 } 
