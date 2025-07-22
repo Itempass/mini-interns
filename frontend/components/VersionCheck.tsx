@@ -31,29 +31,21 @@ const VersionCheck = () => {
         checkVersion();
     }, []);
 
+    const handleClick = () => {
+        window.open('https://github.com/Itempass/mini-interns/releases', '_blank', 'noopener,noreferrer');
+    };
+
     if (!isUpdateAvailable) {
         return null;
     }
 
     return (
-        <div style={{
-            backgroundColor: '#FFFBEB', // A light yellow, less intrusive than bright red/green
-            color: '#92400E', // A dark amber color for text
-            padding: '8px 16px',
-            textAlign: 'center',
-            fontSize: '14px',
-            borderBottom: '1px solid #FDE68A' // A slightly darker yellow for the border
-        }}>
-            A new version ({latestVersion}) is available! See what's new on the{' '}
-            <a 
-                href="https://github.com/Itempass/mini-interns/releases" 
-                target="_blank" 
-                rel="noopener noreferrer"
-                style={{ color: '#92400E', textDecoration: 'underline' }}
-            >
-                releases page
-            </a>.
-        </div>
+        <button
+            onClick={handleClick}
+            className="ml-3 px-2 py-1 bg-amber-100 text-amber-800 text-xs font-medium rounded-full border border-amber-200 hover:bg-amber-200 transition-colors cursor-pointer"
+        >
+            version {latestVersion} is available!
+        </button>
     );
 };
 

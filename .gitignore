@@ -12,6 +12,7 @@ __pycache__/
 /data/redis/
 /data/qdrant/
 /data/keys/
+/data/mysql/
 .env
 
 # Node
@@ -32,3 +33,5 @@ frontend/.next/
 
 .auth_password.key
 .key
+# Docker local override
+docker-compose.override.yaml

@@ -189,8 +189,13 @@ def _get_complete_thread_sync(message_id: str) -> Optional[EmailThread]:
                     labels_match = re.search(r'X-GM-LABELS \(([^)]+)\)', header_info)
                     if labels_match:
                         labels_str = labels_match.group(1)
-                        labels = re.findall(r'"([^"]*)"', labels_str)
-                        labels = [label.replace('\\\\', '\\') for label in labels]
+                        # This regex handles both quoted labels (possibly with spaces)
+                        # and unquoted labels. It returns a list of tuples, where one
+                        # element is the matched label and the other is empty.
+                        matches = re.findall(r'"([^"\\]*(?:\\.[^"\\]*)*)"|(\S+)', labels_str)
+                        # We flatten the list of tuples into a clean list of strings.
+                        raw_labels = [group1 or group2 for group1, group2 in matches]
+                        labels = [label.replace('\\\\', '\\') for label in raw_labels]
 
                     # Skip draft messages (no Message-ID or has \Draft label)
                     if not message_id_header or '\\Draft' in labels:
@@ -231,13 +236,88 @@ def _get_complete_thread_sync(message_id: str) -> Optional[EmailThread]:
             
             # Step 6: Create EmailThread from messages
             if messages:
-                return EmailThread.from_messages(messages, gmail_thread_id)
+                thread = EmailThread.from_messages(messages, gmail_thread_id)
+
+                # Step 7: Get all user-defined labels from the entire thread
+                all_special_use_attributes = list(resolver.SPECIAL_USE_ATTRIBUTES) + list(resolver.FALLBACK_MAP.keys())
+                
+                resolved_special_folders = set()
+                for attr in all_special_use_attributes:
+                    try:
+                        resolved_special_folders.add(attr)
+                        resolved_special_folders.add(resolver.get_folder_by_attribute(attr))
+                    except FolderNotFoundError:
+                        continue
+
+                # Collect labels from all messages in the thread
+                all_labels_in_thread = set()
+                for message in thread.messages:
+                    all_labels_in_thread.update(message.gmail_labels)
+
+                logger.debug(f"All unique labels found in thread: {all_labels_in_thread}")
+                logger.debug(f"Resolved special folders for filtering: {resolved_special_folders}")
+
+                # Filter out system labels
+                user_labels = [
+                    label for label in all_labels_in_thread 
+                    if label not in resolved_special_folders
+                ]
+                thread.most_recent_user_labels = sorted(list(set(user_labels))) # Sort for consistent output
+                logger.debug(f"Resulting user labels for thread: {thread.most_recent_user_labels}")
+
+                return thread
             
             return None
             
     except Exception as e:
         logger.error(f"Error getting thread: {e}")
         return None
+
+def _get_emails_sync(folder_name: str, count: int, filter_by_labels: Optional[List[str]] = None) -> List[EmailMessage]:
+    """
+    Synchronous function to get recent emails from a specific folder, with optional label filtering.
+    """
+    messages = []
+    try:
+        with imap_connection() as (mail, resolver):
+            # The folder_name is the actual name, so we don't need the resolver.
+            # We select it directly.
+            logger.info(f"Attempting to select folder: {folder_name}")
+            mail.select(f'"{folder_name}"', readonly=True)
+            
+            search_criteria = ['ALL']
+            if filter_by_labels:
+                # Gmail-specific search for labels using X-GM-RAW extension.
+                # For an OR search, we wrap the label queries in {}.
+                labels_query = "{" + " ".join([f"label:{label}" for label in filter_by_labels]) + "}"
+                search_criteria.append(f'(X-GM-RAW "{labels_query}")')
+            
+            search_query_str = ' '.join(search_criteria)
+            logger.info(f"Executing IMAP search in folder '{folder_name}' with query: {search_query_str}")
+            typ, data = mail.uid('search', None, search_query_str)
+
+            if typ != 'OK' or not data or not data[0]:
+                logger.warning(f"No messages found in folder '{folder_name}' matching criteria: {search_query_str}")
+                return []
+
+            uids = data[0].split()
+            # Get the most recent 'count' UIDs
+            recent_uids = uids[-count:]
+            recent_uids.reverse() # Fetch newest first
+
+            if not recent_uids:
+                return []
+
+            for uid in recent_uids:
+                # Use the existing helper to fetch the full message
+                message = _fetch_single_message(mail, uid.decode(), folder_name)
+                if message:
+                    messages.append(message)
+            return messages
+
+    except Exception as e:
+        logger.error(f"Error getting emails from folder '{folder_name}' with labels {filter_by_labels}: {e}", exc_info=True)
+        return []
 
 def _get_recent_message_ids_sync(count: int = 20) -> List[str]:
     """Synchronous function to get recent Message-IDs from INBOX"""
@@ -309,7 +389,8 @@ def _get_recent_messages_from_attribute_sync(attribute: str, count: int = 20) ->
                     labels_match = re.search(r'X-GM-LABELS \(([^)]+)\)', header_info)
                     if labels_match:
                         labels_str = labels_match.group(1)
-                        labels = re.findall(r'"([^"]*)"', labels_str)
+                        # This new regex handles both quoted and unquoted labels
+                        labels = re.findall(r'\\?\"?([^\"\s]+)\\?\"?', labels_str)
                         labels = [label.replace('\\\\', '\\') for label in labels]
 
                     # Skip draft messages (no Message-ID or has \Draft label)
@@ -571,39 +652,60 @@ def _draft_reply_sync(original_message: EmailMessage, reply_body: str) -> Dict[s
         return {"success": False, "message": error_msg}
 
 def _set_label_sync(message_id: str, label: str) -> Dict[str, Any]:
-    """Synchronous function to add a label to a message."""
+    """Synchronous function to set a label for a message."""
     try:
         with imap_connection() as (mail, resolver):
-            # Step 1: Get all available labels and validate
-            all_labels = _get_all_labels_sync(mail, resolver)
-            if label not in all_labels:
-                return {"success": False, "message": f"Label '{label}' does not exist. Available labels are: {all_labels}"}
-
-            # Step 2: Find UID and mailbox for the message
+            # Find the message UID and mailbox
             uid, mailbox = _find_uid_by_message_id(mail, resolver, message_id)
-            if not uid or not mailbox:
-                return {"success": False, "message": f"Could not find message with Message-ID: {message_id}"}
+            if not uid:
+                return {"status": "error", "message": "Message not found"}
 
-            # Step 3: Select mailbox and apply label
+            # Select the mailbox before setting the label
             mail.select(f'"{mailbox}"', readonly=False)
-            # Use +X-GM-LABELS to add a label without affecting others.
-            # Labels with spaces or special characters need to be quoted.
-            result, data = mail.uid('store', uid, '+X-GM-LABELS', f'("{label}")')
-
-            if result == "OK":
-                return {"success": True, "message": f"Label '{label}' successfully added to message."}
+            
+            # Use the UID to store the label
+            result = mail.uid('store', uid, '+X-GM-LABELS', f'("{label}")')
+            
+            if result[0] == 'OK':
+                return {"status": "success", "message": f"Label '{label}' added successfully."}
             else:
-                error_msg = data[0].decode() if data and data[0] else "Unknown error"
-                logger.error(f"Failed to set label for message {message_id}: {error_msg}")
-                return {"success": False, "message": f"Failed to set label: {error_msg}"}
-
+                return {"status": "error", "message": f"Failed to add label: {result[1][0].decode()}"}
     except Exception as e:
-        error_msg = f"Error setting label: {str(e)}"
-        logger.error(error_msg, exc_info=True)
-        return {"success": False, "message": error_msg}
+        logger.error(f"Error setting label: {e}")
+        return {"status": "error", "message": str(e)}
+
+def _get_all_folders_sync(mail: imaplib.IMAP4_SSL) -> List[str]:
+    """
+    Synchronous function to get all folders/mailboxes.
+    """
+    folders = []
+    try:
+        typ, data = mail.list()
+        if typ == 'OK':
+            for item in data:
+                # The response from mail.list() is a bit complex.
+                # It can have different formats, so we need to parse it carefully.
+                # A typical response item is: b'(\\HasNoChildren) "/" "INBOX"'
+                parts = item.decode().split('"')
+                if len(parts) >= 3:
+                    folder_name = parts[-2]
+                    # We'll skip folders that are containers for other folders and have the \Noselect attribute
+                    if '\\Noselect' not in parts[0]:
+                        folders.append(folder_name)
+    except Exception as e:
+        logger.error(f"Error fetching folders: {e}")
+    
+    # Let's ensure INBOX is first if it exists, as it's the most common.
+    if "INBOX" in folders:
+        folders.remove("INBOX")
+        folders.insert(0, "INBOX")
+        
+    return folders
 
 def _get_all_labels_sync(mail: imaplib.IMAP4_SSL, resolver: FolderResolver) -> List[str]:
-    """Gets all user-defined labels (folders) from the IMAP server in a language-agnostic way."""
+    """
+    Synchronous function to get all unique Gmail labels from a sample of recent emails.
+    """
     try:
         # 1. Get the names of all special-use folders from the resolver
         special_use_folders = set()
@@ -649,6 +751,32 @@ def _get_all_labels_sync(mail: imaplib.IMAP4_SSL, resolver: FolderResolver) -> L
     except Exception as e:
         logger.error(f"Error listing labels: {e}")
         return []
+
+def _get_all_special_use_folders_sync() -> List[str]:
+    """
+    Synchronous function to get a list of all special-use folder names.
+    Leverages the FolderResolver to get language-agnostic folder names.
+    """
+    folders = []
+    try:
+        with imap_connection() as (mail, resolver):
+            # Also add the INBOX, which is a special case not in the attributes list
+            special_folders_to_check = list(resolver.SPECIAL_USE_ATTRIBUTES) + ['\\Inbox']
+            
+            for attribute in special_folders_to_check:
+                try:
+                    folder_name = resolver.get_folder_by_attribute(attribute)
+                    if folder_name not in folders:
+                        folders.append(folder_name)
+                except FolderNotFoundError:
+                    logger.warning(f"Could not resolve special-use folder for attribute '{attribute}'. Skipping.")
+                    continue
+        logger.info(f"Resolved special-use folders: {folders}")
+        return sorted(folders)
+    except Exception as e:
+        logger.error(f"Failed to get special-use folders: {e}", exc_info=True)
+        return []
+
 
 def _get_messages_from_folder_sync(folder_name: str, count: int) -> List[EmailMessage]:
     """Synchronous function to get recent messages from a specific folder."""
@@ -724,7 +852,26 @@ async def draft_reply(original_message: EmailMessage, reply_body: str) -> Dict[s
     return await asyncio.to_thread(_draft_reply_sync, original_message, reply_body)
 
 async def set_label(message_id: str, label: str) -> Dict[str, Any]:
-    return await asyncio.to_thread(_set_label_sync, message_id, label)
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, _set_label_sync, message_id, label)
+
+async def get_emails(folder_name: str, count: int, filter_by_labels: Optional[List[str]] = None) -> List[EmailMessage]:
+    """Asynchronous wrapper for getting emails from a folder with optional label filtering."""
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(
+        None,
+        _get_emails_sync,
+        folder_name,
+        count,
+        filter_by_labels
+    )
+
+async def get_all_folders() -> List[str]:
+    """Asynchronous wrapper for getting all folders."""
+    loop = asyncio.get_running_loop()
+    with imap_connection() as (mail, resolver):
+        # We don't need the resolver here, but the connection manager provides it.
+        return await loop.run_in_executor(None, _get_all_folders_sync, mail)
 
 async def get_all_labels() -> List[str]:
     """Asynchronously gets all labels from the IMAP server."""
@@ -734,6 +881,14 @@ async def get_all_labels() -> List[str]:
     except Exception as e:
         logger.error(f"Error getting all labels: {e}")
         return []
+
+async def get_all_special_use_folders() -> List[str]:
+    """
+    Asynchronous wrapper to get a list of all special-use folder names.
+    """
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, _get_all_special_use_folders_sync)
+
 
 async def get_messages_from_folder(folder_name: str, count: int = 10) -> List[EmailMessage]:
     """Asynchronously gets recent messages from a specific folder/label."""

@@ -5,14 +5,14 @@ import asyncio
 import httpx
 from openai import OpenAI
 from fastmcp import Client
-from datetime import datetime
+from datetime import datetime, timezone
 
 from shared.config import settings
 from agent.models import AgentModel, AgentInstanceModel, MessageModel
 from shared.app_settings import load_app_settings
 from mcp.types import Tool
-from agentlogger.src.client import save_conversation
-from agentlogger.src.models import ConversationData, Message as LoggerMessage, Metadata
+from agentlogger.src.client import save_log_entry
+from agentlogger.src.models import LogEntry, Message as LoggerMessage
 
 logger = logging.getLogger(__name__)
 
@@ -333,15 +333,17 @@ async def _execute_run(agent_model: AgentModel, instance: AgentInstanceModel) ->
 
     logger.info(f"Finished execution for instance {instance.uuid}. Logging conversation.")
     try:
-        await save_conversation(ConversationData(
-            metadata=Metadata(
-                conversation_id=f"agent_{instance.uuid}",
-                readable_workflow_name=f"Agent: {agent_model.name}",
-                readable_instance_context=instance.context_identifier,
-                model=agent_model.model
-            ),
-            messages=[LoggerMessage.model_validate(m.model_dump()) for m in instance.messages if m.content is not None]
-        ))
+        log_entry = LogEntry(
+            log_type='workflow_agent', # This seems to be the best fit for this legacy agent
+            step_id=str(agent_model.uuid),
+            step_instance_id=str(instance.uuid),
+            step_name=agent_model.name,
+            messages=[LoggerMessage.model_validate(m.model_dump()) for m in instance.messages if m.content is not None],
+            start_time=instance.created_at,
+            end_time=datetime.now(timezone.utc),
+            reference_string=instance.context_identifier
+        )
+        await save_log_entry(log_entry)
         logger.info(f"Conversation for instance {instance.uuid} logged successfully.")
     except Exception as e:
         logger.warning(f"Failed to log agent conversation for instance {instance.uuid}: {e}", exc_info=True)

@@ -1,136 +1,81 @@
 'use client';
 import React, { useState, useEffect } from 'react';
-import ConversationsList from '../../components/ConversationsList';
-import ConversationDetail from '../../components/ConversationDetail';
+import LogsList from '../../components/LogsList';
+import LogDetail from '../../components/LogDetail';
 import TopBar from '../../components/TopBar';
-import { addReview, getConversation, ConversationData } from '../../services/api';
-import VersionCheck from '../../components/VersionCheck';
+import { addReview, getLogEntry, LogEntry } from '../../services/api';
+import LogsSidebar from '../../components/LogsSidebar';
+import FeedbackForm from '../../components/FeedbackForm';
+
 
 type SubmissionStatus = 'idle' | 'sending' | 'success' | 'error';
 
 const LogsPage = () => {
-  const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
-  const [selectedConversation, setSelectedConversation] = useState<ConversationData | null>(null);
+  const [selectedLogId, setSelectedLogId] = useState<string | null>(null);
+  const [selectedLog, setSelectedLog] = useState<LogEntry | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [isFeedbackFormVisible, setIsFeedbackFormVisible] = useState(false);
-  const [feedbackText, setFeedbackText] = useState('');
-  const [submissionStatus, setSubmissionStatus] = useState<SubmissionStatus>('idle');
-  const [submissionMessage, setSubmissionMessage] = useState('');
-  const [isLoadingConversation, setIsLoadingConversation] = useState(false);
+  const [isLoadingLog, setIsLoadingLog] = useState(false);
 
-  useEffect(() => {
-    if (submissionStatus === 'success' || submissionStatus === 'error') {
-      const timer = setTimeout(() => {
-        setSubmissionStatus('idle');
-        setIsFeedbackFormVisible(false);
-        setFeedbackText('');
-      }, 3000);
-      return () => clearTimeout(timer);
-    }
-  }, [submissionStatus]);
-
-  const handleSelectConversation = async (conversationId: string) => {
-    setSelectedConversationId(conversationId);
+  const handleSelectLog = async (logId: string) => {
+    setSelectedLogId(logId);
     setIsModalOpen(true);
-    // Reset feedback state when opening a new conversation
-    setIsFeedbackFormVisible(false);
-    setFeedbackText('');
-    setSubmissionStatus('idle');
 
-    setIsLoadingConversation(true);
-    const data = await getConversation(conversationId);
+    setIsLoadingLog(true);
+    const data = await getLogEntry(logId);
     if (data) {
-      setSelectedConversation(data);
+      setSelectedLog(data);
     } else {
-      console.error("Could not load conversation");
-      // Optionally handle error in UI
+      console.error("Could not load log");
     }
-    setIsLoadingConversation(false);
+    setIsLoadingLog(false);
   };
 
   const handleCloseModal = () => {
     setIsModalOpen(false);
-    setSelectedConversationId(null);
-    setSelectedConversation(null);
-  };
-
-  const handleSendFeedback = async () => {
-    if (!selectedConversationId || !feedbackText || !selectedConversation) return;
-    setSubmissionStatus('sending');
-    const result = await addReview(selectedConversationId, feedbackText, selectedConversation);
-    if (result.success) {
-      setSubmissionStatus('success');
-      setSubmissionMessage('Feedback submitted successfully!');
-    } else {
-      setSubmissionStatus('error');
-      setSubmissionMessage(result.error || 'Failed to submit feedback.');
-    }
+    setSelectedLogId(null);
+    setSelectedLog(null);
   };
 
   return (
-    <div>
-      <VersionCheck />
+    <div className="flex flex-col h-screen relative bg-gray-100" style={{
+      backgroundImage: 'radial-gradient(#E5E7EB 1px, transparent 1px)',
+      backgroundSize: '24px 24px'
+    }}>
       <TopBar />
-      <div className="p-10 max-w-7xl mx-auto font-sans">
-        <h1 className="text-center mb-5 text-2xl font-bold text-gray-800">Agent Logger - Conversation Logs</h1>
-        
-        <ConversationsList onSelectConversation={handleSelectConversation} />
+      <div className="flex flex-1 overflow-hidden gap-4 p-4">
+        <div className="w-64 flex-shrink-0 flex flex-col bg-white border border-gray-300 rounded-lg overflow-hidden shadow-md">
+          <LogsSidebar />
+        </div>
+
+        <main className="flex-1 bg-white border border-gray-300 rounded-lg shadow-md flex flex-col overflow-hidden">
+            <div className="p-4 border-b border-gray-200">
+                <h2 className="text-lg font-semibold">Agent Logs</h2>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4">
+                <LogsList onSelectLog={handleSelectLog} />
+            </div>
+        </main>
 
         {isModalOpen && (
           <div className="fixed inset-0 z-50 overflow-y-auto bg-gray-900 bg-opacity-75 flex justify-center items-center">
-            <div className="bg-white rounded-lg shadow-2xl w-full max-w-4xl h-[90vh] flex flex-col relative">
+            <div className="bg-white rounded-lg shadow-2xl w-full max-w-6xl h-[90vh] flex flex-col relative">
               <div className="flex justify-between items-center p-4 border-b">
-                <h2 className="text-xl font-bold">Conversation Details</h2>
+                <h2 className="text-xl font-bold">Log Details</h2>
                 <button onClick={handleCloseModal} className="text-gray-500 hover:text-gray-800 text-3xl font-bold">&times;</button>
               </div>
 
               <div className="p-5 overflow-y-auto flex-grow">
-                {isLoadingConversation ? (
+                {isLoadingLog ? (
                   <div>Loading...</div>
-                ) : selectedConversation ? (
-                  <ConversationDetail conversation={selectedConversation} />
+                ) : selectedLog ? (
+                  <LogDetail log={selectedLog} />
                 ) : (
-                  <div>Conversation not found.</div>
+                  <div>Log not found.</div>
                 )}
               </div>
 
-              <div className="sticky bottom-4 right-4 flex justify-end p-4">
-                {submissionStatus === 'idle' && !isFeedbackFormVisible && (
-                  <div className="text-right bg-white/20 backdrop-blur-lg p-4 rounded-xl shadow-lg border border-white/30">
-                    <button
-                      onClick={() => setIsFeedbackFormVisible(true)}
-                      className="bg-blue-600 text-white font-bold py-2 px-4 rounded-full shadow-lg hover:bg-blue-700 transition"
-                    >
-                      Send feedback to Arthur
-                    </button>
-                    <p className="text-xs text-gray-500 mt-1 max-w-xs">
-                      This will send this log with your feedback to Arthur. Thanks for making the product better!
-                    </p>
-                  </div>
-                )}
-
-                {isFeedbackFormVisible && submissionStatus === 'idle' && (
-                  <div className="flex gap-2 items-center bg-white p-2 rounded-lg shadow-lg">
-                    <input
-                      type="text"
-                      value={feedbackText}
-                      onChange={(e) => setFeedbackText(e.target.value)}
-                      placeholder="Type your feedback..."
-                      className="border rounded px-2 py-1"
-                    />
-                    <button
-                      onClick={handleSendFeedback}
-                      disabled={!feedbackText}
-                      className="bg-green-500 text-white font-bold py-1 px-3 rounded disabled:bg-gray-400"
-                    >
-                      Send
-                    </button>
-                  </div>
-                )}
-                
-                {submissionStatus === 'sending' && <p>Sending...</p>}
-                {submissionStatus === 'success' && <p className="text-green-600 bg-green-100 p-2 rounded">{submissionMessage}</p>}
-                {submissionStatus === 'error' && <p className="text-red-600 bg-red-100 p-2 rounded">{submissionMessage}</p>}
+              <div className="flex justify-end p-4 border-t bg-gray-50">
+                {selectedLog && <FeedbackForm log={selectedLog} />}
               </div>
             </div>
           </div>

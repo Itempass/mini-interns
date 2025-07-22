@@ -5,6 +5,7 @@ import secrets
 import hashlib
 import hmac
 from pathlib import Path
+from uuid import uuid4, UUID
 
 from shared.security.encryption import encrypt_value, decrypt_value
 
@@ -70,6 +71,15 @@ def get_session_token(password: str):
     token_source_bytes = token_source.encode()
     
     return hmac.new(salt_bytes, token_source_bytes, hashlib.sha256).hexdigest()
+
+
+def get_current_user_id() -> UUID:
+    """
+    Returns a hardcoded UUID as the current user ID.
+    This is a placeholder implementation for the workflow system.
+    In a real application, this would validate the session and return the actual user ID.
+    """
+    return UUID("12345678-1234-5678-9012-123456789012")
 
 
 class LoginRequest(BaseModel):

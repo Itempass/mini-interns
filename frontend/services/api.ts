@@ -263,90 +263,117 @@ export const getInboxInitializationStatus = async (): Promise<string> => {
 // Note: OpenRouter model functions removed as models are now per-agent/trigger
 
 // Agent Logger API
-export interface ConversationData {
-  metadata: {
-    conversation_id: string;
-    timestamp?: string;
-    readable_workflow_name?: string;
-    readable_instance_context?: string;
-    model?: string;
-    [key: string]: any;
-  };
-  messages: Array<{
-    content: string;
-    role: string;
-    [key: string]: any;
-  }>;
+export interface LogMessage {
+  content: string | null;
+  role: string;
+  tool_calls?: any[];
+  [key: string]: any;
 }
 
-export interface ConversationsResponse {
-  conversations: ConversationData[];
+export interface LogEntry {
+  id: string;
+  reference_string: string | null;
+  log_type: 'workflow' | 'custom_agent' | 'custom_llm' | 'workflow_agent';
+  workflow_id: string | null;
+  workflow_instance_id: string | null;
+  workflow_name: string | null;
+  step_id: string | null;
+  step_instance_id: string | null;
+  step_name: string | null;
+  messages: LogMessage[] | null;
+  needs_review: boolean | null;
+  feedback: string | null;
+  start_time: string; // ISO 8601 format
+  end_time: string | null; // ISO 8601 format
+  anonymized: boolean;
+  [key: string]: any;
+}
+
+export interface LogEntriesResponse {
+  log_entries: LogEntry[];
   count: number;
 }
 
-export interface ConversationResponse {
-  conversation: ConversationData;
+export interface GroupedLog {
+  workflow_log: LogEntry;
+  step_logs: LogEntry[];
 }
 
-export const getConversations = async (): Promise<ConversationsResponse> => {
-  console.log('Fetching conversations...');
+export interface GroupedLogEntriesResponse {
+  workflows: GroupedLog[];
+  total_workflows: number;
+}
+
+export const getLogEntries = async (): Promise<LogEntriesResponse> => {
   try {
-    const response = await fetch(`${API_URL}/agentlogger/conversations`);
+    const response = await fetch(`${API_URL}/agentlogger/logs`);
     if (!response.ok) {
-      console.error('Failed to fetch conversations. Status:', response.status);
-      throw new Error('Failed to fetch conversations');
+      throw new Error('Failed to fetch logs');
     }
-    const data = await response.json();
-    console.log('Successfully fetched conversations:', data);
-    return data;
+    return await response.json();
   } catch (error) {
-    console.error('An error occurred while fetching conversations:', error);
-    return { conversations: [], count: 0 };
+    console.error('An error occurred while fetching logs:', error);
+    return { log_entries: [], count: 0 };
   }
 };
 
-export const getConversation = async (conversationId: string): Promise<ConversationData | null> => {
-  console.log('Fetching conversation:', conversationId);
+export const getGroupedLogEntries = async (limit: number, offset: number, workflowId?: string, logType?: string): Promise<GroupedLogEntriesResponse> => {
   try {
-    const response = await fetch(`${API_URL}/agentlogger/conversations/${conversationId}`);
+    const params = new URLSearchParams({
+      limit: String(limit),
+      offset: String(offset),
+    });
+    if (workflowId) {
+      params.append('workflow_id', workflowId);
+    }
+    if (logType) {
+      params.append('log_type', logType);
+    }
+    const response = await fetch(`${API_URL}/agentlogger/logs/grouped?${params.toString()}`);
     if (!response.ok) {
-      console.error('Failed to fetch conversation. Status:', response.status);
-      if (response.status === 404) {
-        return null;
-      }
-      throw new Error('Failed to fetch conversation');
+      throw new Error('Failed to fetch grouped log entries');
+    }
+    return await response.json();
+  } catch (error) {
+    console.error('Error fetching grouped log entries:', error);
+    return { workflows: [], total_workflows: 0 };
+  }
+};
+
+export const getLogEntry = async (logId: string): Promise<LogEntry | null> => {
+  try {
+    const response = await fetch(`${API_URL}/agentlogger/logs/${logId}`);
+    if (!response.ok) {
+      throw new Error('Failed to fetch log entry');
     }
     const data = await response.json();
-    console.log('Successfully fetched conversation:', data);
-    return data.conversation;
+    return data.log_entry;
   } catch (error) {
-    console.error('An error occurred while fetching conversation:', error);
+    console.error('An error occurred while fetching log entry:', error);
     return null;
   }
 };
 
-export const addReview = async (conversationId: string, feedback: string, logData?: ConversationData): Promise<{ success: boolean; error?: string }> => {
-  console.log(`Adding review for conversation ${conversationId}...`);
+export const addReview = async (logId: string, feedback: string, needs_review: boolean, logData?: LogEntry): Promise<{ success: boolean; error?: string }> => {
   try {
-    const response = await fetch(`${API_URL}/agentlogger/conversations/${conversationId}/review`, {
+    const response = await fetch(`${API_URL}/agentlogger/logs/${logId}/review`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ feedback, log_data: logData }),
+      body: JSON.stringify({ feedback, needs_review, log_data: logData }),
     });
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({ detail: 'Failed to add review' }));
-      console.error('Failed to add review. Status:', response.status, 'Details:', errorData.detail);
       throw new Error(errorData.detail || 'Failed to add review');
     }
-    console.log('Successfully added review.');
     return { success: true };
   } catch (error: any) {
     console.error('An error occurred while adding review:', error);
     return { success: false, error: error.message };
   }
 };
+
 
 // MCP API
 export interface McpTool {

@@ -4,25 +4,25 @@
 			"email_blacklist":{
 				"input_regex":"^[^\\\\s@]+@[^\\\\s@]+\\\\.[^\\\\s@]+$",
 				"input_example":"spam@example.com",
-				"description":"Stop processing emails from these specific addresses.",
+				"description":"Do not trigger if a new emails is coming from these specific addresses.",
 				"readable_name":"Email Blacklist"
 			},
 			"email_whitelist":{
 				"input_regex":"^[^\\\\s@]+@[^\\\\s@]+\\\\.[^\\\\s@]+$",
 				"input_example":"boss@mycompany.com",
-				"description":"If used, only emails from these addresses will proceed to the LLM trigger check.",
+				"description":"If used, only emails from these addresses will trigger the agent.",
 				"readable_name":"Email Whitelist"
 			},
 			"domain_blacklist":{
 				"input_regex":"^([a-zA-Z0-9-]+\\\\.)+[a-zA-Z]{2,}$",
 				"input_example":"evil-corp.com",
-				"description":"Stop processing emails from these domains.",
+				"description":"Do not trigger if a new emails is coming from these specific domains.",
 				"readable_name":"Domain Blacklist"
 			},
 			"domain_whitelist":{
 				"input_regex":"^([a-zA-Z0-9-]+\\\\.)+[a-zA-Z]{2,}$",
 				"input_example":"mycompany.com",
-				"description":"If used, only emails from these domains will proceed to the LLM trigger check.",
+				"description":"If used, only emails from these domains will trigger the agent.",
 				"readable_name":"Domain Whitelist"
 			}
 		}

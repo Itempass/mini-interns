@@ -1,5 +1,5 @@
 """
-Anonymizer Service for EmailDrafter Agent Logger
+Anonymizer Service for Agent Logger
 Handles automatic redaction of sensitive information using OpenRouter LLM API
 """
 
@@ -9,7 +9,7 @@ import logging
 from typing import Dict, Any, Optional
 import httpx
 from shared.config import settings
-from .models import ConversationData, Message
+from .models import LogEntry, Message
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -39,21 +39,13 @@ def _load_anonymization_system_prompt() -> str:
 def anonymize_content(content: str) -> Optional[str]:
     """
     Anonymize a string using OpenRouter LLM API
-    
-    Args:
-        content: The string to anonymize
-        
-    Returns:
-        Anonymized content or None if failed
     """
     if not content or not content.strip():
         return content
-    
+
     headers = {
         "Authorization": f"Bearer {settings.AGENTLOGGER_OPENROUTER_ANONIMIZER_API_KEY}",
-        "Content-Type": "application/json",
-        "HTTP-Referer": "https://github.com/emaildrafter-agentlogger",
-        "X-Title": "EmailDrafter Agent Logger Anonymizer"
+        "Content-Type": "application/json"
     }
     
     system_prompt = _load_anonymization_system_prompt()
@@ -88,64 +80,51 @@ def anonymize_content(content: str) -> Optional[str]:
 
 def anonymize_message(message: Message) -> Optional[Message]:
     """
-    Anonymize a single message model
-    
-    Args:
-        message: Message model with content field
-        
-    Returns:
-        Anonymized message model or None if failed
+    Anonymize a single message model. If the message has no content, it is returned as is.
     """
+    if not message.content:
+        return message
+
     anonymized_content = anonymize_content(message.content)
     if anonymized_content is None:
         return None
-    
-    # Create new message with anonymized content
+
     anonymized_data = message.model_dump()
     anonymized_data['content'] = anonymized_content
     return Message.model_validate(anonymized_data)
 
-def anonymize_conversation(conversation_data: ConversationData) -> Optional[ConversationData]:
+def anonymize_log_entry(log_entry: LogEntry) -> Optional[LogEntry]:
     """
-    Anonymize an entire conversation
-    
-    Args:
-        conversation_data: Complete conversation data model
-        
-    Returns:
-        Fully anonymized conversation model or None if failed
+    Anonymize an entire log entry by anonymizing its messages.
+    If the log has no messages, it is returned as is.
     """
-    messages = conversation_data.messages
-    logger.info(f"Starting anonymization of conversation with {len(messages)} messages")
+    if not log_entry.messages:
+        return log_entry
+
+    logger.info(f"Starting anonymization of log entry {log_entry.id} with {len(log_entry.messages)} messages")
     
     anonymized_messages = []
-    for i, message in enumerate(messages):
-        logger.debug(f"Anonymizing message {i+1}/{len(messages)}")
+    for i, message in enumerate(log_entry.messages):
+        logger.debug(f"Anonymizing message {i+1}/{len(log_entry.messages)}")
         
         anonymized_message = anonymize_message(message)
         if anonymized_message is None:
-            logger.error(f"Failed to anonymize message {i+1}, aborting conversation anonymization")
+            logger.error(f"Failed to anonymize message {i+1} in log {log_entry.id}, aborting anonymization")
             return None
         
         anonymized_messages.append(anonymized_message)
     
-    # Create anonymized conversation with metadata
-    anonymized_data = conversation_data.model_dump()
-    anonymized_data['messages'] = [msg.model_dump() for msg in anonymized_messages]
+    # Create a new LogEntry with the anonymized messages
+    anonymized_log = log_entry.model_copy(deep=True)
+    anonymized_log.messages = anonymized_messages
+    anonymized_log.anonymized = True
     
-    # Add anonymization metadata
-    if 'metadata' in anonymized_data:
-        anonymized_data['metadata']['anonymization_status'] = 'success'
-        anonymized_data['metadata']['anonymization_timestamp'] = time.time()
-    
-    logger.info("Conversation anonymization completed successfully")
-    return ConversationData.model_validate(anonymized_data)
+    logger.info(f"Log entry {log_entry.id} anonymization completed successfully")
+    return anonymized_log
 
+def health_check() -> Dict[str, Any]:
     """
-    Check the health of the anonymizer service
-    
-    Returns:
-        Health status information
+    Check the health of the anonymizer service.
     """
     try:
         api_key = settings.AGENTLOGGER_OPENROUTER_ANONIMIZER_API_KEY

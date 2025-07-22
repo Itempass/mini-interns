@@ -1,11 +1,18 @@
 import logging
+import os
+import sys
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from api.endpoints import app_settings, agent, agentlogger, mcp, connection, auth
+from api.endpoints import app_settings, agent, agentlogger, mcp, connection, auth, workflow, prompt_optimizer
 from shared.config import settings
 from shared.version import __version__, get_latest_version
 import uvicorn
+
+# Add project root to the Python path to allow for absolute imports
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -65,6 +72,8 @@ app.include_router(agent.router, tags=["agent"])
 app.include_router(agentlogger.router, tags=["agentlogger"])
 app.include_router(mcp.router, tags=["mcp"])
 app.include_router(connection.router, tags=["connection"])
+app.include_router(workflow.router, tags=["workflow"])
+app.include_router(prompt_optimizer.router, tags=["prompt_optimizer"])
 
 @app.get("/version")
 def get_app_version():
