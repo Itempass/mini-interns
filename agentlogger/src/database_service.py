@@ -249,21 +249,16 @@ class DatabaseService:
             logger.error(f"Failed to upsert log entry {log_entry.id}: {e}", exc_info=True)
             raise
 
-    def get_log_entry(self, log_id: str, user_id: Optional[str] = None) -> Optional[LogEntry]:
+    def get_log_entry(self, log_id: str, user_id: str) -> Optional[LogEntry]:
         """
-        Retrieve a log entry from the database.
-        If user_id is provided, it will also filter by user.
+        Retrieve a log entry from the database, filtered by user.
         """
         try:
             with sqlite3.connect(self.db_path) as conn:
                 conn.row_factory = sqlite3.Row
 
-                query = "SELECT * FROM logs WHERE id = ?"
-                params = (log_id,)
-
-                if user_id:
-                    query += " AND user_id = ?"
-                    params += (user_id,)
+                query = "SELECT * FROM logs WHERE id = ? AND user_id = ?"
+                params = (log_id, user_id)
 
                 cursor = conn.execute(query, params)
                 row = cursor.fetchone()
@@ -278,38 +273,31 @@ class DatabaseService:
             logger.error(f"Failed to retrieve log entry {log_id}: {e}")
             return None
 
-    def get_all_log_entries(self, user_id: Optional[str] = None) -> List[LogEntry]:
+    def get_all_log_entries(self, user_id: str) -> List[LogEntry]:
         """
-        Retrieve all log entries from the database.
-        If user_id is provided, it filters logs for that specific user.
+        Retrieve all log entries for a specific user from the database.
         """
         try:
             with sqlite3.connect(self.db_path) as conn:
                 conn.row_factory = sqlite3.Row
                 
-                query = "SELECT * FROM logs"
-                params = []
-
-                if user_id:
-                    query += " WHERE user_id = ?"
-                    params.append(user_id)
-
-                query += " ORDER BY start_time DESC"
+                query = "SELECT * FROM logs WHERE user_id = ? ORDER BY start_time DESC"
+                params = (user_id,)
                 
-                cursor = conn.execute(query, tuple(params))
+                cursor = conn.execute(query, params)
                 rows = cursor.fetchall()
 
             return [self._row_to_log_entry(row) for row in rows]
 
         except Exception as e:
-            logger.error(f"Failed to retrieve log entries: {e}")
+            logger.error(f"Failed to retrieve log entries for user {user_id}: {e}")
             return []
             
-    def get_grouped_log_entries(self, limit: int, offset: int, workflow_id: Optional[str] = None, log_type: Optional[str] = None, user_id: Optional[str] = None) -> Dict[str, Any]:
+    def get_grouped_log_entries(self, user_id: str, limit: int, offset: int, workflow_id: Optional[str] = None, log_type: Optional[str] = None) -> Dict[str, Any]:
         """
-        Retrieve paginated and grouped log entries from the database.
+        Retrieve paginated and grouped log entries from the database for a specific user.
         Fetches workflow logs with pagination and their associated step logs.
-        Can be filtered by a specific workflow_id, log_type, and/or user_id.
+        Can be filtered by a specific workflow_id and/or log_type.
         """
         try:
             with sqlite3.connect(self.db_path) as conn:
@@ -320,19 +308,14 @@ class DatabaseService:
                 if log_type:
                     parent_log_types = f"('{log_type}')"
 
-                count_query = f"SELECT COUNT(*) FROM logs WHERE log_type IN {parent_log_types}"
-                main_query = f"SELECT * FROM logs WHERE log_type IN {parent_log_types}"
-                params = []
+                count_query = f"SELECT COUNT(*) FROM logs WHERE log_type IN {parent_log_types} AND user_id = ?"
+                main_query = f"SELECT * FROM logs WHERE log_type IN {parent_log_types} AND user_id = ?"
+                params = [user_id]
 
                 if workflow_id:
                     count_query += " AND workflow_id = ?"
                     main_query += " AND workflow_id = ?"
                     params.append(workflow_id)
-
-                if user_id:
-                    count_query += " AND user_id = ?"
-                    main_query += " AND user_id = ?"
-                    params.append(user_id)
 
                 # 2. Get total count of workflows for pagination
                 total_workflows_cursor = conn.execute(count_query, tuple(params))
@@ -361,12 +344,10 @@ class DatabaseService:
                         SELECT * FROM logs 
                         WHERE log_type IN ('custom_agent', 'custom_llm', 'stop_checker') 
                         AND workflow_instance_id IN ({placeholders})
+                        AND user_id = ?
                         """
                     child_params = list(workflow_instance_ids)
-                    
-                    if user_id:
-                        child_query += " AND user_id = ?"
-                        child_params.append(user_id)
+                    child_params.append(user_id)
                         
                     child_query += " ORDER BY DATETIME(start_time) ASC"
                     

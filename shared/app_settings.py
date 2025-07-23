@@ -73,32 +73,21 @@ class AppSettings(BaseModel):
             self.EMBEDDING_MODEL = _find_best_available_model()
         return self
 
-def load_app_settings(user_uuid: Optional[UUID] = None) -> AppSettings:
+def load_app_settings(user_uuid: UUID) -> AppSettings:
     """
-    Loads all application settings from Redis and decrypts sensitive values.
-    If a user_uuid is provided, it fetches user-specific settings.
+    Loads all user-specific application settings from Redis and decrypts sensitive values.
     If an embedding model is not set for the user, it determines a default,
     saves it back to Redis, and then returns the updated settings.
     """
-    logger.info(f"Loading application settings from Redis for user: {user_uuid or 'global'}")
+    logger.info(f"Loading application settings from Redis for user: {user_uuid}")
     redis_client = get_redis_client()
     
-    keys_to_fetch = []
-    if user_uuid:
-        keys_to_fetch = [
-            RedisKeys.get_imap_server_key(user_uuid),
-            RedisKeys.get_imap_username_key(user_uuid),
-            RedisKeys.get_imap_password_key(user_uuid),
-            RedisKeys.get_embedding_model_key(user_uuid)
-        ]
-    else:
-        # Fallback for legacy single-user mode
-        keys_to_fetch = [
-            "settings:imap_server",
-            "settings:imap_username",
-            "settings:imap_password",
-            "settings:embedding_model"
-        ]
+    keys_to_fetch = [
+        RedisKeys.get_imap_server_key(user_uuid),
+        RedisKeys.get_imap_username_key(user_uuid),
+        RedisKeys.get_imap_password_key(user_uuid),
+        RedisKeys.get_embedding_model_key(user_uuid)
+    ]
 
     pipeline = redis_client.pipeline()
     pipeline.mget(keys_to_fetch)
@@ -123,7 +112,7 @@ def load_app_settings(user_uuid: Optional[UUID] = None) -> AppSettings:
     settings_model = AppSettings(**settings_data)
 
     # If a default was just set by the validator, persist it back to Redis for this user.
-    if settings_data["EMBEDDING_MODEL"] is None and settings_model.EMBEDDING_MODEL is not None and user_uuid:
+    if settings_data["EMBEDDING_MODEL"] is None and settings_model.EMBEDDING_MODEL is not None:
         logger.info(f"No embedding model was set for user {user_uuid}. Saving default: {settings_model.EMBEDDING_MODEL}")
         save_app_settings(AppSettings(EMBEDDING_MODEL=settings_model.EMBEDDING_MODEL), user_uuid=user_uuid)
 
@@ -132,7 +121,6 @@ def load_app_settings(user_uuid: Optional[UUID] = None) -> AppSettings:
 def save_app_settings(app_settings: AppSettings, user_uuid: UUID):
     """Saves application settings to Redis for a specific user."""
     redis_client = get_redis_client()
-    redis_keys = RedisKeys(user_uuid=user_uuid)
     
     # Create a dictionary of settings to save
     settings_to_save = app_settings.model_dump(exclude_unset=True)
@@ -154,13 +142,13 @@ def save_app_settings(app_settings: AppSettings, user_uuid: UUID):
     for field, value in settings_to_save.items():
         redis_key = None
         if field == "IMAP_SERVER":
-            redis_key = redis_keys.get_imap_server_key()
+            redis_key = RedisKeys.get_imap_server_key(user_uuid)
         elif field == "IMAP_USERNAME":
-            redis_key = redis_keys.get_imap_username_key()
+            redis_key = RedisKeys.get_imap_username_key(user_uuid)
         elif field == "IMAP_PASSWORD":
-            redis_key = redis_keys.get_imap_password_key()
+            redis_key = RedisKeys.get_imap_password_key(user_uuid)
         elif field == "EMBEDDING_MODEL":
-            redis_key = redis_keys.get_embedding_model_key()
+            redis_key = RedisKeys.get_embedding_model_key(user_uuid)
 
         if not redis_key:
             continue

@@ -39,12 +39,10 @@ qdrant_client = QdrantClient(
     )
 )
 
-def _get_user_collection_name(user_uuid: Optional[UUID] = None) -> str:
-    """Generates a Qdrant collection name for a user or returns the default."""
-    if user_uuid:
-        # Qdrant collection names must be valid RFC 1123 hostnames, so no underscores.
-        return f"user-{str(user_uuid).replace('-', '')}"
-    return "emails" # Default legacy collection
+def _get_user_collection_name(user_uuid: UUID) -> str:
+    """Generates a Qdrant collection name for a user."""
+    # Qdrant collection names must be valid RFC 1123 hostnames, so no underscores.
+    return f"user-{str(user_uuid).replace('-', '')}"
 
 def _ensure_collection_exists(client: QdrantClient, collection_name: str, vector_size: int):
     """Ensures a collection exists, creating it if necessary."""
@@ -72,7 +70,7 @@ def _ensure_collection_exists(client: QdrantClient, collection_name: str, vector
             logger.error(f"Unexpected error checking collection '{collection_name}': {e}")
             raise
 
-def recreate_collection(user_uuid: Optional[UUID] = None):
+def recreate_collection(user_uuid: UUID):
     """Deletes and recreates a user-specific collection to ensure it's empty."""
     client = get_qdrant_client()
     collection_name = _get_user_collection_name(user_uuid)
@@ -86,23 +84,13 @@ def recreate_collection(user_uuid: Optional[UUID] = None):
     
     _ensure_collection_exists(client, collection_name, vector_size)
 
-@lru_cache(maxsize=None)
 def get_qdrant_client():
     """
-    Returns a cached Qdrant client instance and ensures the default 'emails' collection exists.
+    Returns a Qdrant client instance.
     """
-    try:
-        # The vector size is determined dynamically by the embedding model.
-        vector_size = embedding_service.get_current_model_vector_size()
-        _ensure_collection_exists(qdrant_client, "emails", vector_size)
-        _ensure_collection_exists(qdrant_client, "email_threads", vector_size)
-        logger.info("Successfully connected to Qdrant and ensured default collections exist.")
-        return qdrant_client
-    except Exception as e:
-        logger.error(f"Could not connect to Qdrant: {e}")
-        raise
+    return qdrant_client
 
-def upsert_points(points: List[models.PointStruct], user_uuid: Optional[UUID] = None):
+def upsert_points(points: List[models.PointStruct], user_uuid: UUID):
     """
     Upserts a list of points into a user-specific Qdrant collection.
     """
@@ -113,7 +101,7 @@ def upsert_points(points: List[models.PointStruct], user_uuid: Optional[UUID] = 
         return
 
     try:
-        vector_size = embedding_service.get_current_model_vector_size()
+        vector_size = embedding_service.get_current_model_vector_size(user_uuid=user_uuid)
         _ensure_collection_exists(client, collection_name, vector_size)
         
         # Use upload_points which has built-in retry logic and better batch handling
@@ -130,7 +118,7 @@ def upsert_points(points: List[models.PointStruct], user_uuid: Optional[UUID] = 
         logger.error(f"Error upserting points to Qdrant collection '{collection_name}': {e}", exc_info=True)
         raise Exception("Failed to upsert points to Qdrant.") from e
 
-def count_points(user_uuid: Optional[UUID] = None) -> int:
+def count_points(user_uuid: UUID) -> int:
     """Counts the number of points in a user-specific Qdrant collection."""
     qdrant_client = get_qdrant_client()
     collection_name = _get_user_collection_name(user_uuid)
@@ -145,7 +133,7 @@ def count_points(user_uuid: Optional[UUID] = None) -> int:
         return 0
 
 def semantic_search(
-    query: str, top_k: int = 5, user_uuid: Optional[UUID] = None
+    query: str, user_uuid: UUID, top_k: int = 5
 ) -> List[Dict[str, Any]]:
     """
     Performs a semantic search in a user-specific Qdrant collection.
@@ -153,12 +141,12 @@ def semantic_search(
     client = get_qdrant_client()
     collection_name = _get_user_collection_name(user_uuid)
     
-    query_vector = get_embedding(query)
+    query_vector = get_embedding(query, user_uuid=user_uuid)
 
     qdrant_filter = models.Filter()
 
     try:
-        vector_size = embedding_service.get_current_model_vector_size()
+        vector_size = embedding_service.get_current_model_vector_size(user_uuid=user_uuid)
         _ensure_collection_exists(client, collection_name, vector_size)
 
         search_result = client.search(
@@ -175,9 +163,9 @@ def semantic_search(
 
 def search_by_vector(
     query_vector: List[float],
+    user_uuid: UUID,
     top_k: int = 5,
     exclude_ids: Optional[List[str]] = None,
-    user_uuid: Optional[UUID] = None,
 ) -> List[Dict[str, Any]]:
     """
     Performs a vector search in a user-specific Qdrant collection, with an option to exclude specific point IDs.
@@ -194,7 +182,7 @@ def search_by_vector(
         )
 
     try:
-        vector_size = embedding_service.get_current_model_vector_size()
+        vector_size = embedding_service.get_current_model_vector_size(user_uuid=user_uuid)
         _ensure_collection_exists(client, collection_name, vector_size)
 
         search_result = client.search(
@@ -209,7 +197,7 @@ def search_by_vector(
         logger.error(f"Error querying Qdrant with vector: {e}")
         raise Exception("Failed to query Qdrant by vector.") from e
 
-def get_payload_field_distribution(field_name: str, user_uuid: Optional[UUID] = None) -> Dict[str, int]:
+def get_payload_field_distribution(field_name: str, user_uuid: UUID) -> Dict[str, int]:
     """
     Scans a user-specific collection and returns the distribution of values for a specific payload field.
     This is useful for getting counts of categorical data, like 'language'.
@@ -220,7 +208,7 @@ def get_payload_field_distribution(field_name: str, user_uuid: Optional[UUID] = 
     next_offset = None  # Initialize offset for the first call
 
     try:
-        vector_size = embedding_service.get_current_model_vector_size()
+        vector_size = embedding_service.get_current_model_vector_size(user_uuid=user_uuid)
         _ensure_collection_exists(client, collection_name, vector_size)
 
         logger.info(f"Starting scroll to get distribution of '{field_name}' in '{collection_name}'...")
@@ -253,9 +241,9 @@ def get_payload_field_distribution(field_name: str, user_uuid: Optional[UUID] = 
 
 def get_diverse_set_by_filter(
     query_filter: models.Filter, 
+    user_uuid: UUID,
     limit: int = 10, 
-    candidates: int = 100,
-    user_uuid: Optional[UUID] = None
+    candidates: int = 100
 ) -> List[Dict[str, Any]]:
     """
     Selects a diverse set of documents from a user-specific collection that match a given filter.

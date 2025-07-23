@@ -55,6 +55,7 @@ To ensure the application remains stable and testable throughout the refactoring
 *   Check that the logs API now only returns logs specific to the logged-in user.
 
 #### Stage 3: Refactor User-Initiated Background Tasks and MCPs
+**Status: Completed**
 **Goal:** Propagate the user context into background tasks that are initiated by a user's API request and into the MCP servers that are called by the workflow engine.
 **Actions:**
 1.  **Update Background Tasks:** Implement the changes detailed in the "Refactoring Background Tasks" section, ensuring the `user_uuid` is passed when tasks are initiated and used throughout their execution.
@@ -65,6 +66,7 @@ To ensure the application remains stable and testable throughout the refactoring
 *   As User B, run a workflow that uses a tool from the `imap_mcpserver` (e.g., `search_emails`). Verify that the MCP server correctly uses User B's IMAP credentials to perform the search.
 
 #### Stage 4: Refactor the Proactive Trigger Service
+**Status: Completed**
 **Goal:** Convert the single-user email trigger service into a multi-tenant service that polls inboxes for all users who have active, email-triggered workflows.
 **Actions:**
 1.  **Make Trigger State User-Specific:** Update the Redis key for tracking the last-processed email to be based on `user_uuid`, not `username`.
@@ -78,6 +80,7 @@ To ensure the application remains stable and testable throughout the refactoring
 *   Check the logs for the trigger service to confirm it is polling both accounts.
 
 #### Stage 5: Finalization and Cleanup
+**Status: Completed**
 **Goal:** Remove all the backward-compatible fallback logic, making the new user-aware paradigm the only path.
 **Actions:**
 1.  **Make `user_uuid` Mandatory:** Go back to the core service files from Stage 1 and make the `user_uuid` argument non-optional.

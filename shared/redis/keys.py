@@ -7,14 +7,11 @@ class RedisKeys:
     This class uses methods to generate user-specific keys, ensuring data
     isolation in a multi-user environment.
     """
-    # --- V1 (Legacy) ---
-    # Key for the last processed email UID
+    # Key for the last processed email UID (User-Specific)
     @staticmethod
-    def get_last_email_uid_key(username: str) -> str:
+    def get_last_email_uid_key(user_uuid: UUID) -> str:
         """Returns the Redis key for storing the last email UID for a specific user."""
-        if not username:
-            return "last_email_uid_default"
-        return f"last_email_uid:{username}"
+        return f"user:{user_uuid}:trigger:last_email_uid"
 
     # Key for inbox initialization status (User-Specific)
     @staticmethod
