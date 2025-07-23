@@ -32,10 +32,11 @@ To fully understand the context of these changes, the developer **must** read an
 To ensure the application remains stable and testable throughout the refactoring process, the implementation **must** be performed in the following stages. Each stage builds upon the last and should be completed and verified before proceeding to the next.
 
 #### Stage 1: Foundational Changes (Schemas & Backward-Compatible Services)
+**Status: Completed**
 **Goal:** Update the underlying data stores and service functions to be capable of handling user-specific data, while maintaining full backward compatibility with the existing single-user logic. The application must build and run successfully after this stage.
 **Actions:**
-1.  **Update `agentlogger` Schema:** Add the `user_id` column as described in the "Centralized Logging" section.
-2.  **Make Core Services Backward-Compatible:** Modify the core service functions in `shared/app_settings.py`, `shared/qdrant/qdrant_client.py`, and `agentlogger` to accept an **optional** `user_uuid`. If the ID is not provided, the functions must fall back to their original, global behavior.
+- [x] **Update `agentlogger` Schema:** Add the `user_id` column as described in the "Centralized Logging" section.
+- [x] **Make Core Services Backward-Compatible:** Modify the core service functions in `shared/app_settings.py`, `shared/qdrant/qdrant_client.py`, and `agentlogger` to accept an **optional** `user_uuid`. If the ID is not provided, the functions must fall back to their original, global behavior.
 
 **Testing and Verification (End of Stage 1):**
 *   The entire application must start up and run without errors.
@@ -52,8 +53,8 @@ To ensure the application remains stable and testable throughout the refactoring
 *   Log out and log in as User B. Save different settings and verify a second set of user-specific keys are created.
 *   Check that the logs API now only returns logs specific to the logged-in user.
 
-#### Stage 3: Refactor Asynchronous and Remote Logic
-**Goal:** Propagate the user context into the background tasks and MCP servers.
+#### Stage 3: Refactor User-Initiated Background Tasks and MCPs
+**Goal:** Propagate the user context into background tasks that are initiated by a user's API request and into the MCP servers that are called by the workflow engine.
 **Actions:**
 1.  **Update Background Tasks:** Implement the changes detailed in the "Refactoring Background Tasks" section, ensuring the `user_uuid` is passed when tasks are initiated and used throughout their execution.
 2.  **Update MCP Architecture:** Implement the changes detailed in the "User Context Propagation in MCP Architecture" section for both the workflow engine (caller) and the `imap_mcpserver` (receiver).
@@ -62,13 +63,26 @@ To ensure the application remains stable and testable throughout the refactoring
 *   As User A, trigger the inbox vectorization background task. Verify that a new Qdrant collection is created specifically for User A and that it is populated with their data.
 *   As User B, run a workflow that uses a tool from the `imap_mcpserver` (e.g., `search_emails`). Verify that the MCP server correctly uses User B's IMAP credentials to perform the search.
 
-#### Stage 4: Finalization and Cleanup
+#### Stage 4: Refactor the Proactive Trigger Service
+**Goal:** Convert the single-user email trigger service into a multi-tenant service that polls inboxes for all users who have active, email-triggered workflows.
+**Actions:**
+1.  **Make Trigger State User-Specific:** Update the Redis key for tracking the last-processed email to be based on `user_uuid`, not `username`.
+2.  **Implement Multi-User Polling Loop:** Refactor the main loop in `triggers/main.py` to iterate through all users in the system. For each user, it must load their specific settings and check their inbox.
+3.  **Propagate User Context:** Ensure the `user` object or `user_uuid` is passed down through the message processing functions to correctly filter and execute user-specific workflows.
+
+**Testing and Verification (End of Stage 4):**
+*   Configure two separate users (User A and User B) with different email accounts and different email-triggered workflows.
+*   Send an email to User A. Verify that only User A's workflow is triggered.
+*   Send an email to User B. Verify that only User B's workflow is triggered.
+*   Check the logs for the trigger service to confirm it is polling both accounts.
+
+#### Stage 5: Finalization and Cleanup
 **Goal:** Remove all the backward-compatible fallback logic, making the new user-aware paradigm the only path.
 **Actions:**
 1.  **Make `user_uuid` Mandatory:** Go back to the core service files from Stage 1 and make the `user_uuid` argument non-optional.
 2.  **Remove Fallback Logic & Old Keys:** Delete the code paths that handle the `user_uuid` being `None` and remove the old, global static keys from `shared/redis/keys.py`.
 
-**Testing and Verification (End of Stage 4):**
+**Testing and Verification (End of Stage 5):**
 *   The entire application must start up and run without errors.
 *   Run a full regression test of all features for a multi-user environment.
 *   Verify that the old global keys in Redis are gone and are no longer being created.
@@ -83,11 +97,11 @@ To ensure the application remains stable and testable throughout the refactoring
 
 **Execution Steps:**
 
-1.  **Update Redis Key Generation:**
+- [x] **Update Redis Key Generation:**
     *   **File:** `shared/redis/keys.py`
     *   **Action:** Modify the `RedisKeys` class. Instead of using static class variables for keys (e.g., `IMAP_SERVER = "imap:server"`), create methods that accept a `user_uuid` and generate a user-specific key string. For example, create a method `get_imap_server_key(user_uuid: UUID) -> str` which will return a key like `user:{user_uuid}:imap_server`. Apply this pattern for all user-specific settings.
 
-2.  **Make Settings Functions User-Aware:**
+- [x] **Make Settings Functions User-Aware:**
     *   **File:** `shared/app_settings.py`
     *   **Action:**
         *   Modify the `load_app_settings` function to require a `user_uuid` argument. Inside this function, use the new methods from `RedisKeys` (from the previous step) to fetch settings for that specific user.
@@ -126,11 +140,11 @@ To ensure the application remains stable and testable throughout the refactoring
 
 **Execution Steps:**
 
-1.  **Update the Database Schema:**
+- [x] **Update the Database Schema:**
     *   **File:** `agentlogger/src/schema.sql`
     *   **Action:** Add a new column named `user_id` to the `CREATE TABLE logs` statement. The data type should be `TEXT` to store the user's UUID as a string. Also, add an index on this new column to ensure that filtering logs by user is fast and efficient.
 
-2.  **Update the Database Service and Client:**
+- [x] **Update the Database Service and Client:**
     *   **Files:**
         *   `agentlogger/src/database_service.py`
         *   `agentlogger/src/client.py`
@@ -157,7 +171,7 @@ To ensure the application remains stable and testable throughout the refactoring
 
 **Execution Steps:**
 
-1.  **Implement User-Specific Collections in the Client:**
+- [x] **Implement User-Specific Collections in the Client:**
     *   **File:** `shared/qdrant/qdrant_client.py`
     *   **Action:**
         *   Modify all functions that interact with collections to accept a `user_uuid: UUID` argument. This includes `get_qdrant_client`, `upsert_points`, `count_points`, `semantic_search`, `search_by_vector`, `get_payload_field_distribution`, and `get_diverse_set_by_filter`.
@@ -227,7 +241,7 @@ The receiving MCP service needs to be updated to read the user ID from the heade
         *   In the tool functions (from `tools/imap.py`), after you have loaded the user-specific settings, pass this `AppSettings` object directly to the `imap_client` functions. This makes the client stateless and fully dependent on the context provided by the tool, which is now user-aware.
 
 ---
-### 8. Refactoring Background Tasks for Multi-User Support
+### 9. Refactoring Background Tasks for Multi-User Support
 
 **Problem:** The background tasks (`inbox_initializer`, `label_description_generator`, and `determine_tone_of_voice`) are designed for a single user. They use global settings and do not accept a user ID, making them completely unaware of which user's data to process.
 
@@ -262,3 +276,35 @@ The receiving MCP service needs to be updated to read the user ID from the heade
         *   **File:** `api/background_tasks/inbox_initializer.py`
             *   **Function:** `initialize_inbox`
             *   **Action:** This task chains a call to `determine_user_tone_of_voice`. It must be updated to pass along the `user_uuid` it received when it was started. 
+
+---
+### 10. Refactoring the Proactive Trigger Service
+
+**Problem:** The email trigger service (`triggers/main.py`) is architected for a single, global user. It polls one inbox based on global settings. To support multiple users, it must be fundamentally changed to poll every user's inbox individually.
+
+**Solution:** We will refactor the trigger service into a multi-tenant polling engine. The main loop will be redesigned to iterate through all users, load their individual settings, and check their respective inboxes for new mail that could trigger their specific workflows.
+
+**Execution Steps:**
+
+1.  **Update Redis Key for Trigger State:**
+    *   **File:** `shared/redis/keys.py`
+    *   **Action:** The current `get_last_email_uid_key` method accepts a `username`. This is not a reliable unique identifier. Modify this method to accept a `user_uuid: UUID` instead, ensuring the trigger's state is reliably tied to a specific user account.
+
+2.  **Implement Multi-User Polling Loop:**
+    *   **File:** `triggers/main.py`
+    *   **Action:**
+        *   Remove the single, global `while True:` loop's dependency on `load_app_settings()`.
+        *   The main loop should now first query the database to get a list of all users (e.g., using a new function like `user_client.get_all_users()`).
+        *   The loop will then iterate over this list of users. Inside the loop, for each `user`:
+            *   Load the user-specific IMAP settings by calling `load_app_settings(user_uuid=user.uuid)`.
+            *   If the settings are not configured for that user, skip to the next user.
+            *   Use the new `RedisKeys.get_last_email_uid_key(user_uuid=user.uuid)` to get the last processed UID for that specific user.
+            *   Connect to the user's mailbox and check for new emails.
+            *   If new messages are found, call the `process_message` function, making sure to pass the `user` object.
+
+3.  **Make Message Processing User-Aware:**
+    *   **File:** `triggers/main.py`
+    *   **Action:**
+        *   The `process_message` function must be modified to accept the `user: User` object from the main polling loop.
+        *   It will no longer need to call `get_current_user()`, as the user context is now provided directly.
+        *   All subsequent calls within `process_message` (e.g., to `workflow_client`, `trigger_client`, etc.) must use the `user.uuid`. 
