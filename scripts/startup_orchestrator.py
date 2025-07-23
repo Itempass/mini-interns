@@ -67,9 +67,12 @@ def main():
     
     try:
         # Before checking the version, ensure the app has been configured at least once.
-        # If there's no IMAP server setting, it's a fresh install.
-        if not redis_client.exists(RedisKeys.IMAP_SERVER):
-            logger.info("IMAP settings not found. Assuming fresh install. Skipping vectorization check.")
+        # If there are no user-specific IMAP settings, it's a fresh install.
+        imap_settings_pattern = "user:*:settings:imap_server"
+        found_settings = any(redis_client.scan_iter(match=imap_settings_pattern))
+
+        if not found_settings:
+            logger.info("No user IMAP settings found. Assuming fresh install. Skipping vectorization check.")
             sys.exit(0)
 
         # The redis-py client decodes responses to utf-8 by default.

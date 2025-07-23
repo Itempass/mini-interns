@@ -4,6 +4,7 @@ from typing import List, Optional, Dict, Any
 import voyageai
 import openai
 from functools import lru_cache
+from uuid import UUID
 
 from shared.config import settings
 from shared.app_settings import load_app_settings
@@ -26,36 +27,35 @@ class EmbeddingService:
         self.initialized_model_key = None
         logger.info("EmbeddingService initialized. Client will be loaded/re-loaded on use if settings change.")
 
-    def get_current_model_info(self) -> Dict[str, Any]:
+    def get_current_model_info(self, user_uuid: Optional[UUID] = None) -> Dict[str, Any]:
         """
-        Loads and returns the full info dictionary for the currently configured model.
+        Loads and returns the full info dictionary for the currently configured model for a user.
         """
-        embedding_model_key = load_app_settings().EMBEDDING_MODEL
+        embedding_model_key = load_app_settings(user_uuid=user_uuid).EMBEDDING_MODEL
         if not embedding_model_key:
             raise ValueError("Embedding model is not configured. Please set it on the settings page.")
         return self._get_model_info(embedding_model_key)
 
-    def get_current_model_vector_size(self) -> int:
+    def get_current_model_vector_size(self, user_uuid: Optional[UUID] = None) -> int:
         """
-        Returns the vector size of the currently configured embedding model.
+        Returns the vector size of the currently configured embedding model for a user.
         """
-        model_info = self.get_current_model_info()
+        model_info = self.get_current_model_info(user_uuid=user_uuid)
         return model_info["vector_size"]
 
-    def _lazy_load_client(self):
+    def _lazy_load_client(self, user_uuid: Optional[UUID] = None):
         """
-        Loads or reloads the embedding client if the configured model has changed.
-        This ensures the service always uses the up-to-date settings.
+        Loads or reloads the embedding client if the configured model for the user has changed.
         """
-        current_model_key = load_app_settings().EMBEDDING_MODEL
+        current_model_key = load_app_settings(user_uuid=user_uuid).EMBEDDING_MODEL
         if not current_model_key:
-            raise ValueError("Embedding model is not configured. Please set it on the settings page.")
+            raise ValueError("Embedding model is not configured for this user.")
 
         # If the client is already loaded, check if the model key has changed
         if self.client and self.initialized_model_key == current_model_key:
             return  # No change, so we can return
 
-        logger.info(f"Configuration change detected or first use. Loading client for model '{current_model_key}'...")
+        logger.info(f"Configuration change for user {user_uuid} or first use. Loading client for model '{current_model_key}'...")
         
         model_info = self._get_model_info(current_model_key)
         self.provider = model_info.get("provider")
@@ -95,14 +95,14 @@ class EmbeddingService:
         except FileNotFoundError:
             raise ValueError("embedding_models.json not found.")
 
-    def create_embedding(self, text: str) -> List[float]:
-        self._lazy_load_client()
+    def create_embedding(self, text: str, user_uuid: Optional[UUID] = None) -> List[float]:
+        self._lazy_load_client(user_uuid=user_uuid)
         if not text or not isinstance(text, str):
             logger.error("Invalid input: Text cannot be empty or non-string.")
             raise ValueError("Input text cannot be empty or non-string.")
 
         try:
-            model_vector_size = self.get_current_model_vector_size()
+            model_vector_size = self.get_current_model_vector_size(user_uuid=user_uuid)
             
             if self.provider == "voyage":
                 response = voyageai.Embedding.create(
@@ -120,14 +120,14 @@ class EmbeddingService:
             logger.error(f"An unexpected error occurred during embedding creation: {e}")
             raise Exception(f"An unexpected error occurred while creating embedding: {e}") from e
 
-    def create_embeddings(self, texts: List[str]) -> List[List[float]]:
-        self._lazy_load_client()
+    def create_embeddings(self, texts: List[str], user_uuid: Optional[UUID] = None) -> List[List[float]]:
+        self._lazy_load_client(user_uuid=user_uuid)
         if not texts or not isinstance(texts, list) or not all(isinstance(t, str) for t in texts):
             logger.error("Invalid input: Input must be a list of non-empty strings.")
             raise ValueError("Input must be a list of non-empty strings.")
 
         try:
-            model_vector_size = self.get_current_model_vector_size()
+            model_vector_size = self.get_current_model_vector_size(user_uuid=user_uuid)
             
             if self.provider == "voyage":
                 response = voyageai.Embedding.create(
@@ -145,8 +145,8 @@ class EmbeddingService:
             logger.error(f"An unexpected error occurred during batch embedding creation: {e}")
             raise Exception(f"An unexpected error occurred while creating embeddings: {e}") from e
 
-    def rerank(self, query: str, documents: List[str], top_k: int = None) -> List[Dict[str, Any]]:
-        self._lazy_load_client()
+    def rerank(self, query: str, documents: List[str], top_k: int = None, user_uuid: Optional[UUID] = None) -> List[Dict[str, Any]]:
+        self._lazy_load_client(user_uuid=user_uuid)
         if self.provider != "voyage":
             logger.info(f"Reranking skipped for provider '{self.provider}'. Reranking is currently only supported for Voyage.")
             # If top_k is not specified, return all documents, otherwise return top_k
@@ -184,14 +184,14 @@ class EmbeddingService:
 # A single instance to be used across the application
 embedding_service = EmbeddingService()
 
-def get_embedding(text: str) -> List[float]:
-    """Convenience function to get an embedding for a single text."""
-    return embedding_service.create_embedding(text)
+def get_embedding(text: str, user_uuid: Optional[UUID] = None) -> List[float]:
+    """Convenience function to get an embedding for a single text for a specific user."""
+    return embedding_service.create_embedding(text, user_uuid=user_uuid)
 
-def get_embeddings(texts: List[str]) -> List[List[float]]:
-    """Convenience function to get embeddings for a list of texts."""
-    return embedding_service.create_embeddings(texts)
+def get_embeddings(texts: List[str], user_uuid: Optional[UUID] = None) -> List[List[float]]:
+    """Convenience function to get embeddings for a list of texts for a specific user."""
+    return embedding_service.create_embeddings(texts, user_uuid=user_uuid)
 
-def rerank_documents(query: str, documents: List[str], top_k: int = None) -> List[Dict[str, Any]]:
-    """Convenience function to rerank documents."""
-    return embedding_service.rerank(query, documents, top_k)
+def rerank_documents(query: str, documents: List[str], top_k: int = None, user_uuid: Optional[UUID] = None) -> List[Dict[str, Any]]:
+    """Convenience function to rerank documents for a specific user."""
+    return embedding_service.rerank(query, documents, top_k, user_uuid=user_uuid)

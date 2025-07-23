@@ -1,5 +1,5 @@
 import logging
-from fastapi import APIRouter, HTTPException, BackgroundTasks, UploadFile, File
+from fastapi import APIRouter, HTTPException, BackgroundTasks, UploadFile, File, Depends
 from fastapi.responses import JSONResponse
 from functools import lru_cache
 from shared.redis.redis_client import get_redis_client
@@ -26,6 +26,8 @@ from api.types.api_models.single_agent import (
     CreateFromTemplateRequest
 )
 from api.background_tasks.label_description_generator import generate_descriptions_for_agent
+from user.models import User
+from api.endpoints.auth import get_current_user
 
 
 router = APIRouter()
@@ -60,105 +62,104 @@ def get_default_trigger_conditions():
         return "Default trigger conditions not found."
 
 @router.post("/agent/initialize-inbox")
-async def trigger_inbox_initialization(background_tasks: BackgroundTasks):
+async def trigger_inbox_initialization(background_tasks: BackgroundTasks, current_user: User = Depends(get_current_user)):
     """
     Triggers the background task to initialize the user's inbox.
     Uses Redis to track the status and prevent multiple initializations.
     """
     redis_client = get_redis_client()
-    status = redis_client.get(RedisKeys.INBOX_INITIALIZATION_STATUS)
+    status_key = RedisKeys.get_inbox_initialization_status_key(current_user.uuid)
+    status = redis_client.get(status_key)
 
-    if status == "running":
+    if status == b'running':
         return {"message": "Inbox initialization is already in progress."}
     
     # Also check the fallback condition to prevent re-running a completed task
-    if status == "completed" or count_points(collection_name="emails") > 0:
+    if status == b'completed' or count_points(user_uuid=current_user.uuid) > 0:
         return {"message": "Inbox has already been initialized."}
 
     # Set the status to "running" immediately to prevent race conditions
-    redis_client.set(RedisKeys.INBOX_INITIALIZATION_STATUS, "running")
+    redis_client.set(status_key, "running")
 
     # The background task will update the status upon completion or failure
-    background_tasks.add_task(initialize_inbox)
+    background_tasks.add_task(initialize_inbox, user_uuid=current_user.uuid)
     return {"message": "Inbox initialization started."}
 
 @router.post("/agent/reinitialize-inbox")
-async def reinitialize_inbox_endpoint(background_tasks: BackgroundTasks):
+async def reinitialize_inbox_endpoint(background_tasks: BackgroundTasks, current_user: User = Depends(get_current_user)):
     """
     Clears existing vector data and triggers the background task to re-initialize the user's inbox.
     If a vectorization process is already running, it will be gracefully interrupted.
     """
     redis_client = get_redis_client()
-    status = redis_client.get(RedisKeys.INBOX_INITIALIZATION_STATUS)
+    status_key = RedisKeys.get_inbox_initialization_status_key(current_user.uuid)
+    status = redis_client.get(status_key)
 
     # If a job is currently running, signal it to stop.
     if status == b'running':
         logger.info("An inbox initialization process is already running. Sending interruption signal.")
-        redis_client.set(RedisKeys.INBOX_VECTORIZATION_INTERRUPTED, "true")
+        interruption_key = RedisKeys.get_inbox_vectorization_interrupted_key(current_user.uuid)
+        redis_client.set(interruption_key, "true")
         # Give the background worker a moment to see the signal and stop
         await asyncio.sleep(1)
 
-    logger.info("Starting inbox re-initialization. Clearing existing collections.")
+    logger.info(f"Starting inbox re-initialization for user {current_user.uuid}. Clearing existing collections.")
     
-    # Clear existing vector data
-    qdrant_client = get_qdrant_client()
-    recreate_collection(qdrant_client, "emails")
-    recreate_collection(qdrant_client, "email_threads")
+    # Clear existing vector data by recreating the user's collection
+    recreate_collection(user_uuid=current_user.uuid)
     
-    logger.info("Collections cleared. Resetting UID and status, then triggering background task.")
-
-    # Reset the last processed UID to start from scratch
-    redis_client.delete(RedisKeys.LAST_EMAIL_UID)
+    logger.info(f"Collections cleared for user {current_user.uuid}. Triggering background task.")
     
     # Set the status to "running" immediately to prevent race conditions
-    redis_client.set(RedisKeys.INBOX_INITIALIZATION_STATUS, "running")
+    redis_client.set(status_key, "running")
     
     # The background task will update the status upon completion or failure
-    background_tasks.add_task(initialize_inbox)
+    background_tasks.add_task(initialize_inbox, user_uuid=current_user.uuid)
     
     return {"message": "Inbox re-initialization process started."}
 
 @router.post("/agent/rerun-tone-analysis")
-async def rerun_tone_of_voice_analysis():
+async def rerun_tone_of_voice_analysis(current_user: User = Depends(get_current_user)):
     """
     Triggers the background task to re-run the tone of voice analysis,
-    but only if the inbox has been successfully initialized.
+    but only if the inbox has been successfully initialized for the current user.
     """
     redis_client = get_redis_client()
-    status = redis_client.get(RedisKeys.INBOX_INITIALIZATION_STATUS)
+    status_key = RedisKeys.get_inbox_initialization_status_key(current_user.uuid)
+    status = redis_client.get(status_key)
 
     # Fallback: if Redis has no status, check Qdrant directly
     if not status:
-        if count_points(collection_name="email_threads") > 0:
-            status = "completed"
+        if count_points(user_uuid=current_user.uuid) > 0:
+            status = b'completed'
     
-    if status != "completed":
-        logger.warning(f"Tone of voice analysis requested, but inbox initialization status is '{status}'.")
+    if status != b'completed':
+        logger.warning(f"Tone of voice analysis requested for user {current_user.uuid}, but inbox initialization status is '{status}'.")
         raise HTTPException(
             status_code=400,
             detail="Inbox must be successfully vectorized before running tone of voice analysis. Please wait for initialization to complete."
         )
 
-    logger.info("Rerunning tone of voice analysis due to manual trigger.")
-    asyncio.create_task(determine_user_tone_of_voice())
+    logger.info(f"Rerunning tone of voice analysis for user {current_user.uuid} due to manual trigger.")
+    asyncio.create_task(determine_user_tone_of_voice(user_uuid=current_user.uuid))
     return {"status": "success", "message": "Tone of voice analysis has been started."}
 
 @router.get("/agent/initialize-inbox/status")
-async def get_inbox_initialization_status():
+async def get_inbox_initialization_status(current_user: User = Depends(get_current_user)):
     """
-    Gets the status of the inbox initialization task from Redis.
+    Gets the status of the inbox initialization task from Redis for the current user.
     Falls back to checking Qdrant if the Redis key is not present.
     """
     try:
         redis_client = get_redis_client()
-        status = redis_client.get(RedisKeys.INBOX_INITIALIZATION_STATUS)
+        status_key = RedisKeys.get_inbox_initialization_status_key(current_user.uuid)
+        status = redis_client.get(status_key)
 
         if status:
             return {"status": status}
 
         # If no status is in Redis, check Qdrant as a fallback.
-        # This handles the case where the server restarted after completion.
-        if count_points(collection_name="emails") > 0 or count_points(collection_name="email_threads") > 0:
+        if count_points(user_uuid=current_user.uuid) > 0:
             return {"status": "completed"}
 
         return {"status": "not_started"}
@@ -167,13 +168,13 @@ async def get_inbox_initialization_status():
         raise HTTPException(status_code=500, detail="Internal server error")
 
 @router.get("/agents", response_model=List[AgentWithTriggerSettings])
-async def list_agents():
+async def list_agents(current_user: User = Depends(get_current_user)):
     """
-    Lists all available agents from the database, including their trigger settings.
+    Lists all available agents from the database for the current user.
     """
-    logger.info("GET /agents - Listing all agents with trigger settings")
+    logger.info(f"GET /agents - Listing all agents for user: {current_user.uuid}")
     try:
-        agents = await agent_client.list_agents()
+        agents = await agent_client.list_agents(user_uuid=current_user.uuid)
         
         async def enrich_agent_with_trigger(agent: AgentModel) -> AgentWithTriggerSettings:
             trigger = await agent_client.get_trigger_for_agent(agent.uuid)
@@ -205,18 +206,18 @@ async def list_agents():
 
         enriched_agents = await asyncio.gather(*[enrich_agent_with_trigger(agent) for agent in agents])
 
-        logger.info(f"GET /agents - Found {len(enriched_agents)} agents with trigger settings.")
+        logger.info(f"GET /agents - Found {len(enriched_agents)} agents with trigger settings for user {current_user.uuid}.")
         return enriched_agents
     except Exception as e:
-        logger.error(f"GET /agents - Error listing agents: {e}", exc_info=True)
+        logger.error(f"GET /agents - Error listing agents for user {current_user.uuid}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Error listing agents.")
 
 @router.post("/agents/import", response_model=AgentWithTriggerSettings, status_code=201)
-async def import_agent(file: UploadFile = File(...)):
+async def import_agent(file: UploadFile = File(...), current_user: User = Depends(get_current_user)):
     """
-    Imports an agent from a JSON file.
+    Imports an agent from a JSON file for the current user.
     """
-    logger.info("POST /agents/import - Importing agent from file")
+    logger.info(f"POST /agents/import - Importing agent from file for user {current_user.uuid}")
     if file.content_type != "application/json":
         raise HTTPException(status_code=400, detail="Invalid file type. Please upload a JSON file.")
     
@@ -227,6 +228,7 @@ async def import_agent(file: UploadFile = File(...)):
         import_data = AgentImportModel.model_validate(data)
         
         new_agent = await agent_client.create_agent(
+            user_uuid=current_user.uuid,
             name=import_data.name,
             description=import_data.description,
             system_prompt=import_data.system_prompt,
@@ -249,7 +251,7 @@ async def import_agent(file: UploadFile = File(...)):
             model=getattr(import_data, 'trigger_model', None)
         )
 
-        imported_agent_with_trigger = await get_agent(new_agent.uuid)
+        imported_agent_with_trigger = await get_agent(new_agent.uuid, current_user)
         
         logger.info(f"POST /agents/import - Agent '{new_agent.name}' imported successfully with UUID {new_agent.uuid}")
         return imported_agent_with_trigger
@@ -288,11 +290,11 @@ async def list_agent_templates():
     return templates
 
 @router.post("/agents/from-template", response_model=AgentWithTriggerSettings, status_code=201)
-async def create_agent_from_template(request: CreateFromTemplateRequest):
+async def create_agent_from_template(request: CreateFromTemplateRequest, current_user: User = Depends(get_current_user)):
     """
-    Creates a new agent from a specified template.
+    Creates a new agent from a specified template for the current user.
     """
-    logger.info(f"POST /agents/from-template - Creating agent '{request.template_id}' from template")
+    logger.info(f"POST /agents/from-template - Creating agent '{request.template_id}' from template for user {current_user.uuid}")
     try:
         # 1. Find the template file
         template_path = AGENT_TEMPLATES_DIR / f"{request.template_id}.json"
@@ -310,6 +312,7 @@ async def create_agent_from_template(request: CreateFromTemplateRequest):
             import_data["param_values"] = {}
 
         new_agent = await agent_client.create_agent(
+            user_uuid=current_user.uuid,
             name=import_data["name"],
             description=import_data["description"],
             system_prompt=import_data["system_prompt"],
@@ -333,25 +336,25 @@ async def create_agent_from_template(request: CreateFromTemplateRequest):
         )
 
         logger.info(f"POST /agents/from_template - Successfully created agent '{new_agent.name}' from template '{request.template_id}'")
-        return await get_agent(new_agent.uuid)
+        return await get_agent(new_agent.uuid, current_user)
     except Exception as e:
-        logger.error(f"POST /agents/from_template - Error creating agent from template: {e}", exc_info=True)
+        logger.error(f"POST /agents/from_template - Error creating agent from template for user {current_user.uuid}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Error creating agent from template.")
 
 
 @router.get("/agents/{agent_uuid}", response_model=AgentWithTriggerSettings)
-async def get_agent(agent_uuid: UUID) -> AgentWithTriggerSettings:
+async def get_agent(agent_uuid: UUID, current_user: User = Depends(get_current_user)) -> AgentWithTriggerSettings:
     """
-    Retrieves a specific agent by its UUID, including its trigger settings.
+    Retrieves a specific agent by its UUID for the current user.
     """
-    logger.info(f"GET /agents/{agent_uuid} - Retrieving agent with trigger settings")
+    logger.info(f"GET /agents/{agent_uuid} - Retrieving agent for user {current_user.uuid}")
     try:
-        agent = await agent_client.get_agent(agent_uuid)
+        agent = await agent_client.get_agent(agent_uuid=agent_uuid, user_uuid=current_user.uuid)
         if not agent:
-            logger.warning(f"GET /agents/{agent_uuid} - Agent not found")
+            logger.warning(f"GET /agents/{agent_uuid} - Agent not found for user {current_user.uuid}")
             raise HTTPException(status_code=404, detail="Agent not found")
 
-        trigger = await agent_client.get_trigger_for_agent(agent_uuid)
+        trigger = await agent_client.get_trigger_for_agent(agent.uuid)
         if not trigger:
             # Create a temporary trigger in memory to get Pydantic defaults
             from agent.models import TriggerModel
@@ -378,27 +381,27 @@ async def get_agent(agent_uuid: UUID) -> AgentWithTriggerSettings:
         response_data.update(trigger_settings)
         
         response = AgentWithTriggerSettings.model_validate(response_data)
-        logger.info(f"GET /agents/{agent_uuid} - Agent with trigger settings retrieved successfully")
+        logger.info(f"GET /agents/{agent_uuid} - Agent with trigger settings retrieved successfully for user {current_user.uuid}")
         return response
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"GET /agents/{agent_uuid} - Error retrieving agent: {e}", exc_info=True)
+        logger.error(f"GET /agents/{agent_uuid} - Error retrieving agent for user {current_user.uuid}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Error retrieving agent.")
 
 @router.put("/agents/{agent_uuid}", response_model=AgentWithTriggerSettings)
-async def update_agent(agent_uuid: UUID, agent_update: AgentWithTriggerSettings):
+async def update_agent(agent_uuid: UUID, agent_update: AgentWithTriggerSettings, current_user: User = Depends(get_current_user)):
     """
-    Updates a specific agent and its trigger settings.
+    Updates a specific agent and its trigger settings for the current user.
     """
-    logger.info(f"PUT /agents/{agent_uuid} - Updating agent with trigger settings")
+    logger.info(f"PUT /agents/{agent_uuid} - Updating agent for user {current_user.uuid}")
     if agent_uuid != agent_update.uuid:
         logger.error(f"PUT /agents/{agent_uuid} - UUID in path does not match UUID in body")
         raise HTTPException(status_code=400, detail="UUID in path does not match UUID in body")
 
     try:
         # Update Agent
-        existing_agent = await agent_client.get_agent(agent_uuid)
+        existing_agent = await agent_client.get_agent(agent_uuid=agent_uuid, user_uuid=current_user.uuid)
         if not existing_agent:
             raise HTTPException(status_code=404, detail="Agent to update not found.")
 
@@ -423,37 +426,38 @@ async def update_agent(agent_uuid: UUID, agent_update: AgentWithTriggerSettings)
                 model=agent_update.trigger_model
             )
 
-        logger.info(f"PUT /agents/{agent_uuid} - Agent and trigger updated successfully")
+        logger.info(f"PUT /agents/{agent_uuid} - Agent and trigger updated successfully for user {current_user.uuid}")
         
         # Refetch data to ensure consistency and return
-        return await get_agent(agent_uuid)
+        return await get_agent(agent_uuid=agent_uuid, current_user=current_user)
 
     except Exception as e:
-        logger.error(f"PUT /agents/{agent_uuid} - Error updating agent: {e}", exc_info=True)
+        logger.error(f"PUT /agents/{agent_uuid} - Error updating agent for user {current_user.uuid}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Error updating agent.")
 
 @router.post("/agents/{agent_uuid}/generate-descriptions", response_model=AgentWithTriggerSettings)
-async def endpoint_generate_descriptions(agent_uuid: UUID):
+async def endpoint_generate_descriptions(agent_uuid: UUID, current_user: User = Depends(get_current_user)):
     """
     Triggers a background task to automatically generate descriptions for an agent's labels.
     """
-    logger.info(f"POST /agents/{agent_uuid}/generate-descriptions - Received request.")
+    logger.info(f"POST /agents/{agent_uuid}/generate-descriptions - Received request for user {current_user.uuid}.")
     
-    updated_agent = await generate_descriptions_for_agent(agent_uuid)
+    # We pass the user_uuid to the background task.
+    updated_agent = await generate_descriptions_for_agent(agent_uuid=agent_uuid, user_uuid=current_user.uuid)
     if not updated_agent:
         raise HTTPException(status_code=500, detail="Failed to generate descriptions.")
 
     # Refetch the complete agent data to ensure a consistent response
-    return await get_agent(agent_uuid)
+    return await get_agent(agent_uuid=agent_uuid, current_user=current_user)
 
 @router.post("/agents/{agent_uuid}/apply-template-defaults", response_model=AgentWithTriggerSettings)
-async def apply_template_defaults(agent_uuid: UUID):
+async def apply_template_defaults(agent_uuid: UUID, current_user: User = Depends(get_current_user)):
     """
     Applies the param_values_template from an agent's template to its param_values.
     """
-    logger.info(f"POST /agents/{agent_uuid}/apply-template-defaults - Received request.")
+    logger.info(f"POST /agents/{agent_uuid}/apply-template-defaults - Received request for user {current_user.uuid}.")
     
-    agent = await agent_client.get_agent(agent_uuid)
+    agent = await agent_client.get_agent(agent_uuid=agent_uuid, user_uuid=current_user.uuid)
     if not agent or not agent.template_id:
         raise HTTPException(status_code=404, detail="Agent or agent template not found.")
 
@@ -470,27 +474,27 @@ async def apply_template_defaults(agent_uuid: UUID):
     if "param_values_template" in template_data:
         agent.param_values = template_data["param_values_template"]
         await agent_client.save_agent(agent)
-        logger.info(f"Applied template defaults to agent {agent_uuid}")
+        logger.info(f"Applied template defaults to agent {agent_uuid} for user {current_user.uuid}")
     else:
         logger.warning(f"No param_values_template found in template for agent {agent_uuid}")
     
-    return await get_agent(agent_uuid)
+    return await get_agent(agent_uuid=agent_uuid, current_user=current_user)
 
 
 @router.delete("/agents/{agent_uuid}", status_code=204)
-async def delete_agent(agent_uuid: UUID):
+async def delete_agent(agent_uuid: UUID, current_user: User = Depends(get_current_user)):
     """
-    Deletes an agent and its associated trigger.
+    Deletes an agent and its associated trigger for the current user.
     """
-    logger.info(f"DELETE /agents/{agent_uuid} - Deleting agent")
+    logger.info(f"DELETE /agents/{agent_uuid} - Deleting agent for user {current_user.uuid}")
     try:
         # First, check if the agent exists to avoid orphaned triggers
-        agent = await agent_client.get_agent(agent_uuid)
+        agent = await agent_client.get_agent(agent_uuid=agent_uuid, user_uuid=current_user.uuid)
         if not agent:
             raise HTTPException(status_code=404, detail="Agent not found")
 
         # Delete the trigger if it exists
-        trigger = await agent_client.get_trigger_for_agent(agent_uuid)
+        trigger = await agent_client.get_trigger_for_agent(agent.uuid)
         if trigger:
             await agent_client.delete_trigger(trigger.uuid)
             logger.info(f"DELETE /agents/{agent_uuid} - Deleted associated trigger {trigger.uuid}")
@@ -504,7 +508,7 @@ async def delete_agent(agent_uuid: UUID):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"DELETE /agents/{agent_uuid} - Error deleting agent: {e}", exc_info=True)
+        logger.error(f"DELETE /agents/{agent_uuid} - Error deleting agent for user {current_user.uuid}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Error deleting agent.")
 
 @router.get("/tools")
@@ -522,11 +526,11 @@ async def discover_tools():
         raise HTTPException(status_code=500, detail="Error discovering tools.")
 
 @router.post("/agents", response_model=AgentWithTriggerSettings, status_code=201)
-async def create_agent(request: CreateAgentRequest):
+async def create_agent(request: CreateAgentRequest, current_user: User = Depends(get_current_user)):
     """
-    Creates a new agent and its associated trigger.
+    Creates a new agent and its associated trigger for the current user.
     """
-    logger.info(f"POST /agents - Creating new agent with name: {request.name}")
+    logger.info(f"POST /agents - Creating new agent with name: {request.name} for user {current_user.uuid}")
     try:
         # 1. Create the Agent
         system_prompt = (
@@ -535,6 +539,7 @@ async def create_agent(request: CreateAgentRequest):
         )
         
         new_agent = await agent_client.create_agent(
+            user_uuid=current_user.uuid,
             name=request.name,
             description=request.description,
             system_prompt=system_prompt,
@@ -552,28 +557,28 @@ async def create_agent(request: CreateAgentRequest):
         )
 
         # 3. Fetch and return the combined aent and trigger settings
-        created_agent_with_settings = await get_agent(new_agent.uuid)
+        created_agent_with_settings = await get_agent(agent_uuid=new_agent.uuid, current_user=current_user)
         
-        logger.info(f"POST /agents - Successfully created agent {new_agent.uuid}")
+        logger.info(f"POST /agents - Successfully created agent {new_agent.uuid} for user {current_user.uuid}")
         return created_agent_with_settings
 
     except Exception as e:
-        logger.error(f"POST /agents - Error creating agent: {e}", exc_info=True)
+        logger.error(f"POST /agents - Error creating agent for user {current_user.uuid}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Error creating agent.")
 
 @router.get("/agents/{agent_uuid}/export", response_model=AgentImportModel)
-async def export_agent(agent_uuid: UUID):
+async def export_agent(agent_uuid: UUID, current_user: User = Depends(get_current_user)):
     """
-    Exports a specific agent's settings as a JSON file.
+    Exports a specific agent's settings as a JSON file for the current user.
     """
-    logger.info(f"GET /agents/{agent_uuid}/export - Exporting agent")
+    logger.info(f"GET /agents/{agent_uuid}/export - Exporting agent for user {current_user.uuid}")
     try:
-        agent = await agent_client.get_agent(agent_uuid)
+        agent = await agent_client.get_agent(agent_uuid=agent_uuid, user_uuid=current_user.uuid)
         if not agent:
-            logger.warning(f"GET /agents/{agent_uuid}/export - Agent not found")
+            logger.warning(f"GET /agents/{agent_uuid}/export - Agent not found for user {current_user.uuid}")
             raise HTTPException(status_code=404, detail="Agent not found")
 
-        trigger = await agent_client.get_trigger_for_agent(agent_uuid)
+        trigger = await agent_client.get_trigger_for_agent(agent.uuid)
         if not trigger:
             # Create a temporary trigger in memory to get Pydantic defaults
             from agent.models import TriggerModel
@@ -622,5 +627,5 @@ async def export_agent(agent_uuid: UUID):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"GET /agents/{agent_uuid}/export - Error exporting agent: {e}", exc_info=True)
+        logger.error(f"GET /agents/{agent_uuid}/export - Error exporting agent for user {current_user.uuid}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Error exporting agent.")

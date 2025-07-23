@@ -97,7 +97,7 @@ async def get_current_user(
     This dependency makes all other services agnostic to the auth method.
     """
     print(f"[AUTH_DEBUG] Checking auth mode. settings.AUTH0_DOMAIN = '{settings.AUTH0_DOMAIN}' (Type: {type(settings.AUTH0_DOMAIN)})")
-    print(f"[AUTH_DEBUG] get_current_user called. Headers: {request.headers}")
+    print(f"[AUTH_DEBUG] get_current_user called.")
 
     # Explicitly check for a non-empty string to avoid issues with stale env vars.
     if settings.AUTH0_DOMAIN and settings.AUTH0_DOMAIN.strip():

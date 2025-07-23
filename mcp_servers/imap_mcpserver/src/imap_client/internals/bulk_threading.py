@@ -27,6 +27,7 @@ from mcp_servers.imap_mcpserver.src.imap_client.models import EmailMessage, Emai
 from mcp_servers.imap_mcpserver.src.imap_client.helpers.contextual_id import create_contextual_id
 from mcp_servers.imap_mcpserver.src.imap_client.internals.connection_manager import IMAPConnectionManager, get_default_connection_manager, FolderResolver, FolderNotFoundError
 from mcp_servers.imap_mcpserver.src.imap_client.helpers.body_parser import extract_body_formats
+from uuid import UUID
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +35,8 @@ def _fetch_bulk_threads_sync(
     connection_manager: IMAPConnectionManager,
     target_thread_count: int,
     max_age_months: int,
-    source_folder_attribute: str = '\\Sent'
+    source_folder_attribute: str = '\\Sent',
+    user_uuid: Optional[UUID] = None
 ) -> tuple[list[EmailThread], dict[str, float]]:
     """
     Synchronous implementation of bulk thread fetching.
@@ -51,7 +53,7 @@ def _fetch_bulk_threads_sync(
     start_time = time.time()
     
     try:
-        with connection_manager.connect() as (mail, resolver):
+        with connection_manager.connect(user_uuid=user_uuid) as (mail, resolver):
             timing = {}
             
             # Step 1: Get all messages from source mailbox within age limit
@@ -254,7 +256,8 @@ def _fetch_bulk_threads_sync(
 async def fetch_recent_threads_bulk(
     target_thread_count: int = 50,
     max_age_months: int = 6,
-    source_folder_attribute: str = '\\Sent'
+    source_folder_attribute: str = '\\Sent',
+    user_uuid: Optional[UUID] = None
 ) -> tuple[list[EmailThread], dict[str, float]]:
     """
     Fetch a target number of recent email threads efficiently.
@@ -278,5 +281,6 @@ async def fetch_recent_threads_bulk(
         connection_manager,
         target_thread_count,
         max_age_months,
-        source_folder_attribute
+        source_folder_attribute,
+        user_uuid
     ) 

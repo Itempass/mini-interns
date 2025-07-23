@@ -21,7 +21,8 @@ CREATE TABLE IF NOT EXISTS logs (
     prompt_tokens INTEGER,
     completion_tokens INTEGER,
     total_tokens INTEGER,
-    total_cost REAL
+    total_cost REAL,
+    user_id TEXT
 );
 
 -- Index on start_time for chronological queries
@@ -38,6 +39,9 @@ CREATE INDEX IF NOT EXISTS idx_logs_workflow_instance_id ON logs(workflow_instan
 
 -- Index on step_instance_id for filtering
 CREATE INDEX IF NOT EXISTS idx_logs_step_instance_id ON logs(step_instance_id);
+
+-- Index on user_id for filtering logs by user
+CREATE INDEX IF NOT EXISTS idx_logs_user_id ON logs(user_id);
 
 -- Drop the old table to ensure a clean migration
 DROP TABLE IF EXISTS conversations; 

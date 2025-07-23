@@ -1,13 +1,56 @@
 import logging
+import json
 from functools import lru_cache
-from pydantic import BaseModel
-from typing import Optional
+from pydantic import BaseModel, model_validator
+from typing import Optional, Dict, Any
+from uuid import UUID
 
 from shared.redis.redis_client import get_redis_client
 from shared.redis.keys import RedisKeys
 from shared.security.encryption import encrypt_value, decrypt_value
+from shared.config import settings
 
 logger = logging.getLogger(__name__)
+
+def _find_best_available_model() -> Optional[str]:
+    """
+    Determines the best available embedding model based on defaults and available API keys.
+    This logic is centralized here to be used for setting initial defaults for new users.
+    """
+    try:
+        with open("shared/embedding_models.json", "r") as f:
+            models = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        logger.error("Could not load or parse embedding_models.json.")
+        return None
+
+    provider_key_map = {
+        "openai": settings.EMBEDDING_OPENAI_API_KEY,
+        "voyage": settings.EMBEDDING_VOYAGE_API_KEY,
+    }
+
+    # First, try to find the model marked as default
+    for model_key, model_info in models.items():
+        if model_info.get("default"):
+            provider = model_info.get("provider")
+            api_key = provider_key_map.get(provider)
+            if provider and api_key and api_key != "EDIT-ME":
+                logger.info(f"Default model '{model_key}' is available. Using it as the initial setting.")
+                return model_key
+            else:
+                logger.warning(f"Default model '{model_key}' is specified, but its API key is not configured.")
+                break
+
+    # If the default is not available, find the first available model
+    for model_key, model_info in models.items():
+        provider = model_info.get("provider")
+        api_key = provider_key_map.get(provider)
+        if provider and api_key and api_key != "EDIT-ME":
+            logger.info(f"Found first available model '{model_key}' to use as the initial setting.")
+            return model_key
+
+    logger.warning("No embedding models have a configured API key. Cannot set an initial model.")
+    return None
 
 class AppSettings(BaseModel):
     """
@@ -20,21 +63,45 @@ class AppSettings(BaseModel):
     IMAP_PASSWORD: Optional[str] = None
     EMBEDDING_MODEL: Optional[str] = None
 
-def load_app_settings() -> AppSettings:
+    @model_validator(mode='after')
+    def set_default_embedding_model(self) -> 'AppSettings':
+        """
+        If no embedding model is set, try to determine and set a default one.
+        This ensures that new users get a sensible default configuration.
+        """
+        if self.EMBEDDING_MODEL is None:
+            self.EMBEDDING_MODEL = _find_best_available_model()
+        return self
+
+def load_app_settings(user_uuid: Optional[UUID] = None) -> AppSettings:
     """
     Loads all application settings from Redis and decrypts sensitive values.
-    This function does not validate, it simply returns the current state from Redis.
+    If a user_uuid is provided, it fetches user-specific settings.
+    If an embedding model is not set for the user, it determines a default,
+    saves it back to Redis, and then returns the updated settings.
     """
-    logger.info("Loading application settings from Redis...")
+    logger.info(f"Loading application settings from Redis for user: {user_uuid or 'global'}")
     redis_client = get_redis_client()
     
+    keys_to_fetch = []
+    if user_uuid:
+        keys_to_fetch = [
+            RedisKeys.get_imap_server_key(user_uuid),
+            RedisKeys.get_imap_username_key(user_uuid),
+            RedisKeys.get_imap_password_key(user_uuid),
+            RedisKeys.get_embedding_model_key(user_uuid)
+        ]
+    else:
+        # Fallback for legacy single-user mode
+        keys_to_fetch = [
+            "settings:imap_server",
+            "settings:imap_username",
+            "settings:imap_password",
+            "settings:embedding_model"
+        ]
+
     pipeline = redis_client.pipeline()
-    pipeline.mget(
-        RedisKeys.IMAP_SERVER,
-        RedisKeys.IMAP_USERNAME,
-        RedisKeys.IMAP_PASSWORD,
-        RedisKeys.EMBEDDING_MODEL
-    )
+    pipeline.mget(keys_to_fetch)
     results = pipeline.execute()[0]
 
     settings_data = {
@@ -52,29 +119,49 @@ def load_app_settings() -> AppSettings:
     except Exception as e:
         logger.error(f"An unexpected error occurred during settings decryption: {e}", exc_info=True)
 
-    return AppSettings(**settings_data)
+    # Instantiate the Pydantic model. This will trigger the validator to set a default if needed.
+    settings_model = AppSettings(**settings_data)
 
-def save_app_settings(settings: AppSettings):
+    # If a default was just set by the validator, persist it back to Redis for this user.
+    if settings_data["EMBEDDING_MODEL"] is None and settings_model.EMBEDDING_MODEL is not None and user_uuid:
+        logger.info(f"No embedding model was set for user {user_uuid}. Saving default: {settings_model.EMBEDDING_MODEL}")
+        save_app_settings(AppSettings(EMBEDDING_MODEL=settings_model.EMBEDDING_MODEL), user_uuid=user_uuid)
+
+    return settings_model
+
+def save_app_settings(settings: AppSettings, user_uuid: Optional[UUID] = None):
     """
     Saves application settings to Redis, encrypting sensitive values.
-    This function uses a mapping to dynamically update settings, making it
-    concise and easy to extend.
+    If a user_uuid is provided, it saves settings for that specific user.
+    Otherwise, it falls back to the legacy global keys.
     """
-    logger.info("Saving application settings to Redis...")
+    logger.info(f"Saving application settings to Redis for user: {user_uuid or 'global'}")
     redis_client = get_redis_client()
-
-    KEY_MAP = {
-        "IMAP_SERVER": RedisKeys.IMAP_SERVER,
-        "IMAP_USERNAME": RedisKeys.IMAP_USERNAME,
-        "IMAP_PASSWORD": RedisKeys.IMAP_PASSWORD,
-        "EMBEDDING_MODEL": RedisKeys.EMBEDDING_MODEL,
-    }
 
     pipeline = redis_client.pipeline()
     update_count = 0
 
     for field, value in settings.dict(exclude_unset=True).items():
-        redis_key = KEY_MAP.get(field)
+        redis_key = None
+        if user_uuid:
+            if field == "IMAP_SERVER":
+                redis_key = RedisKeys.get_imap_server_key(user_uuid)
+            elif field == "IMAP_USERNAME":
+                redis_key = RedisKeys.get_imap_username_key(user_uuid)
+            elif field == "IMAP_PASSWORD":
+                redis_key = RedisKeys.get_imap_password_key(user_uuid)
+            elif field == "EMBEDDING_MODEL":
+                redis_key = RedisKeys.get_embedding_model_key(user_uuid)
+        else:
+            # Fallback for legacy single-user mode
+            legacy_key_map = {
+                "IMAP_SERVER": "settings:imap_server",
+                "IMAP_USERNAME": "settings:imap_username",
+                "IMAP_PASSWORD": "settings:imap_password",
+                "EMBEDDING_MODEL": "settings:embedding_model"
+            }
+            redis_key = legacy_key_map.get(field)
+
         if not redis_key:
             continue
 

@@ -97,6 +97,20 @@ To ensure the application remains stable and testable throughout the refactoring
     *   The developer must update every location where `load_app_settings` and `save_app_settings` are called to pass the user's UUID.
     *   **List of files to update:**
         *   `api/endpoints/app_settings.py`: The `GET /settings` and `POST /settings` endpoints must pass the user's UUID from the `get_current_user` dependency.
+            *   **Refactor `GET /settings`**:
+                1.  This endpoint must be made user-aware by adding the `get_current_user` dependency to its signature.
+                2.  It will then call `load_app_settings(user_uuid=current_user.uuid)` to fetch settings for the currently authenticated user.
+                3.  **Implement Default Embedding Model Logic**:
+                    *   After loading the settings, the endpoint must check if `settings.EMBEDDING_MODEL` is `None`.
+                    *   If it is `None`, this indicates a first-time setup for the user. The endpoint will then execute the logic to find the "best available" embedding model by checking `embedding_models.json` against the available API keys in the environment.
+                    *   Once the best model is determined, it will be saved to the user's settings by calling `save_app_settings(AppSettings(EMBEDDING_MODEL=best_model), user_uuid=current_user.uuid)`.
+                    *   The function will then reload the settings to ensure the response includes the newly set default model.
+            *   **Refactor `POST /settings`**:
+                1.  This endpoint must also be made user-aware by adding the `get_current_user` dependency.
+                2.  It will pass the `current_user.uuid` to the `save_app_settings` function to ensure settings are saved only for the authenticated user.
+            *   **Refactor Tone of Voice Endpoints**:
+                1.  The `GET /settings/tone-of-voice` and `GET /settings/tone-of-voice/status` endpoints must be updated to use the `get_current_user` dependency.
+                2.  They will then use the user's UUID to call the new user-aware `RedisKeys` methods (e.g., `RedisKeys.get_tone_of_voice_profile_key(user_uuid)`).
         *   `api/endpoints/connection.py`: The `POST /test_imap_connection` endpoint must pass the user's UUID.
         *   `mcp_servers/imap_mcpserver/src/imap_client/internals/connection_manager.py`: This file's logic must be updated to receive user-specific settings, not call the global loader. This is detailed in the MCP refactoring section.
         *   `shared/services/embedding_service.py`: The functions in this service are called by other services that have user context. The `user_uuid` must be passed down to this service so it can load the correct user-specific embedding model.

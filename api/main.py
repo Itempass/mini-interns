@@ -37,18 +37,25 @@ async def lifespan(app: FastAPI):
     try:
         redis_client = get_redis_client()
         
-        # Check Inbox Vectorization status
-        inbox_status = redis_client.get(RedisKeys.INBOX_INITIALIZATION_STATUS)
-        if inbox_status == b'running':
-            redis_client.set(RedisKeys.INBOX_INITIALIZATION_STATUS, "failed")
-            logger.warning("Stale 'running' status for inbox vectorization found. Resetting to 'failed'.")
+        # --- Scan for and reset stale 'running' statuses for all users ---
+        patterns_to_check = [
+            "user:*:inbox:initialization:status",
+            "user:*:tone_of_voice_status"
+        ]
+        
+        for pattern in patterns_to_check:
+            stale_keys = []
+            for key in redis_client.scan_iter(match=pattern):
+                if redis_client.get(key) == b'running':
+                    stale_keys.append(key)
             
-        # Check Tone of Voice status
-        tone_status = redis_client.get(RedisKeys.TONE_OF_VOICE_STATUS)
-        if tone_status == b'running':
-            redis_client.set(RedisKeys.TONE_OF_VOICE_STATUS, "failed")
-            logger.warning("Stale 'running' status for tone of voice analysis found. Resetting to 'failed'.")
-            
+            if stale_keys:
+                logger.warning(f"Found {len(stale_keys)} stale 'running' statuses for pattern '{pattern}'. Resetting to 'failed'.")
+                for key in stale_keys:
+                    redis_client.set(key, "failed")
+            else:
+                logger.info(f"No stale 'running' statuses found for pattern '{pattern}'.")
+
     except Exception as e:
         logger.error(f"Error during startup status check: {e}", exc_info=True)
     
@@ -63,8 +70,8 @@ async def log_requests_middleware(request: Request, call_next):
     This middleware runs for every request. It's the earliest point
     at which we can inspect the incoming request headers.
     """
-    print(f"[MIDDLEWARE_DEBUG] Request received: {request.method} {request.url.path}")
-    print(f"[MIDDLEWARE_DEBUG] Raw Headers: {request.headers}")
+    #print(f"[MIDDLEWARE_DEBUG] Request received: {request.method} {request.url.path}")
+    #print(f"[MIDDLEWARE_DEBUG] Raw Headers: {request.headers}")
     response = await call_next(request)
     return response
 

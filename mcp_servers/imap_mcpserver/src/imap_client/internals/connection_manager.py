@@ -11,6 +11,7 @@ import logging
 import re
 from typing import Generator, Optional, Dict, List, Tuple
 from shared.app_settings import load_app_settings
+from uuid import UUID
 
 logger = logging.getLogger(__name__)
 
@@ -138,7 +139,8 @@ class IMAPConnectionManager:
                  server: Optional[str] = None,
                  username: Optional[str] = None, 
                  password: Optional[str] = None,
-                 port: int = 993):
+                 port: int = 993,
+                 user_uuid: Optional[UUID] = None):
         """
         Initialize connection manager with IMAP settings.
         
@@ -147,9 +149,17 @@ class IMAPConnectionManager:
             username: IMAP username (defaults to app settings)
             password: IMAP password (defaults to app settings)
             port: IMAP port (defaults to 993)
+            user_uuid: The UUID of the user to load settings for.
         """
-        # Only load settings from app_settings if any parameters are missing
-        if not server or not username or not password:
+        # Load user-specific settings if a UUID is provided.
+        # Fall back to provided parameters or global settings if no UUID.
+        if user_uuid:
+            settings = load_app_settings(user_uuid=user_uuid)
+            self.server = settings.IMAP_SERVER
+            self.username = settings.IMAP_USERNAME
+            self.password = settings.IMAP_PASSWORD
+        elif not server or not username or not password:
+            # Fallback to global settings if no user_uuid and parameters are missing
             settings = load_app_settings()
             self.server = server or settings.IMAP_SERVER
             self.username = username or settings.IMAP_USERNAME
@@ -166,7 +176,7 @@ class IMAPConnectionManager:
             raise ValueError("IMAP username and password must be provided via parameters or app settings")
 
     @contextlib.contextmanager
-    def connect(self) -> Generator[Tuple[imaplib.IMAP4_SSL, FolderResolver], None, None]:
+    def connect(self, user_uuid: Optional[UUID] = None) -> Generator[Tuple[imaplib.IMAP4_SSL, FolderResolver], None, None]:
         """
         Create a new IMAP connection with guaranteed cleanup.
         
@@ -180,6 +190,13 @@ class IMAPConnectionManager:
         """
         mail = None
         try:
+            # If user_uuid is provided, re-initialize settings to ensure they are for the correct user.
+            if user_uuid:
+                settings = load_app_settings(user_uuid=user_uuid)
+                self.server = settings.IMAP_SERVER
+                self.username = settings.IMAP_USERNAME
+                self.password = settings.IMAP_PASSWORD
+
             logger.debug(f"Connecting to IMAP server: {self.server}:{self.port}")
             mail = imaplib.IMAP4_SSL(self.server, self.port)
             mail.login(self.username, self.password)
@@ -205,28 +222,25 @@ class IMAPConnectionManager:
                     logger.warning(f"Error during IMAP logout (connection may already be closed): {e}")
 
 # No longer using a singleton for the default manager to ensure settings are always fresh.
-def get_default_connection_manager() -> IMAPConnectionManager:
+def get_default_connection_manager(user_uuid: Optional[UUID] = None) -> IMAPConnectionManager:
     """
-    Get a new connection manager instance.
+    Get a new connection manager instance for a specific user.
     
-    This ensures that the latest application settings are loaded each time
-    a connection is requested, allowing for dynamic updates without restarting
-    the service.
+    This ensures that the latest application settings for the given user
+    are loaded each time a connection is requested.
     """
-    return IMAPConnectionManager()
+    return IMAPConnectionManager(user_uuid=user_uuid)
 
 @contextlib.contextmanager
-def imap_connection() -> Generator[Tuple[imaplib.IMAP4_SSL, FolderResolver], None, None]:
+def imap_connection(user_uuid: Optional[UUID] = None) -> Generator[Tuple[imaplib.IMAP4_SSL, FolderResolver], None, None]:
     """
-    Convenience function for getting an IMAP connection using default settings.
+    Convenience function for getting a user-specific IMAP connection.
     
-    This is equivalent to get_default_connection_manager().connect() but shorter.
+    This is equivalent to get_default_connection_manager(user_uuid).connect() but shorter.
     
     Example:
-        with imap_connection() as (mail, resolver):
-            sent_folder = resolver.get_folder_by_attribute('\\Sent')
-            mail.select(sent_folder)
-            # ... do IMAP operations
+        with imap_connection(user_uuid=...) as (mail, resolver):
+            ...
     """
-    with get_default_connection_manager().connect() as (mail, resolver):
+    with get_default_connection_manager(user_uuid=user_uuid).connect() as (mail, resolver):
         yield mail, resolver 

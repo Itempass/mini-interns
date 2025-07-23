@@ -24,6 +24,7 @@ from mcp_servers.imap_mcpserver.src.imap_client.internals.bulk_threading import 
 from mcp_servers.imap_mcpserver.src.imap_client.helpers.contextual_id import create_contextual_id
 from mcp_servers.imap_mcpserver.src.imap_client.internals.connection_manager import imap_connection, IMAPConnectionError, FolderResolver, FolderNotFoundError
 from mcp_servers.imap_mcpserver.src.imap_client.helpers.body_parser import extract_body_formats
+from uuid import UUID
 
 load_dotenv(override=True)
 
@@ -897,7 +898,8 @@ async def get_messages_from_folder(folder_name: str, count: int = 10) -> List[Em
 async def get_recent_threads_bulk(
     target_thread_count: int = 50, 
     max_age_months: int = 6, 
-    source_folder_attribute: str = '\\Sent'
+    source_folder_attribute: str = '\\Sent',
+    user_uuid: Optional[UUID] = None
 ) -> Tuple[List[EmailThread], Dict[str, float]]:
     """
     High-performance bulk retrieval of recent email threads.
@@ -917,5 +919,6 @@ async def get_recent_threads_bulk(
     return await fetch_recent_threads_bulk(
         target_thread_count=target_thread_count,
         max_age_months=max_age_months,
-        source_folder_attribute=source_folder_attribute
+        source_folder_attribute=source_folder_attribute,
+        user_uuid=user_uuid
     )

@@ -38,72 +38,49 @@ class DatabaseService:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
 
-                # Check if the 'logs' table needs migration for 'stop_checker'
-                cursor.execute("PRAGMA table_info(logs)")
-                table_info = cursor.fetchone()
-                
-                needs_migration = False
-                if table_info:
-                    # Get the CREATE statement for the logs table
-                    cursor.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='logs'")
-                    create_sql_row = cursor.fetchone()
-                    if create_sql_row:
-                        create_sql = create_sql_row[0]
-                        # If 'stop_checker' is not in the CHECK constraint, we need to migrate
-                        if "'stop_checker'" not in create_sql:
-                            needs_migration = True
-                            logger.info("Detected old schema for 'logs' table. Migration required.")
-                
-                if needs_migration:
-                    logger.info("Starting schema migration for 'logs' table...")
-                    # 1. Rename the old table
-                    conn.execute("ALTER TABLE logs RENAME TO logs_old;")
-                    logger.info("Renamed 'logs' to 'logs_old'.")
+                # Run schema to create tables if they don't exist
+                schema_path = os.path.join(os.path.dirname(__file__), "schema.sql")
+                with open(schema_path, 'r') as f:
+                    # We only run the CREATE TABLE statement to avoid errors with indices on missing columns
+                    schema_sql = f.read()
+                    create_table_statement = schema_sql.split(';')[0]
+                    cursor.execute(create_table_statement)
 
-                    # 2. Create the new table with the updated schema
-                    schema_path = os.path.join(os.path.dirname(__file__), "schema.sql")
-                    with open(schema_path, 'r') as f:
-                        schema_sql = f.read()
-                    conn.executescript(schema_sql)
-                    logger.info("Created new 'logs' table with updated schema.")
-
-                    # 3. Copy data from the old table to the new one
-                    conn.execute("""
-                        INSERT INTO logs (id, reference_string, log_type, workflow_id, workflow_instance_id, workflow_name, step_id, step_instance_id, step_name, messages, needs_review, feedback, start_time, end_time, anonymized)
-                        SELECT id, reference_string, log_type, workflow_id, workflow_instance_id, workflow_name, step_id, step_instance_id, step_name, messages, needs_review, feedback, start_time, end_time, anonymized
-                        FROM logs_old;
-                    """)
-                    logger.info("Copied data from 'logs_old' to new 'logs' table.")
-
-                    # 4. Drop the old table
-                    conn.execute("DROP TABLE logs_old;")
-                    logger.info("Dropped 'logs_old' table. Migration complete.")
-                else:
-                     # If no migration is needed, still ensure the table is created if it doesn't exist
-                    schema_path = os.path.join(os.path.dirname(__file__), "schema.sql")
-                    with open(schema_path, 'r') as f:
-                        schema_sql = f.read()
-                    conn.executescript(schema_sql)
-
-                # --- Migration for token/cost tracking columns ---
+                # --- Start of Column Migrations ---
+                # Check for all required columns and add them if they are missing.
                 cursor.execute("PRAGMA table_info(logs)")
                 columns = [info[1] for info in cursor.fetchall()]
-                
-                if 'prompt_tokens' not in columns:
-                    logger.info("Adding 'prompt_tokens' column to 'logs' table.")
-                    cursor.execute("ALTER TABLE logs ADD COLUMN prompt_tokens INTEGER")
-                
-                if 'completion_tokens' not in columns:
-                    logger.info("Adding 'completion_tokens' column to 'logs' table.")
-                    cursor.execute("ALTER TABLE logs ADD COLUMN completion_tokens INTEGER")
 
-                if 'total_tokens' not in columns:
-                    logger.info("Adding 'total_tokens' column to 'logs' table.")
-                    cursor.execute("ALTER TABLE logs ADD COLUMN total_tokens INTEGER")
+                migrations = {
+                    'prompt_tokens': "ALTER TABLE logs ADD COLUMN prompt_tokens INTEGER",
+                    'completion_tokens': "ALTER TABLE logs ADD COLUMN completion_tokens INTEGER",
+                    'total_tokens': "ALTER TABLE logs ADD COLUMN total_tokens INTEGER",
+                    'total_cost': "ALTER TABLE logs ADD COLUMN total_cost REAL",
+                    'user_id': "ALTER TABLE logs ADD COLUMN user_id TEXT"
+                }
 
-                if 'total_cost' not in columns:
-                    logger.info("Adding 'total_cost' column to 'logs' table.")
-                    cursor.execute("ALTER TABLE logs ADD COLUMN total_cost REAL")
+                for col, statement in migrations.items():
+                    if col not in columns:
+                        logger.info(f"Adding '{col}' column to 'logs' table.")
+                        cursor.execute(statement)
+
+                # --- End of Column Migrations ---
+
+                # --- Start of Index Creation ---
+                # Now that all columns are guaranteed to exist, we can create indices.
+                # We extract index creation from the schema file to run them separately.
+                index_statements = [stmt for stmt in schema_sql.split(';') if "CREATE INDEX" in stmt]
+                for statement in index_statements:
+                    if statement.strip():
+                        cursor.execute(statement)
+                # --- End of Index Creation ---
+
+                # --- Legacy Migration for 'stop_checker' in CHECK constraint ---
+                # This is a more complex migration that involves renaming and copying data.
+                cursor.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='logs'")
+                create_sql_row = cursor.fetchone()
+                if create_sql_row and "'stop_checker'" not in create_sql_row[0]:
+                    self._run_stop_checker_migration(conn)
                 
                 conn.commit()
             logger.info(f"Database initialized at: {self.db_path}")
@@ -111,6 +88,52 @@ class DatabaseService:
         except Exception as e:
             logger.error(f"Failed to initialize database: {e}", exc_info=True)
             raise
+
+    def _run_stop_checker_migration(self, conn: sqlite3.Connection):
+        """
+        Handles the specific migration to add 'stop_checker' to the log_type
+        CHECK constraint by rebuilding the table.
+        """
+        logger.info("Starting schema migration to add 'stop_checker' to 'logs' table...")
+        
+        # 1. Rename the old table
+        conn.execute("ALTER TABLE logs RENAME TO logs_old;")
+        logger.info("Renamed 'logs' to 'logs_old'.")
+
+        # 2. Create the new table with the fully updated schema
+        schema_path = os.path.join(os.path.dirname(__file__), "schema.sql")
+        with open(schema_path, 'r') as f:
+            schema_sql = f.read()
+        conn.executescript(schema_sql)
+        logger.info("Created new 'logs' table with updated schema.")
+
+        # 3. Copy data from the old table to the new one, handling potentially missing columns
+        cursor = conn.cursor()
+        cursor.execute("PRAGMA table_info(logs_old)")
+        old_columns = [info[1] for info in cursor.fetchall()]
+
+        # These are the columns in the new schema
+        new_columns = [
+            'id', 'reference_string', 'log_type', 'workflow_id', 'workflow_instance_id',
+            'workflow_name', 'step_id', 'step_instance_id', 'step_name', 'messages',
+            'needs_review', 'feedback', 'start_time', 'end_time', 'anonymized',
+            'prompt_tokens', 'completion_tokens', 'total_tokens', 'total_cost', 'user_id'
+        ]
+        
+        # Select only the columns that exist in the old table
+        columns_to_copy = [col for col in new_columns if col in old_columns]
+        
+        insert_sql = f"""
+            INSERT INTO logs ({', '.join(columns_to_copy)})
+            SELECT {', '.join(columns_to_copy)}
+            FROM logs_old;
+        """
+        conn.execute(insert_sql)
+        logger.info("Copied data from 'logs_old' to new 'logs' table.")
+
+        # 4. Drop the old table
+        conn.execute("DROP TABLE logs_old;")
+        logger.info("Dropped 'logs_old' table. Migration complete.")
 
     def create_log_entry(self, log_entry: LogEntry) -> str:
         """
@@ -123,8 +146,8 @@ class DatabaseService:
             with sqlite3.connect(self.db_path) as conn:
                 conn.execute(
                     """
-                    INSERT INTO logs (id, reference_string, log_type, workflow_id, workflow_instance_id, workflow_name, step_id, step_instance_id, step_name, messages, needs_review, feedback, start_time, end_time, anonymized, prompt_tokens, completion_tokens, total_tokens, total_cost)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO logs (id, reference_string, log_type, workflow_id, workflow_instance_id, workflow_name, step_id, step_instance_id, step_name, messages, needs_review, feedback, start_time, end_time, anonymized, prompt_tokens, completion_tokens, total_tokens, total_cost, user_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         log_entry.id,
@@ -146,6 +169,7 @@ class DatabaseService:
                         log_entry.completion_tokens,
                         log_entry.total_tokens,
                         log_entry.total_cost,
+                        log_entry.user_id,
                     )
                 )
                 conn.commit()
@@ -171,8 +195,8 @@ class DatabaseService:
             with sqlite3.connect(self.db_path) as conn:
                 conn.execute(
                     """
-                    INSERT INTO logs (id, reference_string, log_type, workflow_id, workflow_instance_id, workflow_name, step_id, step_instance_id, step_name, messages, needs_review, feedback, start_time, end_time, anonymized, prompt_tokens, completion_tokens, total_tokens, total_cost)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO logs (id, reference_string, log_type, workflow_id, workflow_instance_id, workflow_name, step_id, step_instance_id, step_name, messages, needs_review, feedback, start_time, end_time, anonymized, prompt_tokens, completion_tokens, total_tokens, total_cost, user_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(id) DO UPDATE SET
                         reference_string = excluded.reference_string,
                         log_type = excluded.log_type,
@@ -191,7 +215,8 @@ class DatabaseService:
                         prompt_tokens = excluded.prompt_tokens,
                         completion_tokens = excluded.completion_tokens,
                         total_tokens = excluded.total_tokens,
-                        total_cost = excluded.total_cost
+                        total_cost = excluded.total_cost,
+                        user_id = excluded.user_id
                     """,
                     (
                         log_entry.id,
@@ -213,6 +238,7 @@ class DatabaseService:
                         log_entry.completion_tokens,
                         log_entry.total_tokens,
                         log_entry.total_cost,
+                        log_entry.user_id,
                     )
                 )
                 conn.commit()
@@ -223,14 +249,23 @@ class DatabaseService:
             logger.error(f"Failed to upsert log entry {log_entry.id}: {e}", exc_info=True)
             raise
 
-    def get_log_entry(self, log_id: str) -> Optional[LogEntry]:
+    def get_log_entry(self, log_id: str, user_id: Optional[str] = None) -> Optional[LogEntry]:
         """
         Retrieve a log entry from the database.
+        If user_id is provided, it will also filter by user.
         """
         try:
             with sqlite3.connect(self.db_path) as conn:
                 conn.row_factory = sqlite3.Row
-                cursor = conn.execute("SELECT * FROM logs WHERE id = ?", (log_id,))
+
+                query = "SELECT * FROM logs WHERE id = ?"
+                params = (log_id,)
+
+                if user_id:
+                    query += " AND user_id = ?"
+                    params += (user_id,)
+
+                cursor = conn.execute(query, params)
                 row = cursor.fetchone()
 
             if row is None:
@@ -243,14 +278,25 @@ class DatabaseService:
             logger.error(f"Failed to retrieve log entry {log_id}: {e}")
             return None
 
-    def get_all_log_entries(self) -> List[LogEntry]:
+    def get_all_log_entries(self, user_id: Optional[str] = None) -> List[LogEntry]:
         """
         Retrieve all log entries from the database.
+        If user_id is provided, it filters logs for that specific user.
         """
         try:
             with sqlite3.connect(self.db_path) as conn:
                 conn.row_factory = sqlite3.Row
-                cursor = conn.execute("SELECT * FROM logs ORDER BY start_time DESC")
+                
+                query = "SELECT * FROM logs"
+                params = []
+
+                if user_id:
+                    query += " WHERE user_id = ?"
+                    params.append(user_id)
+
+                query += " ORDER BY start_time DESC"
+                
+                cursor = conn.execute(query, tuple(params))
                 rows = cursor.fetchall()
 
             return [self._row_to_log_entry(row) for row in rows]
@@ -259,11 +305,11 @@ class DatabaseService:
             logger.error(f"Failed to retrieve log entries: {e}")
             return []
             
-    def get_grouped_log_entries(self, limit: int, offset: int, workflow_id: Optional[str] = None, log_type: Optional[str] = None) -> Dict[str, Any]:
+    def get_grouped_log_entries(self, limit: int, offset: int, workflow_id: Optional[str] = None, log_type: Optional[str] = None, user_id: Optional[str] = None) -> Dict[str, Any]:
         """
         Retrieve paginated and grouped log entries from the database.
         Fetches workflow logs with pagination and their associated step logs.
-        Can be filtered by a specific workflow_id and/or log_type.
+        Can be filtered by a specific workflow_id, log_type, and/or user_id.
         """
         try:
             with sqlite3.connect(self.db_path) as conn:
@@ -282,6 +328,11 @@ class DatabaseService:
                     count_query += " AND workflow_id = ?"
                     main_query += " AND workflow_id = ?"
                     params.append(workflow_id)
+
+                if user_id:
+                    count_query += " AND user_id = ?"
+                    main_query += " AND user_id = ?"
+                    params.append(user_id)
 
                 # 2. Get total count of workflows for pagination
                 total_workflows_cursor = conn.execute(count_query, tuple(params))
@@ -305,14 +356,23 @@ class DatabaseService:
                 if workflow_instance_ids:
                     # Create placeholders for the IN clause
                     placeholders = ','.join('?' for _ in workflow_instance_ids)
-                    children_cursor = conn.execute(
-                        f"""
+
+                    child_query = f"""
                         SELECT * FROM logs 
                         WHERE log_type IN ('custom_agent', 'custom_llm', 'stop_checker') 
                         AND workflow_instance_id IN ({placeholders})
-                        ORDER BY DATETIME(start_time) ASC
-                        """,
-                        workflow_instance_ids
+                        """
+                    child_params = list(workflow_instance_ids)
+                    
+                    if user_id:
+                        child_query += " AND user_id = ?"
+                        child_params.append(user_id)
+                        
+                    child_query += " ORDER BY DATETIME(start_time) ASC"
+                    
+                    children_cursor = conn.execute(
+                        child_query,
+                        tuple(child_params)
                     )
                     child_rows = children_cursor.fetchall()
                     child_logs = [self._row_to_log_entry(row) for row in child_rows]

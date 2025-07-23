@@ -68,29 +68,29 @@ def save_log_entry_sync(log_entry: LogEntry) -> Dict[str, Any]:
     """Synchronous version of save_log_entry."""
     return asyncio.run(save_log_entry(log_entry))
 
-def get_log_entry(log_id: str) -> Optional[LogEntry]:
+def get_log_entry(log_id: str, user_id: Optional[str] = None) -> Optional[LogEntry]:
     """Retrieve a single log entry from the database."""
     try:
         db_service = get_database_service()
-        return db_service.get_log_entry(log_id)
+        return db_service.get_log_entry(log_id, user_id=user_id)
     except Exception as e:
         logger.error(f"Error retrieving log {log_id}: {e}")
         return None
 
-def get_all_log_entries() -> List[LogEntry]:
+def get_all_log_entries(user_id: Optional[str] = None) -> List[LogEntry]:
     """Retrieve all log entries from the database."""
     try:
         db_service = get_database_service()
-        return db_service.get_all_log_entries()
+        return db_service.get_all_log_entries(user_id=user_id)
     except Exception as e:
         logger.error(f"Error retrieving logs: {e}")
         return []
 
-def get_grouped_log_entries(limit: int, offset: int, workflow_id: Optional[str] = None, log_type: Optional[str] = None) -> Dict[str, Any]:
+def get_grouped_log_entries(limit: int, offset: int, workflow_id: Optional[str] = None, log_type: Optional[str] = None, user_id: Optional[str] = None) -> Dict[str, Any]:
     """Retrieve paginated and grouped log entries."""
     try:
         db_service = get_database_service()
-        return db_service.get_grouped_log_entries(limit, offset, workflow_id, log_type)
+        return db_service.get_grouped_log_entries(limit, offset, workflow_id, log_type, user_id=user_id)
     except Exception as e:
         logger.error(f"Error retrieving grouped logs: {e}", exc_info=True)
         return {"workflows": [], "total_workflows": 0}
