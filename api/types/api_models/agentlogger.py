@@ -19,4 +19,10 @@ class GroupedLog(BaseModel):
 
 class GroupedLogEntriesResponse(BaseModel):
     workflows: List[GroupedLog]
-    total_workflows: int 
+    total_workflows: int
+
+class WorkflowUsageStatsResponse(BaseModel):
+    total_prompt_tokens: int
+    total_completion_tokens: int
+    total_tokens: int
+    total_cost: float 

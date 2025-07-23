@@ -1,6 +1,9 @@
 import httpx
 import logging
 from shared.config import settings
+from typing import Dict, Any
+import asyncio
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +23,7 @@ class OpenRouterService:
             timeout=120  # Generous timeout for model generation
         )
 
-    async def get_llm_response(self, prompt: str, system_prompt: str, model: str) -> str:
+    async def get_llm_response(self, prompt: str, system_prompt: str, model: str) -> Dict[str, Any]:
         """
         Gets a response from a specified LLM on OpenRouter with a given prompt.
         """
@@ -34,7 +37,7 @@ class OpenRouterService:
         try:
             response = await self.client.post("/chat/completions", json=json_payload)
             response.raise_for_status()
-            return response.json()["choices"][0]["message"]["content"]
+            return response.json()
         except httpx.HTTPStatusError as e:
             logger.error(f"HTTPStatusError calling OpenRouter: {e}")
             logger.error(f"Request body: {json_payload}")
@@ -42,6 +45,33 @@ class OpenRouterService:
         except (KeyError, IndexError) as e:
             logger.error(f"Error parsing OpenRouter response: {e}")
             logger.error(f"Response body: {response.text}")
+            raise
+
+    async def get_generation_cost(self, generation_id: str) -> float:
+        """
+        Retrieves the cost of a specific generation from OpenRouter.
+        """
+        try:
+            # Add a small delay to allow for the generation stats to be processed.
+            await asyncio.sleep(2)
+
+            response = await self.client.get(f"/generation?id={generation_id}")
+            response.raise_for_status()
+            data = response.json()
+            
+            # The cost is nested inside the 'data' object.
+            generation_data = data.get("data", {})
+            return generation_data.get("total_cost", 0.0)
+            
+        except httpx.HTTPStatusError as e:
+            logger.error(f"HTTPStatusError getting generation cost for id {generation_id}: {e}")
+            logger.error(f"Response: {e.response.text}")
+            raise
+        except (KeyError, IndexError, json.JSONDecodeError) as e:
+            logger.error(f"Error parsing generation cost response for id {generation_id}: {e}")
+            # Use 'response' in a conditional check as it may not be defined if the request fails early
+            if 'response' in locals() and hasattr(response, 'text'):
+                logger.error(f"Response body: {response.text}")
             raise
 
 # Create a singleton instance to be used by other modules

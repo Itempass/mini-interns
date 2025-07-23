@@ -85,6 +85,26 @@ class DatabaseService:
                         schema_sql = f.read()
                     conn.executescript(schema_sql)
 
+                # --- Migration for token/cost tracking columns ---
+                cursor.execute("PRAGMA table_info(logs)")
+                columns = [info[1] for info in cursor.fetchall()]
+                
+                if 'prompt_tokens' not in columns:
+                    logger.info("Adding 'prompt_tokens' column to 'logs' table.")
+                    cursor.execute("ALTER TABLE logs ADD COLUMN prompt_tokens INTEGER")
+                
+                if 'completion_tokens' not in columns:
+                    logger.info("Adding 'completion_tokens' column to 'logs' table.")
+                    cursor.execute("ALTER TABLE logs ADD COLUMN completion_tokens INTEGER")
+
+                if 'total_tokens' not in columns:
+                    logger.info("Adding 'total_tokens' column to 'logs' table.")
+                    cursor.execute("ALTER TABLE logs ADD COLUMN total_tokens INTEGER")
+
+                if 'total_cost' not in columns:
+                    logger.info("Adding 'total_cost' column to 'logs' table.")
+                    cursor.execute("ALTER TABLE logs ADD COLUMN total_cost REAL")
+                
                 conn.commit()
             logger.info(f"Database initialized at: {self.db_path}")
 
@@ -103,8 +123,8 @@ class DatabaseService:
             with sqlite3.connect(self.db_path) as conn:
                 conn.execute(
                     """
-                    INSERT INTO logs (id, reference_string, log_type, workflow_id, workflow_instance_id, workflow_name, step_id, step_instance_id, step_name, messages, needs_review, feedback, start_time, end_time, anonymized)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO logs (id, reference_string, log_type, workflow_id, workflow_instance_id, workflow_name, step_id, step_instance_id, step_name, messages, needs_review, feedback, start_time, end_time, anonymized, prompt_tokens, completion_tokens, total_tokens, total_cost)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         log_entry.id,
@@ -122,6 +142,10 @@ class DatabaseService:
                         log_entry.start_time,
                         log_entry.end_time,
                         log_entry.anonymized,
+                        log_entry.prompt_tokens,
+                        log_entry.completion_tokens,
+                        log_entry.total_tokens,
+                        log_entry.total_cost,
                     )
                 )
                 conn.commit()
@@ -147,8 +171,8 @@ class DatabaseService:
             with sqlite3.connect(self.db_path) as conn:
                 conn.execute(
                     """
-                    INSERT INTO logs (id, reference_string, log_type, workflow_id, workflow_instance_id, workflow_name, step_id, step_instance_id, step_name, messages, needs_review, feedback, start_time, end_time, anonymized)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO logs (id, reference_string, log_type, workflow_id, workflow_instance_id, workflow_name, step_id, step_instance_id, step_name, messages, needs_review, feedback, start_time, end_time, anonymized, prompt_tokens, completion_tokens, total_tokens, total_cost)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(id) DO UPDATE SET
                         reference_string = excluded.reference_string,
                         log_type = excluded.log_type,
@@ -163,7 +187,11 @@ class DatabaseService:
                         feedback = excluded.feedback,
                         start_time = excluded.start_time,
                         end_time = excluded.end_time,
-                        anonymized = excluded.anonymized
+                        anonymized = excluded.anonymized,
+                        prompt_tokens = excluded.prompt_tokens,
+                        completion_tokens = excluded.completion_tokens,
+                        total_tokens = excluded.total_tokens,
+                        total_cost = excluded.total_cost
                     """,
                     (
                         log_entry.id,
@@ -181,6 +209,10 @@ class DatabaseService:
                         log_entry.start_time.isoformat(),
                         log_entry.end_time.isoformat() if log_entry.end_time else None,
                         log_entry.anonymized,
+                        log_entry.prompt_tokens,
+                        log_entry.completion_tokens,
+                        log_entry.total_tokens,
+                        log_entry.total_cost,
                     )
                 )
                 conn.commit()
@@ -306,6 +338,41 @@ class DatabaseService:
             logger.error(f"Failed to retrieve grouped log entries: {e}", exc_info=True)
             return {"workflows": [], "total_workflows": 0}
 
+    def get_workflow_usage_stats(self, workflow_instance_id: str) -> Dict[str, Any]:
+        """
+        Calculates the total tokens and cost for a given workflow instance.
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.execute(
+                    """
+                    SELECT
+                        SUM(prompt_tokens) as total_prompt_tokens,
+                        SUM(completion_tokens) as total_completion_tokens,
+                        SUM(total_tokens) as total_tokens,
+                        SUM(total_cost) as total_cost
+                    FROM logs
+                    WHERE workflow_instance_id = ?
+                    """,
+                    (workflow_instance_id,),
+                )
+                stats = cursor.fetchone()
+
+                return {
+                    "total_prompt_tokens": stats[0] or 0,
+                    "total_completion_tokens": stats[1] or 0,
+                    "total_tokens": stats[2] or 0,
+                    "total_cost": stats[3] or 0.0,
+                }
+        except Exception as e:
+            logger.error(f"Failed to calculate usage stats for workflow {workflow_instance_id}: {e}", exc_info=True)
+            return {
+                "total_prompt_tokens": 0,
+                "total_completion_tokens": 0,
+                "total_tokens": 0,
+                "total_cost": 0.0,
+            }
+
     def _row_to_log_entry(self, row: sqlite3.Row) -> LogEntry:
         """Converts a database row to a LogEntry model."""
         log_data = dict(row)
@@ -318,6 +385,12 @@ class DatabaseService:
         if 'end_time' in log_data and log_data['end_time'] and isinstance(log_data['end_time'], str):
             log_data['end_time'] = datetime.fromisoformat(log_data['end_time'].replace("Z", "+00:00"))
 
+        # Ensure numeric fields are correctly typed, defaulting to None if they don't exist
+        log_data['prompt_tokens'] = log_data.get('prompt_tokens')
+        log_data['completion_tokens'] = log_data.get('completion_tokens')
+        log_data['total_tokens'] = log_data.get('total_tokens')
+        log_data['total_cost'] = log_data.get('total_cost')
+        
         return LogEntry.model_validate(log_data)
 
     def health_check(self) -> Dict[str, Any]:

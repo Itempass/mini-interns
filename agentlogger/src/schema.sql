@@ -16,7 +16,12 @@ CREATE TABLE IF NOT EXISTS logs (
     feedback TEXT,
     start_time TIMESTAMP NOT NULL,
     end_time TIMESTAMP,
-    anonymized BOOLEAN DEFAULT FALSE
+    anonymized BOOLEAN DEFAULT FALSE,
+    -- New fields for token and cost tracking
+    prompt_tokens INTEGER,
+    completion_tokens INTEGER,
+    total_tokens INTEGER,
+    total_cost REAL
 );
 
 -- Index on start_time for chronological queries

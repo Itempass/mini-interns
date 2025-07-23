@@ -21,6 +21,9 @@ from mcp.types import Tool
 from shared.app_settings import load_app_settings
 from shared.config import settings
 from workflow.internals.output_processor import create_output_data, generate_summary
+from mcp_servers.tone_of_voice_mcpserver.src.services.openrouter_service import (
+    openrouter_service,
+)
 from workflow.models import (
     CustomAgent,
     CustomAgentInstanceModel,
@@ -192,6 +195,12 @@ async def run_agent_step(
         messages_for_run = [MessageModel(role="system", content=resolved_system_prompt)]
         instance.messages.extend(messages_for_run)
 
+        # To store cumulative token and cost information
+        cumulative_prompt_tokens = 0
+        cumulative_completion_tokens = 0
+        cumulative_total_tokens = 0
+        cumulative_total_cost = 0.0
+
         logger.info(f"Starting agent execution loop for instance {instance.uuid}. Max cycles: {max_cycles}")
         for turn in range(max_cycles):
             logger.info(
@@ -216,6 +225,24 @@ async def run_agent_step(
             instance.messages.append(
                 MessageModel.model_validate(response_message.model_dump())
             )
+
+            # Accumulate usage data
+            if response.usage:
+                cumulative_prompt_tokens += response.usage.prompt_tokens
+                cumulative_completion_tokens += response.usage.completion_tokens
+                cumulative_total_tokens += response.usage.total_tokens
+                # Cost retrieval would need a generation ID, which is available in the 'id' of the response.
+                # Assuming openrouter_service can be used here as well.
+                if response.id:
+                    try:
+                        # This assumes a similar setup as llm_runner and might need adjustment
+                        # if openrouter_service is not directly available here.
+                        # For now, let's assume we can fetch it.
+                        cost = await openrouter_service.get_generation_cost(response.id)
+                        cumulative_total_cost += cost
+                    except Exception as e:
+                        logger.error(f"Could not retrieve cost for generation {response.id}: {e}")
+
 
             if not response_message.tool_calls:
                 logger.info("Agent finished execution loop.")
@@ -293,7 +320,11 @@ async def run_agent_step(
                 messages=logger_messages,
                 start_time=instance.started_at,
                 end_time=datetime.now(timezone.utc),
-                reference_string="TODO: PASS REFERENCE STRING"
+                reference_string="TODO: PASS REFERENCE STRING",
+                prompt_tokens=cumulative_prompt_tokens,
+                completion_tokens=cumulative_completion_tokens,
+                total_tokens=cumulative_total_tokens,
+                total_cost=cumulative_total_cost,
             )
             await save_log_entry(log_entry)
             logger.info(f"Successfully saved conversation for instance {instance.uuid}.")
