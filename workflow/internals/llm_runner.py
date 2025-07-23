@@ -51,13 +51,29 @@ async def run_llm_step(
 
         logger.info(f"Calling OpenRouter for instance {instance.uuid} with model {llm_definition.model}")
         # Use the OpenRouter service to get the LLM response
-        response_content = await openrouter_service.get_llm_response(
+        response_data = await openrouter_service.get_llm_response(
             prompt="Proceed as instructed.",
             system_prompt=resolved_system_prompt,
             model=llm_definition.model,
         )
         logger.info(f"Received response from OpenRouter for instance {instance.uuid}")
-        logger.debug(f"Response content: {response_content}")
+        logger.debug(f"Response data: {response_data}")
+
+        # Extract the content and other details from the response
+        response_content = response_data["choices"][0]["message"]["content"]
+        generation_id = response_data.get("id")
+        usage = response_data.get("usage", {})
+        prompt_tokens = usage.get("prompt_tokens")
+        completion_tokens = usage.get("completion_tokens")
+        total_tokens = usage.get("total_tokens")
+        
+        # Get the cost
+        total_cost = None
+        if generation_id:
+            try:
+                total_cost = await openrouter_service.get_generation_cost(generation_id)
+            except Exception as e:
+                logger.error(f"Could not retrieve cost for generation {generation_id}: {e}")
 
         # Add the response to the messages
         instance.messages.append(MessageModel(role="assistant", content=response_content))
@@ -100,6 +116,11 @@ async def run_llm_step(
                 start_time=instance.started_at,
                 end_time=datetime.now(timezone.utc),
                 reference_string="TODO: PASS REFERENCE STRING",
+                # Add token and cost info
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                total_tokens=total_tokens,
+                total_cost=total_cost,
             )
             await save_log_entry(log_entry)
             logger.info(f"Successfully saved LLM conversation for instance {instance.uuid}.")

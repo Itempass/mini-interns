@@ -95,6 +95,13 @@ def get_grouped_log_entries(limit: int, offset: int, workflow_id: Optional[str] 
         logger.error(f"Error retrieving grouped logs: {e}", exc_info=True)
         return {"workflows": [], "total_workflows": 0}
 
+def get_workflow_usage_stats(workflow_instance_id: str) -> Dict[str, Any]:
+    """
+    Get usage statistics for a specific workflow instance from the database.
+    """
+    db_service = get_database_service()
+    return db_service.get_workflow_usage_stats(workflow_instance_id=workflow_instance_id)
+
 async def upsert_and_forward_log_entry(log_entry: LogEntry) -> Dict[str, Any]:
     """
     Upsert a log entry in the local database and forward it to the external service.

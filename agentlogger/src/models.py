@@ -36,4 +36,10 @@ class LogEntry(BaseModel):
     end_time: Optional[datetime.datetime] = None
     anonymized: bool = False
 
+    # New fields for token and cost tracking
+    prompt_tokens: Optional[int] = None
+    completion_tokens: Optional[int] = None
+    total_tokens: Optional[int] = None
+    total_cost: Optional[float] = None
+
     model_config = {"extra": "allow"}

@@ -286,6 +286,10 @@ export interface LogEntry {
   start_time: string; // ISO 8601 format
   end_time: string | null; // ISO 8601 format
   anonymized: boolean;
+  prompt_tokens: number | null;
+  completion_tokens: number | null;
+  total_tokens: number | null;
+  total_cost: number | null;
   [key: string]: any;
 }
 

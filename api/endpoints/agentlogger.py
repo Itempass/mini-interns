@@ -1,7 +1,7 @@
 import logging
 from fastapi import APIRouter, HTTPException, Query
-from agentlogger.src.client import get_all_log_entries, get_log_entry, add_review, get_grouped_log_entries
-from api.types.api_models.agentlogger import LogEntryResponse, LogEntriesResponse, AddReviewRequest, GroupedLogEntriesResponse
+from agentlogger.src.client import get_all_log_entries, get_log_entry, add_review, get_grouped_log_entries, get_workflow_usage_stats
+from api.types.api_models.agentlogger import LogEntryResponse, LogEntriesResponse, AddReviewRequest, GroupedLogEntriesResponse, WorkflowUsageStatsResponse
 from typing import Optional
 
 router = APIRouter()
@@ -22,6 +22,18 @@ def get_grouped_logs(
         return GroupedLogEntriesResponse(**grouped_data)
     except Exception as e:
         logger.error(f"Error fetching grouped logs: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+@router.get("/agentlogger/logs/usage-stats/{workflow_instance_id}", response_model=WorkflowUsageStatsResponse)
+def get_usage_stats(workflow_instance_id: str):
+    """
+    Get usage statistics for a specific workflow instance.
+    """
+    try:
+        stats = get_workflow_usage_stats(workflow_instance_id)
+        return WorkflowUsageStatsResponse(**stats)
+    except Exception as e:
+        logger.error(f"Error fetching usage stats for workflow {workflow_instance_id}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 @router.get("/agentlogger/logs", response_model=LogEntriesResponse)
