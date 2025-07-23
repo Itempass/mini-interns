@@ -6,19 +6,44 @@ import hashlib
 import hmac
 from pathlib import Path
 from uuid import uuid4, UUID
+from typing import Optional
+from datetime import datetime
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 from shared.security.encryption import encrypt_value, decrypt_value
+from shared.config import settings
+from user import client as user_client
+from user.models import User
+from user.client import AnonymousLoginResponse
 
+# Create a new router for Auth0-specific endpoints
+auth0_router = APIRouter(prefix="/auth", tags=["authentication-auth0"])
+
+# Create a reusable dependency for getting the bearer token
+reusable_bearer = HTTPBearer()
+
+@auth0_router.post("/anonymous-login", response_model=AnonymousLoginResponse)
+async def anonymous_login():
+    """
+    Creates a new, anonymous "guest" user and returns the user object along
+    with an access token for the session.
+    """
+    try:
+        response = user_client.create_anonymous_user_and_get_token()
+        return response
+    except Exception as e:
+        # In a real app, catch specific exceptions
+        raise HTTPException(status_code=500, detail=f"Could not create anonymous user: {e}")
+
+
+# Keep the existing router for password-based and general auth endpoints
 router = APIRouter(prefix="/auth", tags=["authentication"])
 
 # --- New Configuration ---
-AUTH_SELFSET_PASSWORD = os.getenv("AUTH_SELFSET_PASSWORD", "false").lower() == "true"
-# Use an absolute path within the container that corresponds to the mounted volume
 AUTH_PASSWORD_FILE_PATH = "/data/keys/auth_password.key"
-LEGACY_AUTH_PASSWORD = os.getenv("AUTH_PASSWORD")
 
 # Use a different cookie name for each auth method to prevent session bleed-over
-if AUTH_SELFSET_PASSWORD:
+if settings.AUTH_SELFSET_PASSWORD:
     AUTH_COOKIE_NAME = "min_interns_auth_session_selfset"
 else:
     AUTH_COOKIE_NAME = "min_interns_auth_session_legacy"
@@ -44,21 +69,21 @@ def is_self_set_configured():
     return os.path.exists(AUTH_PASSWORD_FILE_PATH)
 
 def get_auth_configuration_status():
-    if AUTH_SELFSET_PASSWORD:
+    if settings.AUTH_SELFSET_PASSWORD:
         if is_self_set_configured():
             return "self_set_configured"
         else:
             return "self_set_unconfigured"
-    elif LEGACY_AUTH_PASSWORD:
+    elif settings.AUTH_PASSWORD:
         return "legacy_configured"
     else:
         return "unconfigured"
 
 async def get_active_password():
     """Gets the active password based on the configuration."""
-    if AUTH_SELFSET_PASSWORD:
+    if settings.AUTH_SELFSET_PASSWORD:
         return await get_password_from_file()
-    return LEGACY_AUTH_PASSWORD
+    return settings.AUTH_PASSWORD
 
 def get_session_token(password: str):
     """Generates a verification token based on a given password."""
@@ -73,13 +98,71 @@ def get_session_token(password: str):
     return hmac.new(salt_bytes, token_source_bytes, hashlib.sha256).hexdigest()
 
 
-def get_current_user_id() -> UUID:
+async def get_current_user(
+    token: Optional[HTTPAuthorizationCredentials] = Depends(reusable_bearer)
+) -> User:
     """
-    Returns a hardcoded UUID as the current user ID.
-    This is a placeholder implementation for the workflow system.
-    In a real application, this would validate the session and return the actual user ID.
+    Primary dependency for user authentication.
+    
+    Resolves the current user based on the active authentication mode:
+    - Auth0: Validates our own internal JWT for anonymous users or a full Auth0 JWT.
+    - Password: Validates the session cookie.
+    - None: Returns a hardcoded anonymous user object.
+    
+    This dependency makes all other services agnostic to the auth method.
     """
-    return UUID("12345678-1234-5678-9012-123456789012")
+    if settings.AUTH0_DOMAIN:
+        if token is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Not authenticated",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        
+        # This logic handles our own internally-issued JWTs for guest users.
+        # It does NOT yet handle JWTs issued directly by Auth0 for fully logged-in users.
+        from user.internals import jwt_service
+        payload = jwt_service.decode_access_token(token.credentials)
+        
+        if not payload:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or expired token",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        
+        user_uuid_str = payload.get("sub")
+        if not user_uuid_str:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid token: missing user subject",
+            )
+            
+        user = user_client.get_user_by_uuid(UUID(user_uuid_str))
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found for token",
+            )
+        return user
+    
+    if settings.AUTH_PASSWORD or settings.AUTH_SELFSET_PASSWORD:
+        # TODO: Get session cookie from request and validate it.
+        # For now, we'll just return the default user if password auth is on.
+        user = user_client.get_default_system_user()
+        if not user:
+             raise HTTPException(
+                status_code=500,
+                detail="Default system user not found in the database. A misconfiguration has occurred.",
+            )
+        return user
+
+    # "No Auth" mode
+    return User(
+        uuid=UUID("12345678-1234-5678-9012-123456789012"),
+        email="anonymous@example.com",
+        created_at=datetime.utcnow()
+    )
 
 
 class LoginRequest(BaseModel):
@@ -96,6 +179,28 @@ class VerifyTokenRequest(BaseModel):
 async def auth_status():
     """Returns the current authentication configuration status."""
     return {"status": get_auth_configuration_status()}
+
+@router.get("/mode")
+async def get_auth_mode():
+    """
+    Returns the active authentication mode for the entire application.
+    This is used by the frontend to determine which authentication UI and
+    logic to use.
+    """
+    if settings.AUTH0_DOMAIN:
+        return {"mode": "auth0"}
+    
+    if settings.AUTH_PASSWORD or settings.AUTH_SELFSET_PASSWORD:
+        return {"mode": "password"}
+    
+    return {"mode": "none"}
+
+# Conditionally include the Auth0 router if Auth0 is enabled
+# This logic is moved to api/main.py to prevent circular imports.
+# if settings.AUTH0_DOMAIN:
+#     from api.main import app as main_app
+#     main_app.include_router(auth0_router)
+
 
 @router.post("/set-password")
 async def set_password(request: SetPasswordRequest, response: Response):

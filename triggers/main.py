@@ -14,7 +14,7 @@ from workflow.models import InitialWorkflowData
 from shared.config import settings
 import json
 from mcp_servers.imap_mcpserver.src.imap_client import client as imap_client
-from api.endpoints.auth import get_current_user_id
+from api.endpoints.auth import get_current_user
 from mcp_servers.imap_mcpserver.src.imap_client.internals.connection_manager import imap_connection, FolderNotFoundError
 
 # Configure logging
@@ -130,13 +130,13 @@ async def process_message(msg, message_id: str):
         return
 
     # 1. Fetch user_id
-    user_id = get_current_user_id()
-    if not user_id:
-        logger.error("Could not determine user_id. Skipping processing.")
+    user = await get_current_user()
+    if not user:
+        logger.error("Could not determine user. Skipping processing.")
         return
 
     # 2. Fetch all workflows for the user
-    workflows = await workflow_client.list_all(user_id=user_id)
+    workflows = await workflow_client.list_all(user_id=user.uuid)
     if not workflows:
         logger.info("No workflows found in the database. Skipping processing.")
         return
@@ -180,7 +180,7 @@ async def process_message(msg, message_id: str):
             continue
 
         # 4b. Get the trigger for the workflow
-        trigger = await trigger_client.get(uuid=workflow.trigger_uuid, user_id=user_id)
+        trigger = await trigger_client.get(uuid=workflow.trigger_uuid, user_id=user.uuid)
         if not trigger:
             logger.error(f"Trigger with UUID '{workflow.trigger_uuid}' not found for workflow '{workflow.name}'. Skipping.")
             continue
@@ -206,12 +206,12 @@ async def process_message(msg, message_id: str):
             instance = await workflow_client.create_instance(
                 workflow_uuid=workflow.uuid,
                 initial_markdown=initial_workflow_data.markdown_representation,
-                user_id=user_id,
+                user_id=user.uuid,
             )
             logger.info(f"Successfully created instance {instance.uuid} for workflow '{workflow.name}'")
             
             # Schedule the workflow to run in the background.
-            asyncio.create_task(runner.run_workflow(instance.uuid, user_id))
+            asyncio.create_task(runner.run_workflow(instance.uuid, user.uuid))
             logger.info(f"Scheduled workflow instance {instance.uuid} for execution.")
 
         except Exception as e:

@@ -65,8 +65,46 @@ def init_workflow_db():
             else:
                 logger.warning(f"Schema file not found at {optimizer_schema_path}. Skipping.")
 
+            # Execute each statement from the user schema file
+            user_schema_path = os.path.join('user', 'schema.sql')
+            if os.path.exists(user_schema_path):
+                logger.info(f"Reading schema from {user_schema_path}")
+                with open(user_schema_path, 'r') as f:
+                    user_sql_script = f.read()
+                for statement in user_sql_script.split(';'):
+                    statement = statement.strip()
+                    if statement:
+                        try:
+                            cursor.execute(statement)
+                        except mysql.connector.Error as err:
+                            if err.errno == 1061:  # ER_DUP_KEYNAME for MySQL
+                                logger.info(f"Ignoring duplicate key/index error for user schema: {err}")
+                            else:
+                                raise err
+            else:
+                logger.warning(f"Schema file not found at {user_schema_path}. Skipping.")
+
             # --- Migrations ---
             # Now that tables are created, run all migrations.
+
+            # --- Start of Default System User Creation ---
+            # As per our plan, we only create a default user if we are in password-auth mode.
+            if not settings.AUTH0_DOMAIN and (settings.AUTH_PASSWORD or settings.AUTH_SELFSET_PASSWORD):
+                logger.info("Password authentication is enabled. Ensuring default system user exists...")
+                default_user_uuid = "12345678-1234-5678-9012-123456789012"
+                # Use INSERT IGNORE to make this operation idempotent. It won't fail if the user already exists.
+                # We use UUID_TO_BIN to correctly store the UUID in the BINARY(16) column.
+                insert_query = "INSERT IGNORE INTO users (uuid) VALUES (UUID_TO_BIN(%s))"
+                try:
+                    cursor.execute(insert_query, (default_user_uuid,))
+                    if cursor.rowcount > 0:
+                        logger.info(f"Default system user with UUID {default_user_uuid} created.")
+                    else:
+                        logger.info(f"Default system user with UUID {default_user_uuid} already exists.")
+                except mysql.connector.Error as err:
+                    logger.error(f"Failed to create or verify default system user: {err}")
+                    raise err
+            # --- End of Default System User Creation ---
 
             # --- Start of Evaluation Template Polling Status Migration ---
             cursor.execute("SELECT COUNT(*) FROM information_schema.columns WHERE table_name = 'evaluation_templates' AND column_name = 'status' AND table_schema = %s", (settings.MYSQL_DATABASE,))

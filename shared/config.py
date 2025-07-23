@@ -37,6 +37,15 @@ class Settings(BaseSettings):
     EMBEDDING_VOYAGE_API_KEY: Optional[str] = None
     QDRANT_NAMESPACE_UUID: str = 'a1b2c3d4-e5f6-7890-1234-567890abcdef' # For deterministic UUID generation for Qdrant points
     OPENROUTER_API_KEY: str
+
+    # Authentication settings
+    AUTH0_DOMAIN: Optional[str] = None
+    AUTH0_API_AUDIENCE: Optional[str] = None
+    AUTH0_ISSUER_URL: Optional[str] = None
+    AUTH0_M2M_CLIENT_ID: Optional[str] = None
+    AUTH0_M2M_CLIENT_SECRET: Optional[str] = None
+    AUTH_PASSWORD: Optional[str] = None
+    AUTH_SELFSET_PASSWORD: bool = False
     
     model_config = SettingsConfigDict(env_file=(".env", ".env.local"), extra='ignore')
 

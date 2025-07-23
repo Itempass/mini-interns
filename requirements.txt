@@ -39,3 +39,7 @@ jsonpath-ng
 aiomysql
 # For the workflow engine database
 mysql-connector-python
+
+# Authentication
+auth0-python
+PyJWT

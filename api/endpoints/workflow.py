@@ -30,9 +30,10 @@ from ..types.api_models.workflow import (
     CreateFromTemplateRequest,
 )
 from workflow_agent.client.models import ChatMessage, ChatRequest, ChatStepResponse
-from .auth import get_current_user_id
+from .auth import get_current_user
 from agentlogger.src.client import upsert_and_forward_log_entry, get_log_entry
 from agentlogger.src.models import LogEntry, Message as LoggerMessage
+from user.models import User
 
 
 logger = logging.getLogger(__name__)
@@ -118,7 +119,7 @@ async def list_workflow_templates():
 
 
 @router.post("/from-template", response_model=WorkflowFromTemplateResponse, status_code=status.HTTP_201_CREATED)
-async def create_workflow_from_template(request: CreateFromTemplateRequest, user_id: UUID = Depends(get_current_user_id)):
+async def create_workflow_from_template(request: CreateFromTemplateRequest, user: User = Depends(get_current_user)):
     """
     Creates a new workflow from a specified template.
     """
@@ -137,7 +138,7 @@ async def create_workflow_from_template(request: CreateFromTemplateRequest, user
         new_workflow = await workflow_client.create(
             name=template_data["name"],
             description=template_data["description"],
-            user_id=user_id
+            user_id=user.uuid
         )
         
         return WorkflowFromTemplateResponse(
@@ -159,20 +160,20 @@ async def create_workflow_from_template(request: CreateFromTemplateRequest, user
     summary="Create a new workflow",
 )
 async def create_workflow(
-    request: CreateWorkflowRequest, user_id: UUID = Depends(get_current_user_id)
+    request: CreateWorkflowRequest, user: User = Depends(get_current_user)
 ):
     """Creates a new, empty workflow definition."""
     return await workflow_client.create(
-        name=request.name, description=request.description, user_id=user_id
+        name=request.name, description=request.description, user_id=user.uuid
     )
 
 
 @router.get(
     "", response_model=List[WorkflowModel], summary="List all workflows"
 )
-async def list_workflows(user_id: UUID = Depends(get_current_user_id)):
+async def list_workflows(user: User = Depends(get_current_user)):
     """Lists all workflow definitions for the current user."""
-    return await workflow_client.list_all(user_id=user_id)
+    return await workflow_client.list_all(user_id=user.uuid)
 
 
 #
@@ -184,14 +185,14 @@ async def list_workflows(user_id: UUID = Depends(get_current_user_id)):
     summary="Get output data from a step",
 )
 async def get_step_output(
-    output_id: UUID, user_id: UUID = Depends(get_current_user_id)
+    output_id: UUID, user: User = Depends(get_current_user)
 ):
     """
     Retrieves the full StepOutputData object for a given output ID.
     This can be used by agents with the `get_step_output` tool.
     """
     output_data = await workflow_client.get_output_data(
-        output_id=output_id, user_id=user_id
+        output_id=output_id, user_id=user.uuid
     )
     if not output_data:
         raise HTTPException(
@@ -235,7 +236,7 @@ async def get_available_trigger_types() -> List[TriggerTypeResponse]:
     summary="Get a single workflow with details",
 )
 async def get_workflow_details(
-    workflow_uuid: UUID, user_id: UUID = Depends(get_current_user_id)
+    workflow_uuid: UUID, user: User = Depends(get_current_user)
 ):
     """
     Retrieves a single, "hydrated" workflow object with all its step
@@ -243,7 +244,7 @@ async def get_workflow_details(
     """
     logger.info(f"[Worker: {os.getpid()}] GET /workflows/{workflow_uuid}")
     workflow = await workflow_client.get_with_details(
-        workflow_uuid=workflow_uuid, user_id=user_id
+        workflow_uuid=workflow_uuid, user_id=user.uuid
     )
     if not workflow:
         raise HTTPException(
@@ -256,14 +257,14 @@ async def get_workflow_details(
 async def update_workflow_details(
     workflow_uuid: UUID,
     request: UpdateWorkflowDetailsRequest,
-    user_id: UUID = Depends(get_current_user_id),
+    user: User = Depends(get_current_user),
 ):
     """Updates a workflow's details, such as its name or description."""
     updated_workflow = await workflow_client.update_workflow_details(
         workflow_uuid=workflow_uuid,
         name=request.name,
         description=request.description,
-        user_id=user_id,
+        user_id=user.uuid,
     )
     if not updated_workflow:
         raise HTTPException(
@@ -278,7 +279,7 @@ async def update_workflow_details(
     summary="Delete a workflow",
 )
 async def delete_workflow(
-    workflow_uuid: UUID, user_id: UUID = Depends(get_current_user_id)
+    workflow_uuid: UUID, user: User = Depends(get_current_user)
 ):
     """
     Deletes a workflow definition, its trigger, and all associated steps.
@@ -286,14 +287,14 @@ async def delete_workflow(
     logger.info(f"DELETE /workflows/{workflow_uuid} - Deleting workflow")
     try:
         # Check if the workflow exists
-        workflow = await workflow_client.get(uuid=workflow_uuid, user_id=user_id)
+        workflow = await workflow_client.get(uuid=workflow_uuid, user_id=user.uuid)
         if not workflow:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Workflow not found"
             )
 
         # Delete the workflow and all its associated components
-        await workflow_client.delete(uuid=workflow_uuid, user_id=user_id)
+        await workflow_client.delete(uuid=workflow_uuid, user_id=user.uuid)
         logger.info(f"DELETE /workflows/{workflow_uuid} - Workflow deleted successfully")
 
     except HTTPException:
@@ -311,13 +312,13 @@ async def delete_workflow(
 async def update_workflow_status(
     workflow_uuid: UUID,
     request: UpdateWorkflowStatusRequest,
-    user_id: UUID = Depends(get_current_user_id),
+    user: User = Depends(get_current_user),
 ):
     """
     Updates the active status of a workflow (e.g., to pause or resume it).
     """
     updated_workflow = await workflow_client.set_active_status(
-        workflow_uuid=workflow_uuid, is_active=request.is_active, user_id=user_id
+        workflow_uuid=workflow_uuid, is_active=request.is_active, user_id=user.uuid
     )
     if not updated_workflow:
         raise HTTPException(
@@ -337,7 +338,7 @@ async def update_workflow_status(
 async def update_workflow_step(
     step_uuid: UUID,
     request: UpdateStepRequest,
-    user_id: UUID = Depends(get_current_user_id),
+    user: User = Depends(get_current_user),
 ):
     """
     Updates the definition of a specific workflow step.
@@ -355,7 +356,7 @@ async def update_workflow_step(
 
     try:
         updated_step = await workflow_client.update_step(
-            step=request, user_id=user_id
+            step=request, user_id=user.uuid
         )
         if not updated_step:
             raise HTTPException(
@@ -375,7 +376,7 @@ async def update_workflow_step(
 async def add_workflow_step(
     workflow_uuid: UUID,
     request: AddStepRequest,
-    user_id: UUID = Depends(get_current_user_id),
+    user: User = Depends(get_current_user),
 ):
     """Adds a new step definition to the end of a workflow."""
     logger.info(f"[Worker: {os.getpid()}] POST /workflows/{workflow_uuid}/steps - Type: {request.step_type}, Name: {request.name}")
@@ -384,12 +385,12 @@ async def add_workflow_step(
             workflow_uuid=workflow_uuid,
             step_type=request.step_type,
             name=request.name,
-            user_id=user_id,
+            user_id=user.uuid,
         )
         # Return the full, updated workflow object
         logger.info(f"[Worker: {os.getpid()}] Step added, fetching details for {workflow_uuid}")
         return await workflow_client.get_with_details(
-            workflow_uuid=workflow_uuid, user_id=user_id
+            workflow_uuid=workflow_uuid, user_id=user.uuid
         )
     except Exception as e:
         logger.error(f"Error adding step to workflow {workflow_uuid}: {e}", exc_info=True)
@@ -404,7 +405,7 @@ async def add_workflow_step(
 async def remove_workflow_step(
     workflow_uuid: UUID,
     step_uuid: UUID,
-    user_id: UUID = Depends(get_current_user_id),
+    user: User = Depends(get_current_user),
 ):
     """
     Removes a step from a workflow and deletes the step definition.
@@ -417,13 +418,13 @@ async def remove_workflow_step(
         await workflow_client.delete_step(
             workflow_uuid=workflow_uuid,
             step_uuid=step_uuid,
-            user_id=user_id,
+            user_id=user.uuid,
         )
 
         # Return the full, updated workflow object
         logger.info(f"Step {step_uuid} removed, fetching updated details for {workflow_uuid}")
         return await workflow_client.get_with_details(
-            workflow_uuid=workflow_uuid, user_id=user_id
+            workflow_uuid=workflow_uuid, user_id=user.uuid
         )
     except Exception as e:
         logger.error(f"Error removing step {step_uuid} from workflow {workflow_uuid}: {e}", exc_info=True)
@@ -441,7 +442,7 @@ async def remove_workflow_step(
 async def run_workflow_endpoint(
     workflow_uuid: UUID,
     triggering_data: Dict[str, Any],
-    user_id: UUID = Depends(get_current_user_id),
+    user: User = Depends(get_current_user),
 ):
     """
     Creates and executes a new instance of a workflow.
@@ -463,7 +464,7 @@ async def run_workflow_endpoint(
         instance = await workflow_client.create_instance(
             workflow_uuid=workflow_uuid,
             triggering_data=TriggerData(triggering_data),
-            user_id=user_id,
+            user_id=user.uuid,
         )
         return instance
     except ValueError as e:
@@ -484,11 +485,11 @@ async def run_workflow_endpoint(
     summary="Get a workflow instance",
 )
 async def get_workflow_instance(
-    instance_uuid: UUID, user_id: UUID = Depends(get_current_user_id)
+    instance_uuid: UUID, user: User = Depends(get_current_user)
 ):
     """Retrieves the status and results of a specific workflow run."""
     instance = await workflow_client.get_instance(
-        instance_uuid=instance_uuid, user_id=user_id
+        instance_uuid=instance_uuid, user_id=user.uuid
     )
     if not instance:
         raise HTTPException(
@@ -506,14 +507,14 @@ async def get_workflow_instance(
     summary="Get output data from a step",
 )
 async def get_step_output(
-    output_id: UUID, user_id: UUID = Depends(get_current_user_id)
+    output_id: UUID, user: User = Depends(get_current_user)
 ):
     """
     Retrieves the full StepOutputData object for a given output ID.
     This can be used by agents with the `get_step_output` tool.
     """
     output_data = await workflow_client.get_output_data(
-        output_id=output_id, user_id=user_id
+        output_id=output_id, user_id=user.uuid
     )
     if not output_data:
         raise HTTPException(
@@ -562,7 +563,7 @@ async def get_available_trigger_types() -> List[TriggerTypeResponse]:
 async def set_workflow_trigger(
     workflow_uuid: UUID,
     request: SetTriggerRequest,
-    user_id: UUID = Depends(get_current_user_id),
+    user: User = Depends(get_current_user),
 ):
     """
     Creates and attaches a new trigger to the workflow. If a trigger already
@@ -571,10 +572,10 @@ async def set_workflow_trigger(
     await workflow_client.set_trigger(
         workflow_uuid=workflow_uuid,
         trigger_type_id=request.trigger_type_id,
-        user_id=user_id,
+        user_id=user.uuid,
     )
     return await workflow_client.get_with_details(
-        workflow_uuid=workflow_uuid, user_id=user_id
+        workflow_uuid=workflow_uuid, user_id=user.uuid
     )
 
 
@@ -584,12 +585,12 @@ async def set_workflow_trigger(
     summary="Remove trigger from a workflow",
 )
 async def remove_workflow_trigger(
-    workflow_uuid: UUID, user_id: UUID = Depends(get_current_user_id)
+    workflow_uuid: UUID, user: User = Depends(get_current_user)
 ):
     """Detaches and deletes the trigger associated with the workflow."""
-    await workflow_client.remove_trigger(workflow_uuid=workflow_uuid, user_id=user_id)
+    await workflow_client.remove_trigger(workflow_uuid=workflow_uuid, user_id=user.uuid)
     return await workflow_client.get_with_details(
-        workflow_uuid=workflow_uuid, user_id=user_id
+        workflow_uuid=workflow_uuid, user_id=user.uuid
     )
 
 
@@ -601,7 +602,7 @@ async def remove_workflow_trigger(
 async def update_workflow_trigger(
     workflow_uuid: UUID,
     request: UpdateTriggerRequest,
-    user_id: UUID = Depends(get_current_user_id),
+    user: User = Depends(get_current_user),
 ):
     """
     Updates the settings of an existing trigger for a workflow.
@@ -609,7 +610,7 @@ async def update_workflow_trigger(
     logger.info(f"PUT /workflows/{workflow_uuid}/trigger - Received request body: {request.dict()}")
     # Get the current trigger for the workflow
     trigger = await trigger_client.get_for_workflow(
-        workflow_uuid=workflow_uuid, user_id=user_id
+        workflow_uuid=workflow_uuid, user_id=user.uuid
     )
     if not trigger:
         logger.error(f"No trigger found for workflow {workflow_uuid}")
@@ -623,12 +624,12 @@ async def update_workflow_trigger(
     trigger.filter_rules = request.filter_rules
     
     # Save the updated trigger
-    await trigger_client.update(trigger_model=trigger, user_id=user_id)
+    await trigger_client.update(trigger_model=trigger, user_id=user.uuid)
     
     # Return the updated workflow with details
     logger.info(f"Successfully updated trigger for workflow {workflow_uuid}")
     return await workflow_client.get_with_details(
-        workflow_uuid=workflow_uuid, user_id=user_id
+        workflow_uuid=workflow_uuid, user_id=user.uuid
     ) 
 
 #
@@ -643,19 +644,19 @@ async def update_workflow_trigger(
 async def workflow_agent_chat_step(
     workflow_uuid: UUID,
     request: ChatRequest,
-    user_id: UUID = Depends(get_current_user_id),
+    user: User = Depends(get_current_user),
 ):
     """
     Runs a single step of the workflow agent chat.
     """
     try:
         chat_response = await workflow_agent_client.run_chat_step(
-            request=request, user_id=user_id, workflow_uuid=workflow_uuid
+            request=request, user_id=user.uuid, workflow_uuid=workflow_uuid
         )
 
         # --- Add Logging ---
         try:
-            workflow = await workflow_client.get(uuid=workflow_uuid, user_id=user_id)
+            workflow = await workflow_client.get(uuid=workflow_uuid, user_id=user.uuid)
             
             existing_log = get_log_entry(request.conversation_id)
             start_time = existing_log.start_time if existing_log else datetime.now(timezone.utc)
@@ -665,7 +666,7 @@ async def workflow_agent_chat_step(
 
             log_entry = LogEntry(
                 id=request.conversation_id,
-                user_id=str(user_id),
+                user_id=str(user.uuid),
                 log_type='workflow_agent',
                 workflow_id=str(workflow_uuid),
                 workflow_name=workflow.name if workflow else "Workflow Configuration Agent",
@@ -695,7 +696,7 @@ async def workflow_agent_chat_step(
 async def submit_human_input(
     workflow_uuid: UUID,
     submission: Dict[str, Any], # The frontend will send the raw submission object
-    user_id: UUID = Depends(get_current_user_id),
+    user: User = Depends(get_current_user),
 ):
     """
     Receives user input from the frontend form, packages it into the
@@ -714,5 +715,5 @@ async def submit_human_input(
     )
 
     return await workflow_agent_client.run_chat_step(
-        request=chat_request, user_id=user_id, workflow_uuid=workflow_uuid
+        request=chat_request, user_id=user.uuid, workflow_uuid=workflow_uuid
     ) 

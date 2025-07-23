@@ -1,6 +1,60 @@
+import { getAccessToken } from '@auth0/nextjs-auth0';
+
 export const API_URL = '/api'; // The backend is on port 5001, but we're proxying
 
-// --- Auth ---
+// A centralized fetch wrapper to handle adding the auth token and handling errors
+export const apiFetch = async (url: string, options: RequestInit = {}) => {
+  let token: string | undefined;
+  try {
+    // The type inference for getAccessToken seems to be causing issues with the linter.
+    // Casting to 'any' is a workaround to bypass the misleading type errors.
+    const tokenResult: any = await getAccessToken();
+    token = tokenResult?.accessToken;
+  } catch (e) {
+    // This can happen if the user is not logged in.
+    // We can ignore it and let the API handle unauthorized requests.
+    console.warn("Could not get access token", e);
+  }
+
+  const headers = { ...options.headers };
+
+  // Let the browser set the Content-Type for FormData
+  if (!(options.body instanceof FormData)) {
+    (headers as any)['Content-Type'] = 'application/json';
+  }
+
+  if (token) {
+    (headers as any)['Authorization'] = `Bearer ${token}`;
+  }
+
+  const response = await fetch(url, {
+    ...options,
+    headers,
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    try {
+        const errorJson = JSON.parse(errorText);
+        throw new Error(errorJson.detail || `Request failed with status ${response.status}`);
+    } catch {
+        throw new Error(errorText || `Request failed with status ${response.status}`);
+    }
+  }
+
+  return response; // Return the raw response for flexibility
+};
+
+// A helper that uses apiFetch and expects a JSON response
+export const jsonApiFetch = async (url: string, options: RequestInit = {}) => {
+  const response = await apiFetch(url, options);
+  // Handle cases where the response body might be empty
+  const text = await response.text();
+  return text ? JSON.parse(text) : {};
+};
+
+
+// --- Auth (These do not use the wrapper as they are part of the auth flow itself) ---
 
 export const login = async (password: string): Promise<boolean> => {
   try {
@@ -99,12 +153,7 @@ export interface FilterRules {
 export const getSettings = async (): Promise<{ settings: AppSettings, embeddingModels: EmbeddingModel[] }> => {
   console.log('Fetching settings from URL:', `${API_URL}/settings`);
   try {
-    const response = await fetch(`${API_URL}/settings`);
-    if (!response.ok) {
-      console.error('Failed to fetch settings. Status:', response.status);
-      throw new Error('Failed to fetch settings');
-    }
-    const data = await response.json();
+    const data = await jsonApiFetch(`${API_URL}/settings`);
     console.log('Successfully fetched settings:', data);
     return { settings: data.settings, embeddingModels: data.embedding_models };
   } catch (error) {
@@ -116,18 +165,10 @@ export const getSettings = async (): Promise<{ settings: AppSettings, embeddingM
 export const setSettings = async (settings: AppSettings) => {
   console.log('Setting settings:', settings);
   try {
-    const response = await fetch(`${API_URL}/settings`, {
+    const result = await jsonApiFetch(`${API_URL}/settings`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
       body: JSON.stringify(settings),
     });
-    if (!response.ok) {
-      console.error('Failed to set settings. Status:', response.status);
-      throw new Error('Failed to set settings');
-    }
-    const result = await response.json();
     console.log('Successfully set settings:', result);
     return result;
   } catch (error) {
@@ -139,12 +180,7 @@ export const setSettings = async (settings: AppSettings) => {
 export const getVersion = async (): Promise<string> => {
   console.log('Fetching version from URL:', `${API_URL}/version`);
   try {
-    const response = await fetch(`${API_URL}/version`);
-    if (!response.ok) {
-      console.error('Failed to fetch version. Status:', response.status);
-      throw new Error('Failed to fetch version');
-    }
-    const data = await response.json();
+    const data = await jsonApiFetch(`${API_URL}/version`);
     console.log('Successfully fetched version:', data.version);
     return data.version;
   } catch (error) {
@@ -156,12 +192,7 @@ export const getVersion = async (): Promise<string> => {
 export const getLatestVersion = async (): Promise<string | null> => {
   console.log('Fetching latest version from URL:', `${API_URL}/version/latest`);
   try {
-    const response = await fetch(`${API_URL}/version/latest`);
-    if (!response.ok) {
-      console.error('Failed to fetch latest version. Status:', response.status);
-      throw new Error('Failed to fetch latest version');
-    }
-    const data = await response.json();
+    const data = await jsonApiFetch(`${API_URL}/version/latest`);
     console.log('Successfully fetched latest version:', data.latest_version);
     return data.latest_version;
   } catch (error) {
@@ -182,17 +213,9 @@ export const checkBackendHealth = async (): Promise<boolean> => {
 export const testImapConnection = async () => {
   console.log('Testing IMAP connection...');
   try {
-    const response = await fetch(`${API_URL}/test_imap_connection`, {
+    const result = await jsonApiFetch(`${API_URL}/test_imap_connection`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
     });
-    const result = await response.json();
-    if (!response.ok) {
-      console.error('IMAP connection test failed. Status:', response.status, 'Details:', result.detail);
-      throw new Error(result.detail || 'Failed to test IMAP connection');
-    }
     console.log('Successfully tested IMAP connection:', result);
     return result;
   } catch (error) {
@@ -204,17 +227,9 @@ export const testImapConnection = async () => {
 export const initializeInbox = async () => {
   console.log('Initializing inbox...');
   try {
-    const response = await fetch(`${API_URL}/agent/initialize-inbox`, {
+    const result = await jsonApiFetch(`${API_URL}/agent/initialize-inbox`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
     });
-    if (!response.ok) {
-      console.error('Failed to initialize inbox. Status:', response.status);
-      throw new Error('Failed to initialize inbox');
-    }
-    const result = await response.json();
     console.log('Successfully triggered inbox initialization:', result);
     return result;
   } catch (error) {
@@ -226,17 +241,9 @@ export const initializeInbox = async () => {
 export const reinitializeInbox = async () => {
   console.log('Re-initializing inbox...');
   try {
-    const response = await fetch(`${API_URL}/agent/reinitialize-inbox`, {
+    const result = await jsonApiFetch(`${API_URL}/agent/reinitialize-inbox`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
     });
-    if (!response.ok) {
-      console.error('Failed to re-initialize inbox. Status:', response.status);
-      throw new Error('Failed to re-initialize inbox');
-    }
-    const result = await response.json();
     console.log('Successfully triggered inbox re-initialization:', result);
     return result;
   } catch (error) {
@@ -247,12 +254,7 @@ export const reinitializeInbox = async () => {
 
 export const getInboxInitializationStatus = async (): Promise<string> => {
   try {
-    const response = await fetch(`${API_URL}/agent/initialize-inbox/status`);
-    if (!response.ok) {
-      console.error('Failed to fetch inbox status. Status:', response.status);
-      throw new Error('Failed to fetch inbox status');
-    }
-    const data = await response.json();
+    const data = await jsonApiFetch(`${API_URL}/agent/initialize-inbox/status`);
     return data.status;
   } catch (error) {
     console.error('An error occurred while fetching inbox status:', error);
@@ -310,11 +312,7 @@ export interface GroupedLogEntriesResponse {
 
 export const getLogEntries = async (): Promise<LogEntriesResponse> => {
   try {
-    const response = await fetch(`${API_URL}/agentlogger/logs`);
-    if (!response.ok) {
-      throw new Error('Failed to fetch logs');
-    }
-    return await response.json();
+    return await jsonApiFetch(`${API_URL}/agentlogger/logs`);
   } catch (error) {
     console.error('An error occurred while fetching logs:', error);
     return { log_entries: [], count: 0 };
@@ -333,11 +331,7 @@ export const getGroupedLogEntries = async (limit: number, offset: number, workfl
     if (logType) {
       params.append('log_type', logType);
     }
-    const response = await fetch(`${API_URL}/agentlogger/logs/grouped?${params.toString()}`);
-    if (!response.ok) {
-      throw new Error('Failed to fetch grouped log entries');
-    }
-    return await response.json();
+    return await jsonApiFetch(`${API_URL}/agentlogger/logs/grouped?${params.toString()}`);
   } catch (error) {
     console.error('Error fetching grouped log entries:', error);
     return { workflows: [], total_workflows: 0 };
@@ -346,11 +340,7 @@ export const getGroupedLogEntries = async (limit: number, offset: number, workfl
 
 export const getLogEntry = async (logId: string): Promise<LogEntry | null> => {
   try {
-    const response = await fetch(`${API_URL}/agentlogger/logs/${logId}`);
-    if (!response.ok) {
-      throw new Error('Failed to fetch log entry');
-    }
-    const data = await response.json();
+    const data = await jsonApiFetch(`${API_URL}/agentlogger/logs/${logId}`);
     return data.log_entry;
   } catch (error) {
     console.error('An error occurred while fetching log entry:', error);
@@ -360,17 +350,10 @@ export const getLogEntry = async (logId: string): Promise<LogEntry | null> => {
 
 export const addReview = async (logId: string, feedback: string, needs_review: boolean, logData?: LogEntry): Promise<{ success: boolean; error?: string }> => {
   try {
-    const response = await fetch(`${API_URL}/agentlogger/logs/${logId}/review`, {
+    await jsonApiFetch(`${API_URL}/agentlogger/logs/${logId}/review`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
       body: JSON.stringify({ feedback, needs_review, log_data: logData }),
     });
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({ detail: 'Failed to add review' }));
-      throw new Error(errorData.detail || 'Failed to add review');
-    }
     return { success: true };
   } catch (error: any) {
     console.error('An error occurred while adding review:', error);
@@ -396,14 +379,7 @@ export interface McpServer {
 export const getMcpServers = async (): Promise<McpServer[]> => {
   console.log('Fetching MCP servers...');
   try {
-    const response = await fetch(`${API_URL}/mcp/servers`);
-    if (!response.ok) {
-      console.error('Failed to fetch MCP servers. Status:', response.status);
-      throw new Error('Failed to fetch MCP servers');
-    }
-    const data = await response.json();
-    console.log('Successfully fetched MCP servers:', data);
-    return data;
+    return await jsonApiFetch(`${API_URL}/mcp/servers`);
   } catch (error) {
     console.error('An error occurred while fetching MCP servers:', error);
     return [];
@@ -465,9 +441,7 @@ export interface Template {
 
 export const getAgents = async (): Promise<Agent[]> => {
   try {
-    const response = await fetch(`${API_URL}/agents`);
-    if (!response.ok) throw new Error('Failed to fetch agents');
-    return await response.json();
+    return await jsonApiFetch(`${API_URL}/agents`);
   } catch (error) {
     console.error('Error fetching agents:', error);
     return [];
@@ -476,9 +450,7 @@ export const getAgents = async (): Promise<Agent[]> => {
 
 export const getAgent = async (uuid: string): Promise<Agent | null> => {
   try {
-    const response = await fetch(`${API_URL}/agents/${uuid}`);
-    if (!response.ok) throw new Error('Failed to fetch agent');
-    const data = await response.json();
+    const data = await jsonApiFetch(`${API_URL}/agents/${uuid}`);
     console.log(`[getAgent] Fetched data for agent ${uuid}:`, data);
     return data;
   } catch (error) {
@@ -489,13 +461,10 @@ export const getAgent = async (uuid: string): Promise<Agent | null> => {
 
 export const updateAgent = async (agent: Agent): Promise<Agent | null> => {
   try {
-    const response = await fetch(`${API_URL}/agents/${agent.uuid}`, {
+    return await jsonApiFetch(`${API_URL}/agents/${agent.uuid}`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(agent),
     });
-    if (!response.ok) throw new Error('Failed to update agent');
-    return await response.json();
   } catch (error) {
     console.error(`Error updating agent ${agent.uuid}:`, error);
     return null;
@@ -504,11 +473,9 @@ export const updateAgent = async (agent: Agent): Promise<Agent | null> => {
 
 export const generateLabelDescriptions = async (agentUuid: string): Promise<Agent | null> => {
   try {
-    const response = await fetch(`${API_URL}/agents/${agentUuid}/generate-descriptions`, {
+    return await jsonApiFetch(`${API_URL}/agents/${agentUuid}/generate-descriptions`, {
       method: 'POST',
     });
-    if (!response.ok) throw new Error('Failed to start description generation');
-    return await response.json();
   } catch (error) {
     console.error(`Error starting description generation for agent ${agentUuid}:`, error);
     return null;
@@ -517,11 +484,9 @@ export const generateLabelDescriptions = async (agentUuid: string): Promise<Agen
 
 export const applyTemplateDefaults = async (agentUuid: string): Promise<Agent | null> => {
   try {
-    const response = await fetch(`${API_URL}/agents/${agentUuid}/apply-template-defaults`, {
+    return await jsonApiFetch(`${API_URL}/agents/${agentUuid}/apply-template-defaults`, {
       method: 'POST',
     });
-    if (!response.ok) throw new Error('Failed to apply template defaults');
-    return await response.json();
   } catch (error) {
     console.error(`Error applying template defaults for agent ${agentUuid}:`, error);
     return null;
@@ -530,13 +495,10 @@ export const applyTemplateDefaults = async (agentUuid: string): Promise<Agent | 
 
 export const createAgent = async (agentData: CreateAgentRequest): Promise<Agent | null> => {
   try {
-    const response = await fetch(`${API_URL}/agents`, {
+    return await jsonApiFetch(`${API_URL}/agents`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(agentData),
     });
-    if (!response.ok) throw new Error('Failed to create agent');
-    return await response.json();
   } catch (error) {
     console.error('Error creating agent:', error);
     return null;
@@ -545,10 +507,9 @@ export const createAgent = async (agentData: CreateAgentRequest): Promise<Agent 
 
 export const deleteAgent = async (uuid: string): Promise<void> => {
   try {
-    const response = await fetch(`${API_URL}/agents/${uuid}`, {
+    await apiFetch(`${API_URL}/agents/${uuid}`, {
       method: 'DELETE',
     });
-    if (!response.ok) throw new Error('Failed to delete agent');
   } catch (error) {
     console.error(`Error deleting agent ${uuid}:`, error);
     throw error;
@@ -556,18 +517,11 @@ export const deleteAgent = async (uuid: string): Promise<void> => {
 };
 
 export const getTools = async (): Promise<Tool[]> => {
-  const response = await fetch('/api/tools');
-  if (!response.ok) {
-    throw new Error('Failed to fetch tools');
-  }
-  return response.json();
+  return await jsonApiFetch('/api/tools');
 };
 
 export const exportAgent = async (agentId: string) => {
-  const response = await fetch(`/api/agents/${agentId}/export`);
-  if (!response.ok) {
-    throw new Error('Failed to export agent');
-  }
+  const response = await apiFetch(`/api/agents/${agentId}/export`);
   const blob = await response.blob();
   const contentDisposition = response.headers.get('content-disposition');
   let filename = 'agent.json';
@@ -591,51 +545,28 @@ export const importAgent = async (file: File): Promise<Agent> => {
   const formData = new FormData();
   formData.append('file', file);
 
-  const response = await fetch('/api/agents/import', {
+  const response = await apiFetch('/api/agents/import', {
     method: 'POST',
     body: formData,
   });
-
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({ detail: 'Failed to import agent' }));
-    throw new Error(errorData.detail);
-  }
 
   return response.json();
 };
 
 export const getAgentTemplates = async (): Promise<Template[]> => {
-  const response = await fetch('/api/agents/templates');
-  if (!response.ok) {
-    throw new Error('Failed to fetch agent templates');
-  }
-  return response.json();
+  return await jsonApiFetch('/api/agents/templates');
 };
 
 export const createAgentFromTemplate = async (templateId: string): Promise<Agent> => {
-  const response = await fetch('/api/agents/from-template', {
+  return await jsonApiFetch('/api/agents/from-template', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
     body: JSON.stringify({ template_id: templateId }),
   });
-
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({ detail: 'Failed to create agent from template' }));
-    throw new Error(errorData.detail);
-  }
-
-  return response.json();
 };
 
 export const getToneOfVoiceProfile = async (): Promise<any> => {
   try {
-    const response = await fetch(`${API_URL}/settings/tone-of-voice`);
-    if (!response.ok) {
-      throw new Error("Failed to fetch tone of voice profile");
-    }
-    return await response.json();
+    return await jsonApiFetch(`${API_URL}/settings/tone-of-voice`);
   } catch (error) {
     console.error("Error fetching tone of voice profile:", error);
     return null;
@@ -644,12 +575,7 @@ export const getToneOfVoiceProfile = async (): Promise<any> => {
 
 export const getToneOfVoiceStatus = async (): Promise<string> => {
   try {
-    const response = await fetch(`${API_URL}/settings/tone-of-voice/status`);
-    if (!response.ok) {
-      console.error('Failed to fetch tone of voice status. Status:', response.status);
-      throw new Error('Failed to fetch tone of voice status');
-    }
-    const data = await response.json();
+    const data = await jsonApiFetch(`${API_URL}/settings/tone-of-voice/status`);
     return data.status;
   } catch (error) {
     console.error('An error occurred while fetching tone of voice status:', error);
@@ -658,12 +584,7 @@ export const getToneOfVoiceStatus = async (): Promise<string> => {
 };
 
 export const rerunToneAnalysis = async (): Promise<any> => {
-  const response = await fetch(`${API_URL}/agent/rerun-tone-analysis`, {
+  return await jsonApiFetch(`${API_URL}/agent/rerun-tone-analysis`, {
     method: 'POST',
   });
-  if (!response.ok) {
-    const errorData = await response.json();
-    throw new Error(errorData.detail || 'Failed to start tone of voice analysis');
-  }
-  return response.json();
 }; 

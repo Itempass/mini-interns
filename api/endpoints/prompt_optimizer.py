@@ -9,24 +9,10 @@ from prompt_optimizer import client as prompt_optimizer_client
 from prompt_optimizer import service, database
 from prompt_optimizer.models import EvaluationTemplate, EvaluationTemplateCreate, EvaluationTemplateLight, EvaluationRun
 from datetime import datetime, timezone
-
-# A dummy User model and dependency for now
-class User(BaseModel):
-    uuid: UUID
-
-async def get_current_user() -> User:
-    return User(uuid=UUID("a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11"))
-
+from api.endpoints.auth import get_current_user
+from user.models import User
 
 router = APIRouter()
-
-# Placeholder for user authentication
-async def get_current_user_id(request: Request) -> UUID:
-    user_id_str = "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11"
-    try:
-        return UUID(user_id_str)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid user ID format")
 
 # --- New Dynamic Data Source Endpoints ---
 
@@ -49,7 +35,7 @@ async def list_data_sources():
 )
 async def get_data_source_config_schema(
     source_id: str,
-    user_id: UUID = Depends(get_current_user_id)
+    user: User = Depends(get_current_user)
 ):
     """
     Returns a JSON schema that describes the necessary configuration fields
@@ -57,7 +43,7 @@ async def get_data_source_config_schema(
     generate a form in the frontend.
     """
     try:
-        return await prompt_optimizer_client.get_config_schema(source_id, user_id)
+        return await prompt_optimizer_client.get_config_schema(source_id, user.uuid)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
@@ -74,7 +60,7 @@ class SampleRequest(BaseModel):
 async def fetch_data_source_sample(
     source_id: str,
     request: SampleRequest,
-    user_id: UUID = Depends(get_current_user_id)
+    user: User = Depends(get_current_user)
 ):
     """
     Fetches a single sample data item from the specified data source using
@@ -82,7 +68,7 @@ async def fetch_data_source_sample(
     (e.g., 'input', 'ground_truth') before creating the full template.
     """
     try:
-        return await prompt_optimizer_client.fetch_sample(source_id, request.config, user_id)
+        return await prompt_optimizer_client.fetch_sample(source_id, request.config, user.uuid)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
@@ -98,7 +84,7 @@ async def fetch_data_source_sample(
 def create_evaluation_template(
     create_request: EvaluationTemplateCreate,
     background_tasks: BackgroundTasks,
-    user_id: UUID = Depends(get_current_user_id)
+    user: User = Depends(get_current_user)
 ):
     """
     Creates a new Evaluation Template.
@@ -109,13 +95,13 @@ def create_evaluation_template(
     """
     try:
         # This now only creates the template with "processing" status
-        created_template = prompt_optimizer_client.create_template(create_request, user_id)
+        created_template = prompt_optimizer_client.create_template(create_request, user.uuid)
         
         # Add the heavy data processing to a background task
         background_tasks.add_task(
             service.process_data_snapshot_background,
             template_uuid=created_template.uuid,
-            user_id=user_id,
+            user_id=user.uuid,
             data_source_config=created_template.data_source_config,
             field_mapping_config=created_template.field_mapping_config
         )
@@ -133,7 +119,7 @@ async def update_evaluation_template(
     template_uuid: UUID,
     template_update: EvaluationTemplateCreate, # Use the create model for the body
     background_tasks: BackgroundTasks,
-    user_id: UUID = Depends(get_current_user_id)
+    user: User = Depends(get_current_user)
 ):
     """
     Updates an existing evaluation template.
@@ -142,19 +128,19 @@ async def update_evaluation_template(
     create a new static snapshot, and saves the updated template.
     """
     try:
-        template = prompt_optimizer_client.get_template(template_uuid, user_id)
+        template = prompt_optimizer_client.get_template(template_uuid, user.uuid)
         if not template:
             raise HTTPException(status_code=404, detail="Evaluation template not found")
 
         # This now only updates the metadata and sets status to "processing" if needed
-        updated_template = await prompt_optimizer_client.update_template(template, template_update, user_id)
+        updated_template = await prompt_optimizer_client.update_template(template, template_update, user.uuid)
 
         # If the status was set to processing, it means we need to refetch the data
         if updated_template.status == "processing":
             background_tasks.add_task(
                 service.process_data_snapshot_background,
                 template_uuid=updated_template.uuid,
-                user_id=user_id,
+                user_id=user.uuid,
                 data_source_config=updated_template.data_source_config,
                 field_mapping_config=updated_template.field_mapping_config
             )
@@ -173,23 +159,23 @@ async def update_evaluation_template(
     response_model=List[EvaluationTemplateLight],
     summary="List all Evaluation Templates (Lightweight)"
 )
-async def list_evaluation_templates(user_id: UUID = Depends(get_current_user_id)):
+async def list_evaluation_templates(user: User = Depends(get_current_user)):
     """
     Retrieves a lightweight list of all evaluation templates for the current user.
     This does NOT include the heavy `cached_data` field.
     """
-    return prompt_optimizer_client.list_templates_light(user_id)
+    return prompt_optimizer_client.list_templates_light(user.uuid)
 
 @router.get(
     "/evaluation/templates/{template_uuid}",
     response_model=EvaluationTemplate,
     summary="Get a specific Evaluation Template"
 )
-async def get_evaluation_template(template_uuid: UUID, user_id: UUID = Depends(get_current_user_id)):
+async def get_evaluation_template(template_uuid: UUID, user: User = Depends(get_current_user)):
     """
     Retrieves a single evaluation template by its unique ID.
     """
-    template = prompt_optimizer_client.get_template(template_uuid, user_id)
+    template = prompt_optimizer_client.get_template(template_uuid, user.uuid)
     if not template:
         raise HTTPException(status_code=404, detail="Evaluation template not found")
     return template

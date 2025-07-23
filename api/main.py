@@ -66,7 +66,14 @@ app.add_middleware(
     allow_headers=["*"],  # Allows all headers
 )
 
-app.include_router(auth.router) # Add auth router
+# Include the main auth router which has password-based and mode-selection endpoints
+app.include_router(auth.router)
+
+# Conditionally include the Auth0-specific router if Auth0 is enabled
+if settings.AUTH0_DOMAIN:
+    from api.endpoints.auth import auth0_router
+    app.include_router(auth0_router)
+    
 app.include_router(app_settings.router, tags=["app_settings"])
 app.include_router(agent.router, tags=["agent"])
 app.include_router(agentlogger.router, tags=["agentlogger"])
