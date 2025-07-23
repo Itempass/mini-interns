@@ -34,6 +34,9 @@ from .auth import get_current_user
 from agentlogger.src.client import upsert_and_forward_log_entry, get_log_entry
 from agentlogger.src.models import LogEntry, Message as LoggerMessage
 from user.models import User
+from mcp_servers.tone_of_voice_mcpserver.src.services.openrouter_service import (
+    openrouter_service,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -662,11 +665,18 @@ async def workflow_agent_chat_step(
         try:
             workflow = await workflow_client.get(uuid=workflow_uuid, user_id=user.uuid)
             
-            existing_log = get_log_entry(request.conversation_id)
+            existing_log = get_log_entry(request.conversation_id, user_id=str(user.uuid))
             start_time = existing_log.start_time if existing_log else datetime.now(timezone.utc)
             end_time = datetime.now(timezone.utc) if chat_response.is_complete else None
 
             logger_messages = [LoggerMessage.model_validate(msg.model_dump()) for msg in chat_response.messages]
+
+            total_cost = None
+            if chat_response.generation_id:
+                try:
+                    total_cost = await openrouter_service.get_generation_cost(chat_response.generation_id)
+                except Exception as e:
+                    logger.error(f"Could not retrieve cost for generation {chat_response.generation_id}: {e}")
 
             log_entry = LogEntry(
                 id=request.conversation_id,
@@ -679,6 +689,10 @@ async def workflow_agent_chat_step(
                 messages=logger_messages,
                 start_time=start_time,
                 end_time=end_time,
+                prompt_tokens=chat_response.prompt_tokens,
+                completion_tokens=chat_response.completion_tokens,
+                total_tokens=chat_response.total_tokens,
+                total_cost=total_cost,
             )
             await upsert_and_forward_log_entry(log_entry)
         except Exception as e:

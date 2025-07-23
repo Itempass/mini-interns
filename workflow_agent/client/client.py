@@ -78,7 +78,7 @@ async def run_chat_step(
     logger.info(f"Running chat step for conversation {request.conversation_id}")
     
     # Run one turn of the agent logic (either LLM call or tool execution)
-    updated_history, human_input_required = await run_agent_turn(
+    updated_history, human_input_required, usage_stats, generation_id = await run_agent_turn(
         conversation_history, user_id=user_id, workflow_uuid=workflow_uuid
     )
     
@@ -102,4 +102,8 @@ async def run_chat_step(
         conversation_id=request.conversation_id,
         messages=updated_history,
         is_complete=is_complete,
+        prompt_tokens=usage_stats.get("prompt_tokens") if usage_stats else None,
+        completion_tokens=usage_stats.get("completion_tokens") if usage_stats else None,
+        total_tokens=usage_stats.get("total_tokens") if usage_stats else None,
+        generation_id=generation_id,
     ) 

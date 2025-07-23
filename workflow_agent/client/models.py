@@ -25,4 +25,8 @@ class ChatStepResponse(BaseModel):
     conversation_id: str
     messages: List[ChatMessage]
     is_complete: bool
-    human_input_required: Optional[HumanInputRequired] = None 
+    human_input_required: Optional[HumanInputRequired] = None
+    prompt_tokens: Optional[int] = None
+    completion_tokens: Optional[int] = None
+    total_tokens: Optional[int] = None
+    generation_id: Optional[str] = None 

@@ -2,7 +2,7 @@ import asyncio
 import json
 import logging
 import os
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 from uuid import UUID
 
 from fastmcp import Client as MCPClient
@@ -38,7 +38,7 @@ def _format_mcp_tools_for_openai(tools) -> list[dict]:
 
 async def run_agent_turn(
     conversation: List[ChatMessage], user_id: UUID, workflow_uuid: UUID
-) -> Tuple[List[ChatMessage], HumanInputRequired | None]:
+) -> Tuple[List[ChatMessage], HumanInputRequired | None, Optional[dict], Optional[str]]:
     """
     Runs a single turn of the workflow agent. This is a state machine driven by
     the role of the last message in the conversation history.
@@ -46,11 +46,15 @@ async def run_agent_turn(
     - assistant(with tool_calls) -> execute tools
     - tool -> call LLM
     """
+    # Initialize usage_stats and generation_id to return in all paths
+    usage_stats = None
+    generation_id = None
+
     if not settings.OPENROUTER_API_KEY:
         error_message = "Error: OPENROUTER_API_KEY not configured."
         logger.error(error_message)
         conversation.append(ChatMessage(role="assistant", content=error_message))
-        return conversation, None
+        return conversation, None, usage_stats, generation_id
 
     llm_client = OpenAI(
         base_url="https://openrouter.ai/api/v1",
@@ -75,13 +79,13 @@ async def run_agent_turn(
                         },
                     )
                     # We don't execute the tool, just return the request for input
-                    return conversation, human_input_required
+                    return conversation, human_input_required, usage_stats, generation_id
                 except (json.JSONDecodeError, KeyError) as e:
                     logger.error(f"Error processing feature_request arguments: {e}")
                     # Fallback to returning an error message in the conversation
                     error_message = f"Internal error processing your request: {e}"
                     conversation.append(ChatMessage(role="assistant", content=error_message))
-                    return conversation, None
+                    return conversation, None, usage_stats, generation_id
 
     mcp_url = f"http://localhost:{settings.CONTAINERPORT_MCP_WORKFLOW_AGENT}/mcp"
     headers = {
@@ -158,8 +162,17 @@ async def run_agent_turn(
             )
             response_message = response.choices[0].message
             conversation.append(ChatMessage.model_validate(response_message.model_dump()))
-        
+            
+            # Capture usage stats and generation ID
+            if response.usage:
+                usage_stats = {
+                    "prompt_tokens": response.usage.prompt_tokens,
+                    "completion_tokens": response.usage.completion_tokens,
+                    "total_tokens": response.usage.total_tokens,
+                }
+            generation_id = response.id
+
         # If the last message is from the assistant without tool calls, we do nothing.
         # The turn is considered complete.
 
-    return conversation, None 
+    return conversation, None, usage_stats, generation_id 

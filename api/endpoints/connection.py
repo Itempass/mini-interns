@@ -1,19 +1,21 @@
 import imaplib
 import logging
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from shared.app_settings import load_app_settings
+from user.models import User
+from api.endpoints.auth import get_current_user
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
 @router.post("/test_imap_connection")
-async def test_imap_connection():
+async def test_imap_connection(current_user: User = Depends(get_current_user)):
     """
-    Tests the connection to the IMAP server using settings from Redis.
+    Tests the connection to the IMAP server using settings from Redis for the current user.
     """
     try:
-        settings = load_app_settings()
+        settings = load_app_settings(user_uuid=current_user.uuid)
         if not all([settings.IMAP_SERVER, settings.IMAP_USERNAME, settings.IMAP_PASSWORD]):
             raise HTTPException(status_code=400, detail="IMAP settings are not fully configured. Please save your settings first.")
 
