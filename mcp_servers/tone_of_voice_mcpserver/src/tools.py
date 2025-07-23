@@ -4,6 +4,7 @@ import asyncio
 from typing import Dict, Any, List
 
 from .mcp_builder import mcp_builder
+from .dependencies import get_context_from_headers
 from shared.redis.redis_client import get_redis_client
 from shared.redis.keys import RedisKeys
 
@@ -16,11 +17,15 @@ async def get_tone_of_voice_profile(language: str) -> Dict[str, Any]:
     The language must be a 2-letter ISO 639-1 code (e.g., 'en', 'de', 'fr').
     """
     redis_client = get_redis_client()
+    context = get_context_from_headers()
     try:
+        # Get the user-specific key for the tone profile
+        profile_key = RedisKeys.get_tone_of_voice_profile_key(context.user_id)
+
         # redis-py client is synchronous, run it in an executor to not block the event loop
         loop = asyncio.get_running_loop()
         tone_profile_raw = await loop.run_in_executor(
-            None, redis_client.get, RedisKeys.TONE_OF_VOICE_PROFILE
+            None, redis_client.get, profile_key
         )
         
         if not tone_profile_raw:

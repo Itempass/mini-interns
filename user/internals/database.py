@@ -123,4 +123,20 @@ def find_or_create_user_by_auth0_sub(auth0_sub: str, email: Optional[str] = None
             return new_user
     finally:
         cursor.close()
+        conn.close()
+
+def _get_all_users_from_db() -> list[User]:
+    """Retrieves all users from the database."""
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    users = []
+    try:
+        query = "SELECT uuid, auth0_sub, email, is_anonymous, created_at FROM users"
+        cursor.execute(query)
+        for row in cursor.fetchall():
+            row['uuid'] = UUID(bytes=row['uuid'])
+            users.append(User(**row))
+        return users
+    finally:
+        cursor.close()
         conn.close() 

@@ -114,7 +114,7 @@ def load_app_settings(user_uuid: Optional[UUID] = None) -> AppSettings:
     # Decrypt sensitive fields if they exist
     try:
         if settings_data.get("IMAP_PASSWORD"):
-            logger.info(f"Value from Redis to be decrypted (IMAP_PASSWORD): {settings_data['IMAP_PASSWORD']}")
+            logger.info(f"DECRYPTION_DEBUG (app_settings): Raw IMAP_PASSWORD from Redis: '{settings_data['IMAP_PASSWORD']}'")
             settings_data["IMAP_PASSWORD"] = decrypt_value(settings_data["IMAP_PASSWORD"])
     except Exception as e:
         logger.error(f"An unexpected error occurred during settings decryption: {e}", exc_info=True)
@@ -129,38 +129,38 @@ def load_app_settings(user_uuid: Optional[UUID] = None) -> AppSettings:
 
     return settings_model
 
-def save_app_settings(settings: AppSettings, user_uuid: Optional[UUID] = None):
-    """
-    Saves application settings to Redis, encrypting sensitive values.
-    If a user_uuid is provided, it saves settings for that specific user.
-    Otherwise, it falls back to the legacy global keys.
-    """
-    logger.info(f"Saving application settings to Redis for user: {user_uuid or 'global'}")
+def save_app_settings(app_settings: AppSettings, user_uuid: UUID):
+    """Saves application settings to Redis for a specific user."""
     redis_client = get_redis_client()
+    redis_keys = RedisKeys(user_uuid=user_uuid)
+    
+    # Create a dictionary of settings to save
+    settings_to_save = app_settings.model_dump(exclude_unset=True)
+
+    # Encrypt the IMAP password if it exists
+    if "IMAP_PASSWORD" in settings_to_save and settings_to_save["IMAP_PASSWORD"]:
+        password = settings_to_save["IMAP_PASSWORD"]
+        encrypted_password = encrypt_value(password)
+        settings_to_save["IMAP_PASSWORD"] = encrypted_password
+        logger.info(f"ENCRYPTION_DEBUG: Encrypted password before saving to Redis: {encrypted_password}")
+
+    if not settings_to_save:
+        logger.info("No settings to save.")
+        return
 
     pipeline = redis_client.pipeline()
     update_count = 0
 
-    for field, value in settings.dict(exclude_unset=True).items():
+    for field, value in settings_to_save.items():
         redis_key = None
-        if user_uuid:
-            if field == "IMAP_SERVER":
-                redis_key = RedisKeys.get_imap_server_key(user_uuid)
-            elif field == "IMAP_USERNAME":
-                redis_key = RedisKeys.get_imap_username_key(user_uuid)
-            elif field == "IMAP_PASSWORD":
-                redis_key = RedisKeys.get_imap_password_key(user_uuid)
-            elif field == "EMBEDDING_MODEL":
-                redis_key = RedisKeys.get_embedding_model_key(user_uuid)
-        else:
-            # Fallback for legacy single-user mode
-            legacy_key_map = {
-                "IMAP_SERVER": "settings:imap_server",
-                "IMAP_USERNAME": "settings:imap_username",
-                "IMAP_PASSWORD": "settings:imap_password",
-                "EMBEDDING_MODEL": "settings:embedding_model"
-            }
-            redis_key = legacy_key_map.get(field)
+        if field == "IMAP_SERVER":
+            redis_key = redis_keys.get_imap_server_key()
+        elif field == "IMAP_USERNAME":
+            redis_key = redis_keys.get_imap_username_key()
+        elif field == "IMAP_PASSWORD":
+            redis_key = redis_keys.get_imap_password_key()
+        elif field == "EMBEDDING_MODEL":
+            redis_key = redis_keys.get_embedding_model_key()
 
         if not redis_key:
             continue

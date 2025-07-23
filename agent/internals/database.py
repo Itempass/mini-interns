@@ -14,15 +14,16 @@ async def init_db():
             await db.executescript(f.read())
         await db.commit()
 
-async def _create_agent_in_db(agent: AgentModel) -> AgentModel:
+async def _create_agent_in_db(agent: AgentModel, user_uuid: UUID) -> AgentModel:
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
             """
-            INSERT INTO agents (uuid, name, description, system_prompt, user_instructions, tools, paused, model, param_schema, param_values, use_abstracted_editor, template_id, template_version, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO agents (uuid, user_id, name, description, system_prompt, user_instructions, tools, paused, model, param_schema, param_values, use_abstracted_editor, template_id, template_version, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 str(agent.uuid),
+                str(user_uuid),
                 agent.name,
                 agent.description,
                 agent.system_prompt,
@@ -42,10 +43,10 @@ async def _create_agent_in_db(agent: AgentModel) -> AgentModel:
         await db.commit()
     return agent
 
-async def _get_agent_from_db(uuid: UUID) -> AgentModel | None:
+async def _get_agent_from_db(uuid: UUID, user_uuid: UUID) -> AgentModel | None:
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
-        cursor = await db.execute("SELECT * FROM agents WHERE uuid = ?", (str(uuid),))
+        cursor = await db.execute("SELECT * FROM agents WHERE uuid = ? AND user_id = ?", (str(uuid), str(user_uuid)))
         row = await cursor.fetchone()
         if not row:
             return None
@@ -68,10 +69,10 @@ async def _get_agent_from_db(uuid: UUID) -> AgentModel | None:
             
         return AgentModel(**data)
 
-async def _list_agents_from_db() -> List[AgentModel]:
+async def _list_agents_from_db(user_uuid: UUID) -> List[AgentModel]:
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
-        cursor = await db.execute("SELECT * FROM agents ORDER BY created_at DESC")
+        cursor = await db.execute("SELECT * FROM agents WHERE user_id = ? ORDER BY created_at DESC", (str(user_uuid),))
         rows = await cursor.fetchall()
         
         agents = []
@@ -95,14 +96,14 @@ async def _list_agents_from_db() -> List[AgentModel]:
             agents.append(AgentModel(**data))
         return agents
 
-async def _update_agent_in_db(agent: AgentModel) -> AgentModel:
+async def _update_agent_in_db(agent: AgentModel, user_uuid: UUID) -> AgentModel:
     agent.updated_at = datetime.utcnow()
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
             """
             UPDATE agents
             SET name = ?, description = ?, system_prompt = ?, user_instructions = ?, tools = ?, paused = ?, model = ?, param_schema = ?, param_values = ?, use_abstracted_editor = ?, template_id = ?, template_version = ?, updated_at = ?
-            WHERE uuid = ?
+            WHERE uuid = ? AND user_id = ?
             """,
             (
                 agent.name,
@@ -119,14 +120,15 @@ async def _update_agent_in_db(agent: AgentModel) -> AgentModel:
                 agent.template_version,
                 agent.updated_at,
                 str(agent.uuid),
+                str(user_uuid),
             ),
         )
         await db.commit()
     return agent
 
-async def _delete_agent_from_db(uuid: UUID):
+async def _delete_agent_from_db(uuid: UUID, user_uuid: UUID):
     async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("DELETE FROM agents WHERE uuid = ?", (str(uuid),))
+        await db.execute("DELETE FROM agents WHERE uuid = ? AND user_id = ?", (str(uuid), str(user_uuid)))
         await db.commit()
 
 async def _create_instance_in_db(instance: AgentInstanceModel) -> AgentInstanceModel:

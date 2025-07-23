@@ -17,4 +17,8 @@ def get_user_by_uuid(user_uuid: UUID) -> Optional[User]:
 
 def find_or_create_user_by_auth0_sub(auth0_sub: str, email: Optional[str] = None) -> User:
     """Finds a user by their Auth0 sub, creating one if they don't exist."""
-    return database.find_or_create_user_by_auth0_sub(auth0_sub=auth0_sub, email=email) 
+    return database.find_or_create_user_by_auth0_sub(auth0_sub=auth0_sub, email=email)
+
+def get_all_users() -> list[User]:
+    """Retrieves all users from the database."""
+    return database._get_all_users_from_db() 

@@ -29,7 +29,7 @@ def get_encryption_key() -> bytes:
     
     global _ENCRYPTION_KEY
     if _ENCRYPTION_KEY:
-        logger.debug(f"[PID: {pid}] Returning cached key: {_ENCRYPTION_KEY[:8]}...")
+        logger.info(f"[PID: {pid}] Returning cached key: {_ENCRYPTION_KEY[:8]}...")
         return _ENCRYPTION_KEY
 
     # The key is read outside the lock to allow for concurrent reads.
@@ -39,7 +39,7 @@ def get_encryption_key() -> bytes:
         with open(KEY_FILE_PATH, "rb") as key_file:
             key = key_file.read()
         _ENCRYPTION_KEY = key
-        logger.debug(f"[PID: {pid}] Loaded key from disk: {key[:8]}...")
+        logger.info(f"[PID: {pid}] Loaded key from disk: {key[:8]}...")
         return key
 
     lock_file_path = KEY_FILE_PATH + ".lock"
@@ -75,7 +75,7 @@ def get_encryption_key() -> bytes:
             raise RuntimeError("Failed to obtain encryption key due to a persistent lock.")
 
     _ENCRYPTION_KEY = key
-    logger.debug(f"[PID: {pid}] Caching and returning key: {key[:8]}...")
+    logger.info(f"[PID: {pid}] Caching and returning key: {key[:8]}...")
     return key
 
 def encrypt_value(value: str) -> str:
@@ -109,6 +109,7 @@ def decrypt_value(encrypted_value: str) -> str:
         The decrypted plaintext string.
     """
     pid = os.getpid()
+    logger.info(f"DECRYPTION_DEBUG (encryption): Value received for decryption: '{encrypted_value}'")
     if not encrypted_value:
         return encrypted_value
         
@@ -123,5 +124,5 @@ def decrypt_value(encrypted_value: str) -> str:
     except Exception as e:
         # This can happen if the value is not encrypted (e.g., from a previous
         # version of the app) or if the key is wrong. We assume it's the former.
-        logger.warning(f"[PID: {pid}] Failed to decrypt value: {e}. Returning it as plaintext. This may happen during migration from an unencrypted setup.")
+        logger.warning(f"[PID: {pid}] Failed to decrypt value: {repr(e)}. Returning it as plaintext. This may happen during migration from an unencrypted setup.")
         return encrypted_value 

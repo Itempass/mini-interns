@@ -49,14 +49,14 @@ async def _get_llm_response(prompt: str, model: str) -> str:
         logger.error(f"An unexpected error occurred during LLM request: {e}", exc_info=True)
         return "Error: An unexpected error occurred while contacting the LLM."
 
-async def _process_single_label(label_name: str) -> tuple[str, str | None]:
+async def _process_single_label(user_uuid: UUID, label_name: str) -> tuple[str, str | None]:
     """
     Fetches emails for a single label and generates a description.
     Returns the label name and the new description, or None if it fails.
     """
-    logger.info(f"Processing label: {label_name}")
+    logger.info(f"Processing label: {label_name} for user {user_uuid}")
     # Fetch up to 10 sample emails for the label
-    sample_emails = await get_messages_from_folder(label_name, count=10)
+    sample_emails = await get_messages_from_folder(user_uuid, label_name, count=10)
 
     if not sample_emails:
         logger.info(f"No emails found for label '{label_name}'. Skipping.")
@@ -104,25 +104,25 @@ def _build_llm_prompt(emails: List[EmailMessage], label_name: str) -> str:
     )
     return prompt
 
-async def generate_descriptions_for_agent(agent_uuid: UUID) -> AgentModel | None:
+async def generate_descriptions_for_agent(user_uuid: UUID, agent_uuid: UUID) -> AgentModel | None:
     """
     Fetches labels, analyzes emails, and updates an agent's label descriptions in parallel.
     Returns the updated agent model.
     """
-    logger.info(f"Starting label description generation for agent {agent_uuid}")
+    logger.info(f"Starting label description generation for agent {agent_uuid} for user {user_uuid}")
     try:
-        agent = await agent_client.get_agent(agent_uuid)
+        agent = await agent_client.get_agent(agent_uuid=agent_uuid, user_uuid=user_uuid)
         if not agent:
-            logger.error(f"Agent with UUID {agent_uuid} not found.")
+            logger.error(f"Agent with UUID {agent_uuid} not found for user {user_uuid}.")
             return None
 
-        # 1. Fetch all available labels from the IMAP server
-        available_labels = await get_all_labels()
+        # 1. Fetch all available labels from the IMAP server for the specific user
+        available_labels = await get_all_labels(user_uuid=user_uuid)
         if not available_labels:
-            logger.warning("No labels found in the user's inbox.")
+            logger.warning(f"No labels found in the user's inbox for user {user_uuid}.")
             return agent
 
-        logger.info(f"Found {len(available_labels)} labels in inbox: {available_labels}")
+        logger.info(f"Found {len(available_labels)} labels in inbox for user {user_uuid}: {available_labels}")
         
         # 2. Overwrite existing labeling_rules and populate from all available inbox labels.
         # The get_all_labels() function is responsible for filtering out system folders.
@@ -142,7 +142,7 @@ async def generate_descriptions_for_agent(agent_uuid: UUID) -> AgentModel | None
         logger.info(f"Will process all available labels: {labels_to_process}")
 
         # 4. Create and run description generation tasks in parallel
-        tasks = [_process_single_label(label_name) for label_name in labels_to_process]
+        tasks = [_process_single_label(user_uuid, label_name) for label_name in labels_to_process]
         results = await asyncio.gather(*tasks)
 
         # 5. Update descriptions based on parallel task results
@@ -159,7 +159,7 @@ async def generate_descriptions_for_agent(agent_uuid: UUID) -> AgentModel | None
         # 6. Save the agent if any descriptions were updated
         if descriptions_updated:
             agent.param_values["labeling_rules"] = labeling_rules
-            await agent_client.save_agent(agent)
+            await agent_client.save_agent(agent=agent, user_uuid=user_uuid)
             logger.info(f"Successfully saved updated descriptions for agent {agent_uuid}")
         else:
             logger.info(f"No descriptions were updated for agent {agent_uuid}.")

@@ -476,14 +476,14 @@ def _build_llm_prompt(emails: List[EmailMessage], label_name: str) -> str:
     return prompt
 
 
-async def _process_single_label(label_name: str) -> tuple[str, str | None]:
+async def _process_single_label(user_uuid: UUID, label_name: str) -> tuple[str, str | None]:
     """
     Fetches emails for a single label and generates a description.
     Returns the label name and the new description, or None if it fails.
     """
     logger.info(f"Processing label: {label_name}")
     # Fetch up to 10 sample emails for the label
-    sample_emails = await get_messages_from_folder(label_name, count=10)
+    sample_emails = await get_messages_from_folder(user_uuid=user_uuid, folder_name=label_name, count=10)
 
     if not sample_emails:
         logger.info(f"No emails found for label '{label_name}'. Skipping.")
@@ -512,9 +512,10 @@ async def get_email_labels_with_descriptions() -> str:
     and returns them as a markdown formatted list. This is useful for understanding how emails are currently organized.
     """
     logger.info("Starting label description generation from tool.")
+    context = get_context_from_headers()
     try:
         # 1. Fetch all available labels from the IMAP server
-        available_labels = await get_all_labels()
+        available_labels = await get_all_labels(user_uuid=context.user_id)
         if not available_labels:
             logger.warning("No labels found in the user's inbox.")
             return "No labels found in your inbox."
@@ -522,7 +523,7 @@ async def get_email_labels_with_descriptions() -> str:
         logger.info(f"Found {len(available_labels)} labels in inbox: {available_labels}")
 
         # 2. Create and run description generation tasks in parallel
-        tasks = [_process_single_label(label_name) for label_name in available_labels]
+        tasks = [_process_single_label(user_uuid=context.user_id, label_name=label_name) for label_name in available_labels]
         results = await asyncio.gather(*tasks)
 
         # 3. Format results into markdown

@@ -26,6 +26,8 @@ from mcp_servers.imap_mcpserver.src.imap_client.internals.connection_manager imp
 from mcp_servers.imap_mcpserver.src.imap_client.helpers.body_parser import extract_body_formats
 from uuid import UUID
 
+from shared.app_settings import AppSettings, load_app_settings
+
 load_dotenv(override=True)
 
 logger = logging.getLogger(__name__)
@@ -55,13 +57,13 @@ def _find_uid_by_message_id(mail: imaplib.IMAP4_SSL, resolver: FolderResolver, m
     
     return None, None
 
-def _get_message_by_id_sync(message_id: str) -> Optional[EmailMessage]:
+def _get_message_by_id_sync(message_id: str, app_settings: AppSettings) -> Optional[EmailMessage]:
     """
     Synchronous function to get a single EmailMessage by its Message-ID.
     Searches across key mailboxes to find the message.
     """
     try:
-        with imap_connection() as (mail, resolver):
+        with imap_connection(app_settings=app_settings) as (mail, resolver):
             # Define search order. This will raise FolderNotFoundError if a folder is missing.
             folders_to_search = [
                 resolver.get_folder_by_attribute('\\Inbox'),
@@ -140,10 +142,10 @@ def _fetch_single_message(mail: imaplib.IMAP4_SSL, uid: str, folder: str) -> Opt
         logger.error(f"Error fetching single message {uid} from {folder}: {e}")
         return None
 
-def _get_complete_thread_sync(message_id: str) -> Optional[EmailThread]:
+def _get_complete_thread_sync(message_id: str, app_settings: AppSettings) -> Optional[EmailThread]:
     """Synchronous function to get complete thread. It filters out draft messages. """
     try:
-        with imap_connection() as (mail, resolver):
+        with imap_connection(app_settings=app_settings) as (mail, resolver):
             # Step 1: Find the message and get its thread ID
             uid, mailbox = _find_uid_by_message_id(mail, resolver, message_id)
             if not uid:
@@ -274,13 +276,13 @@ def _get_complete_thread_sync(message_id: str) -> Optional[EmailThread]:
         logger.error(f"Error getting thread: {e}")
         return None
 
-def _get_emails_sync(folder_name: str, count: int, filter_by_labels: Optional[List[str]] = None) -> List[EmailMessage]:
+def _get_emails_sync(folder_name: str, count: int, app_settings: AppSettings, filter_by_labels: Optional[List[str]] = None) -> List[EmailMessage]:
     """
     Synchronous function to get recent emails from a specific folder, with optional label filtering.
     """
     messages = []
     try:
-        with imap_connection() as (mail, resolver):
+        with imap_connection(app_settings=app_settings) as (mail, resolver):
             # The folder_name is the actual name, so we don't need the resolver.
             # We select it directly.
             logger.info(f"Attempting to select folder: {folder_name}")
@@ -320,10 +322,10 @@ def _get_emails_sync(folder_name: str, count: int, filter_by_labels: Optional[Li
         logger.error(f"Error getting emails from folder '{folder_name}' with labels {filter_by_labels}: {e}", exc_info=True)
         return []
 
-def _get_recent_message_ids_sync(count: int = 20) -> List[str]:
+def _get_recent_message_ids_sync(app_settings: AppSettings, count: int = 20) -> List[str]:
     """Synchronous function to get recent Message-IDs from INBOX"""
     try:
-        with imap_connection() as (mail, resolver):
+        with imap_connection(app_settings=app_settings) as (mail, resolver):
             inbox_folder = resolver.get_folder_by_attribute('\\Inbox')
             mail.select(f'"{inbox_folder}"', readonly=True)
             typ, data = mail.uid('search', None, 'ALL')
@@ -354,11 +356,11 @@ def _get_recent_message_ids_sync(count: int = 20) -> List[str]:
         logger.error(f"Error getting inbox message IDs: {e}")
         return []
 
-def _get_recent_messages_from_attribute_sync(attribute: str, count: int = 20) -> List[EmailMessage]:
+def _get_recent_messages_from_attribute_sync(attribute: str, app_settings: AppSettings, count: int = 20) -> List[EmailMessage]:
     """Synchronous function to get recent messages from a folder identified by a special-use attribute."""
     folder = None # Define for use in exception logging
     try:
-        with imap_connection() as (mail, resolver):
+        with imap_connection(app_settings=app_settings) as (mail, resolver):
             folder = resolver.get_folder_by_attribute(attribute)
             mail.select(f'"{folder}"', readonly=True)
             typ, data = mail.uid('search', None, 'ALL')
@@ -460,10 +462,10 @@ def _markdown_to_html(markdown_text: str) -> str:
     html = html.replace('\n', '<br>\n')
     return html
 
-def _get_user_signature() -> Tuple[Optional[str], Optional[str]]:
+def _get_user_signature(app_settings: AppSettings) -> Tuple[Optional[str], Optional[str]]:
     """Get user signature from recent sent emails using Gmail signature shortcut"""
     try:
-        with imap_connection() as (mail, resolver):
+        with imap_connection(app_settings=app_settings) as (mail, resolver):
             # Select Gmail sent folder
             sent_folder = resolver.get_folder_by_attribute('\\Sent')
             mail.select(f'"{sent_folder}"', readonly=True)
@@ -573,10 +575,10 @@ def _get_user_signature() -> Tuple[Optional[str], Optional[str]]:
         logger.error(f"Unexpected error getting Gmail signature: {e}")
         return None, None
 
-def _draft_reply_sync(original_message: EmailMessage, reply_body: str) -> Dict[str, Any]:
+def _draft_reply_sync(original_message: EmailMessage, reply_body: str, app_settings: AppSettings) -> Dict[str, Any]:
     """Synchronous function to create a draft reply"""
     try:
-        with imap_connection() as (mail, resolver):
+        with imap_connection(app_settings=app_settings) as (mail, resolver):
             # Prepare reply headers
             original_subject = original_message.subject
             reply_subject = original_subject if original_subject.lower().startswith("re:") else f"Re: {original_subject}"
@@ -588,7 +590,7 @@ def _draft_reply_sync(original_message: EmailMessage, reply_body: str) -> Dict[s
             # Create the reply message
             reply_message = MIMEMultipart("alternative")
             reply_message["Subject"] = reply_subject
-            reply_message["From"] = os.getenv("IMAP_USERNAME")
+            reply_message["From"] = app_settings.IMAP_USERNAME
             reply_message["To"] = to_email
             
             # Handle CC
@@ -610,7 +612,7 @@ def _draft_reply_sync(original_message: EmailMessage, reply_body: str) -> Dict[s
             reply_message["Date"] = email.utils.formatdate(localtime=True)
             
             # Get signature (simplified for now)
-            plain_signature, html_signature = _get_user_signature()
+            plain_signature, html_signature = _get_user_signature(app_settings=app_settings)
             
             # Prepare plain part
             full_plain_body = reply_body
@@ -652,10 +654,10 @@ def _draft_reply_sync(original_message: EmailMessage, reply_body: str) -> Dict[s
         logger.error(error_msg, exc_info=True)
         return {"success": False, "message": error_msg}
 
-def _set_label_sync(message_id: str, label: str) -> Dict[str, Any]:
+def _set_label_sync(message_id: str, label: str, app_settings: AppSettings) -> Dict[str, Any]:
     """Synchronous function to set a label for a message."""
     try:
-        with imap_connection() as (mail, resolver):
+        with imap_connection(app_settings=app_settings) as (mail, resolver):
             # Find the message UID and mailbox
             uid, mailbox = _find_uid_by_message_id(mail, resolver, message_id)
             if not uid:
@@ -753,14 +755,14 @@ def _get_all_labels_sync(mail: imaplib.IMAP4_SSL, resolver: FolderResolver) -> L
         logger.error(f"Error listing labels: {e}")
         return []
 
-def _get_all_special_use_folders_sync() -> List[str]:
+def _get_all_special_use_folders_sync(app_settings: AppSettings) -> List[str]:
     """
     Synchronous function to get a list of all special-use folder names.
     Leverages the FolderResolver to get language-agnostic folder names.
     """
     folders = []
     try:
-        with imap_connection() as (mail, resolver):
+        with imap_connection(app_settings=app_settings) as (mail, resolver):
             # Also add the INBOX, which is a special case not in the attributes list
             special_folders_to_check = list(resolver.SPECIAL_USE_ATTRIBUTES) + ['\\Inbox']
             
@@ -779,11 +781,11 @@ def _get_all_special_use_folders_sync() -> List[str]:
         return []
 
 
-def _get_messages_from_folder_sync(folder_name: str, count: int) -> List[EmailMessage]:
+def _get_messages_from_folder_sync(folder_name: str, count: int, app_settings: AppSettings) -> List[EmailMessage]:
     """Synchronous function to get recent messages from a specific folder."""
     messages = []
     try:
-        with imap_connection() as (mail, _):
+        with imap_connection(app_settings=app_settings) as (mail, _):
             # Need to handle nested labels (e.g., "Parent/Child") for some clients
             status, _ = mail.select(f'"{folder_name}"', readonly=True)
             if status != 'OK':
@@ -826,74 +828,87 @@ def _get_messages_from_folder_sync(folder_name: str, count: int) -> List[EmailMe
 
 # --- Async Wrappers ---
 
-async def get_recent_inbox_message_ids(count: int = 20) -> List[str]:
+async def get_recent_inbox_message_ids(user_uuid: UUID, count: int = 20) -> List[str]:
     """Asynchronously gets recent Message-IDs from INBOX"""
-    return await asyncio.to_thread(_get_recent_message_ids_sync, count)
+    app_settings = load_app_settings(user_uuid=user_uuid)
+    return await asyncio.to_thread(_get_recent_message_ids_sync, app_settings, count)
 
-async def get_message_by_id(message_id: str) -> Optional[EmailMessage]:
+async def get_message_by_id(user_uuid: UUID, message_id: str) -> Optional[EmailMessage]:
     """
     Asynchronously gets a single EmailMessage by its Message-ID.
     """
-    return await asyncio.to_thread(_get_message_by_id_sync, message_id)
+    app_settings = load_app_settings(user_uuid=user_uuid)
+    return await asyncio.to_thread(_get_message_by_id_sync, message_id, app_settings)
 
-async def get_complete_thread(source_message: EmailMessage) -> Optional[EmailThread]:
+async def get_complete_thread(user_uuid: UUID, source_message: EmailMessage) -> Optional[EmailThread]:
     if not source_message or not source_message.message_id:
         return None
-    return await asyncio.to_thread(_get_complete_thread_sync, source_message.message_id)
+    app_settings = load_app_settings(user_uuid=user_uuid)
+    return await asyncio.to_thread(_get_complete_thread_sync, source_message.message_id, app_settings)
 
-async def get_recent_inbox_messages(count: int = 10) -> List[EmailMessage]:
+async def get_recent_inbox_messages(user_uuid: UUID, count: int = 10) -> List[EmailMessage]:
     """Asynchronously gets the most recent messages from the inbox."""
-    return await asyncio.to_thread(_get_recent_messages_from_attribute_sync, '\\Inbox', count)
+    app_settings = load_app_settings(user_uuid=user_uuid)
+    return await asyncio.to_thread(_get_recent_messages_from_attribute_sync, '\\Inbox', app_settings, count)
 
-async def get_recent_sent_messages(count: int = 20) -> List[EmailMessage]:
+async def get_recent_sent_messages(user_uuid: UUID, count: int = 20) -> List[EmailMessage]:
     """Asynchronously gets the most recent messages from the sent folder."""
-    return await asyncio.to_thread(_get_recent_messages_from_attribute_sync, '\\Sent', count)
+    app_settings = load_app_settings(user_uuid=user_uuid)
+    return await asyncio.to_thread(_get_recent_messages_from_attribute_sync, '\\Sent', app_settings, count)
 
-async def draft_reply(original_message: EmailMessage, reply_body: str) -> Dict[str, Any]:
-    return await asyncio.to_thread(_draft_reply_sync, original_message, reply_body)
+async def draft_reply(user_uuid: UUID, original_message: EmailMessage, reply_body: str) -> Dict[str, Any]:
+    app_settings = load_app_settings(user_uuid=user_uuid)
+    return await asyncio.to_thread(_draft_reply_sync, original_message, reply_body, app_settings)
 
-async def set_label(message_id: str, label: str) -> Dict[str, Any]:
+async def set_label(user_uuid: UUID, message_id: str, label: str) -> Dict[str, Any]:
+    app_settings = load_app_settings(user_uuid=user_uuid)
     loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(None, _set_label_sync, message_id, label)
+    return await loop.run_in_executor(None, _set_label_sync, message_id, label, app_settings)
 
-async def get_emails(folder_name: str, count: int, filter_by_labels: Optional[List[str]] = None) -> List[EmailMessage]:
+async def get_emails(user_uuid: UUID, folder_name: str, count: int = 10, filter_by_labels: Optional[List[str]] = None) -> List[EmailMessage]:
     """Asynchronous wrapper for getting emails from a folder with optional label filtering."""
+    app_settings = load_app_settings(user_uuid=user_uuid)
     loop = asyncio.get_running_loop()
     return await loop.run_in_executor(
         None,
         _get_emails_sync,
         folder_name,
         count,
+        app_settings,
         filter_by_labels
     )
 
-async def get_all_folders() -> List[str]:
+async def get_all_folders(user_uuid: UUID) -> List[str]:
     """Asynchronous wrapper for getting all folders."""
+    app_settings = load_app_settings(user_uuid=user_uuid)
     loop = asyncio.get_running_loop()
-    with imap_connection() as (mail, resolver):
+    with imap_connection(app_settings=app_settings) as (mail, resolver):
         # We don't need the resolver here, but the connection manager provides it.
         return await loop.run_in_executor(None, _get_all_folders_sync, mail)
 
-async def get_all_labels() -> List[str]:
+async def get_all_labels(user_uuid: UUID) -> List[str]:
     """Asynchronously gets all labels from the IMAP server."""
+    app_settings = load_app_settings(user_uuid=user_uuid)
     try:
-        with imap_connection() as (mail, resolver):
+        with imap_connection(app_settings=app_settings) as (mail, resolver):
             return await asyncio.to_thread(_get_all_labels_sync, mail, resolver)
     except Exception as e:
         logger.error(f"Error getting all labels: {e}")
         return []
 
-async def get_all_special_use_folders() -> List[str]:
+async def get_all_special_use_folders(user_uuid: UUID) -> List[str]:
     """
     Asynchronous wrapper to get a list of all special-use folder names.
     """
+    app_settings = load_app_settings(user_uuid=user_uuid)
     loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(None, _get_all_special_use_folders_sync)
+    return await loop.run_in_executor(None, _get_all_special_use_folders_sync, app_settings)
 
 
-async def get_messages_from_folder(folder_name: str, count: int = 10) -> List[EmailMessage]:
+async def get_messages_from_folder(user_uuid: UUID, folder_name: str, count: int = 10) -> List[EmailMessage]:
     """Asynchronously gets recent messages from a specific folder/label."""
-    return await asyncio.to_thread(_get_messages_from_folder_sync, folder_name, count)
+    app_settings = load_app_settings(user_uuid=user_uuid)
+    return await asyncio.to_thread(_get_messages_from_folder_sync, folder_name, count, app_settings)
 
 async def get_recent_threads_bulk(
     target_thread_count: int = 50, 

@@ -33,6 +33,7 @@ async def create_agent(
     system_prompt: str,
     user_instructions: str,
     tools: dict,
+    user_uuid: UUID,
     model: str | None = None,
     param_schema: list | None = None,
     param_values: dict | None = None,
@@ -57,31 +58,31 @@ async def create_agent(
         template_id=template_id,
         template_version=template_version,
     )
-    return await _create_agent_in_db(agent)
+    return await _create_agent_in_db(agent, user_uuid)
 
-async def get_agent(uuid: UUID) -> AgentModel | None:
+async def get_agent(uuid: UUID, user_uuid: UUID) -> AgentModel | None:
     """
     Retrieves an existing Agent from the database.
     """
-    return await _get_agent_from_db(uuid)
+    return await _get_agent_from_db(uuid, user_uuid)
 
-async def list_agents() -> List[AgentModel]:
+async def list_agents(user_uuid: UUID) -> List[AgentModel]:
     """
     Lists all available agents from the database.
     """
-    return await _list_agents_from_db()
+    return await _list_agents_from_db(user_uuid)
 
-async def save_agent(agent_model: AgentModel) -> None:
+async def save_agent(agent_model: AgentModel, user_uuid: UUID) -> None:
     """
     Saves the current state of the Agent to the database.
     """
-    await _update_agent_in_db(agent_model)
+    await _update_agent_in_db(agent_model, user_uuid)
 
-async def delete_agent(uuid: UUID) -> None:
+async def delete_agent(uuid: UUID, user_uuid: UUID) -> None:
     """
     Deletes an agent from the database.
     """
-    await _delete_agent_from_db(uuid)
+    await _delete_agent_from_db(uuid, user_uuid)
 
 # --- Tooling Functions ---
 async def discover_mcp_tools() -> List[Dict[str, Any]]:

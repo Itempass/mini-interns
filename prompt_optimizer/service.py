@@ -11,6 +11,7 @@ import ast
 
 from mcp_servers.imap_mcpserver.src.imap_client.client import get_emails, get_all_labels, get_all_special_use_folders, get_complete_thread, EmailMessage
 from . import database
+from shared.app_settings import load_app_settings
 
 from .models import EvaluationTemplate, EvaluationTemplateCreate, EvaluationRun, TestCaseResult, DataSourceConfig, FieldMappingConfig
 from .llm_client import call_llm, LLMClientError
@@ -159,10 +160,9 @@ class IMAPDataSource:
         logger.info(f"Fetching IMAP labels and folders for config schema for user {user_id}")
         try:
             # In a real multi-tenant app, user_id would be used to select the correct IMAP credentials.
-            # For now, it's unused as we have a single system-wide IMAP connection.
             labels, folders = await asyncio.gather(
-                get_all_labels(),
-                get_all_special_use_folders()
+                get_all_labels(user_id=user_id),
+                get_all_special_use_folders(user_id=user_id)
             )
             logger.debug(f"Fetched {len(labels)} labels and {len(folders)} special-use folders for user {user_id}")
             
@@ -209,7 +209,7 @@ class IMAPDataSource:
         params = {**{k: v for k, v in config.items() if k != 'folder_names'}, 'count': 1, 'folder_name': folder_to_sample}
         
         try:
-            email_messages = await get_emails(**params)
+            email_messages = await get_emails(user_id=user_id, **params)
             if not email_messages:
                 return {} # No sample found is a valid result
             
@@ -217,7 +217,7 @@ class IMAPDataSource:
 
             # 2. Fetch the complete thread for that email
             logger.info(f"Fetching complete thread for sample email with Message-ID: {source_email.message_id}")
-            email_thread = await get_complete_thread(source_email)
+            email_thread = await get_complete_thread(user_id=user_id, source_message=source_email)
 
             if not email_thread:
                 logger.warning(f"Could not fetch thread for sample Message-ID: {source_email.message_id}. Returning empty sample.")
@@ -251,7 +251,7 @@ class IMAPDataSource:
             for folder in folder_names:
                 per_folder_count = config.get("count", 200) // len(folder_names)
                 fetch_params = {**params_without_folders, 'folder_name': folder, 'count': per_folder_count}
-                results = await get_emails(**fetch_params)
+                results = await get_emails(user_id=user_id, **fetch_params)
                 all_matching_emails.extend(results)
 
             # Deduplicate the initial list of emails
@@ -262,7 +262,7 @@ class IMAPDataSource:
             full_thread_dataset = []
             
             # Using asyncio.gather for concurrent thread fetching
-            tasks = [get_complete_thread(email) for email in unique_emails]
+            tasks = [get_complete_thread(user_id=user_id, source_message=email) for email in unique_emails]
             email_threads = await asyncio.gather(*tasks)
 
             # We no longer need to map back to the source email for labels.

@@ -9,6 +9,7 @@ from uuid import UUID
 
 import httpx
 from fastmcp import Client as MCPClient
+from fastmcp.client.transports import StreamableHttpTransport
 from openai import OpenAI
 from jsonpath_ng import parse
 
@@ -112,11 +113,16 @@ async def run_agent_step(
             servers_info = response.json()
 
             if servers_info:
+                headers = {
+                    "X-User-ID": str(user_id),
+                    "X-Workflow-UUID": str(workflow_instance_uuid)
+                }
                 for server_info in servers_info:
                     server_name = server_info.get("name")
                     server_url = server_info.get("url")
                     if server_name and server_url:
-                        mcp_clients[server_name] = MCPClient(server_url)
+                        transport = StreamableHttpTransport(url=server_url, headers=headers)
+                        mcp_clients[server_name] = MCPClient(transport)
     except Exception as e:
         logger.warning(
             f"Could not discover MCP servers: {e}. This is okay if no tools are used."

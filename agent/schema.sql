@@ -3,6 +3,7 @@
 
 CREATE TABLE IF NOT EXISTS agents (
     uuid TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
     name TEXT NOT NULL,
     description TEXT,
     system_prompt TEXT,

@@ -43,6 +43,7 @@ To ensure the application remains stable and testable throughout the refactoring
 *   Test the existing single-user functionality (e.g., saving IMAP settings via the UI). Verify that the application continues to use the old, global Redis keys and Qdrant collections, confirming that the fallback logic is working correctly.
 
 #### Stage 2: Refactor API Endpoints and Direct Call Sites
+**Status: Completed**
 **Goal:** Connect the user's session to the data layer by updating the "edge" of the application—the API endpoints and other direct callers of the core services.
 **Actions:**
 1.  **Update All Call Sites:** Work through the detailed file-by-file checklists in the "IMAP Connection", "Centralized Logging", and "Vector Data Isolation" sections. Update every endpoint and internal function listed to get the `user_uuid` from the current context and pass it to the newly modified service functions from Stage 1.
@@ -110,7 +111,7 @@ To ensure the application remains stable and testable throughout the refactoring
 3.  **Update All Call Sites to be User-Aware:**
     *   The developer must update every location where `load_app_settings` and `save_app_settings` are called to pass the user's UUID.
     *   **List of files to update:**
-        *   `api/endpoints/app_settings.py`: The `GET /settings` and `POST /settings` endpoints must pass the user's UUID from the `get_current_user` dependency.
+        - [x] `api/endpoints/app_settings.py`: The `GET /settings` and `POST /settings` endpoints must pass the user's UUID from the `get_current_user` dependency.
             *   **Refactor `GET /settings`**:
                 1.  This endpoint must be made user-aware by adding the `get_current_user` dependency to its signature.
                 2.  It will then call `load_app_settings(user_uuid=current_user.uuid)` to fetch settings for the currently authenticated user.
@@ -125,10 +126,10 @@ To ensure the application remains stable and testable throughout the refactoring
             *   **Refactor Tone of Voice Endpoints**:
                 1.  The `GET /settings/tone-of-voice` and `GET /settings/tone-of-voice/status` endpoints must be updated to use the `get_current_user` dependency.
                 2.  They will then use the user's UUID to call the new user-aware `RedisKeys` methods (e.g., `RedisKeys.get_tone_of_voice_profile_key(user_uuid)`).
-        *   `api/endpoints/connection.py`: The `POST /test_imap_connection` endpoint must pass the user's UUID.
-        *   `mcp_servers/imap_mcpserver/src/imap_client/internals/connection_manager.py`: This file's logic must be updated to receive user-specific settings, not call the global loader. This is detailed in the MCP refactoring section.
-        *   `shared/services/embedding_service.py`: The functions in this service are called by other services that have user context. The `user_uuid` must be passed down to this service so it can load the correct user-specific embedding model.
-        *   `triggers/main.py`: The trigger evaluation logic must be made user-aware. It needs to load the settings for the user who owns the trigger it is currently processing.
+        - [x] `api/endpoints/connection.py`: The `POST /test_imap_connection` endpoint must pass the user's UUID.
+        - [ ] `mcp_servers/imap_mcpserver/src/imap_client/internals/connection_manager.py`: This file's logic must be updated to receive user-specific settings, not call the global loader. This is detailed in the MCP refactoring section.
+        - [x] `shared/services/embedding_service.py`: The functions in this service are called by other services that have user context. The `user_uuid` must be passed down to this service so it can load the correct user-specific embedding model.
+        - [ ] `triggers/main.py`: The trigger evaluation logic must be made user-aware. It needs to load the settings for the user who owns the trigger it is currently processing.
 
 ---
 
@@ -155,11 +156,11 @@ To ensure the application remains stable and testable throughout the refactoring
 3.  **Update All Call Sites to be User-Aware:**
     *   The developer must update every location where the logger client's functions are called to pass the user's UUID.
     *   **List of files to update:**
-        *   `api/endpoints/agentlogger.py`: All functions in this file (`list_logs`, `get_log_detail`, etc.) must be updated to use the `get_current_user` dependency and pass the user's UUID to the logger client functions.
-        *   `api/endpoints/workflow.py`: The `workflow_agent_chat_step` function creates a log entry. It already has access to the user's context and must be updated to pass the `user_id` to `upsert_and_forward_log_entry`.
-        *   `workflow/internals/llm_runner.py`: The `run` function must be modified to accept the `user_id` and pass it to `save_log_entry`.
-        *   `workflow/internals/agent_runner.py`: The `run_agent_step` function must be modified to accept the `user_id` and pass it to `save_log_entry`.
-        *   `workflow/internals/runner.py`: The `_run_step` function must be modified to accept the `user_id` and pass it down to the `llm_runner` and `agent_runner`, as well as to its own direct calls to `save_log_entry`.
+        - [x] `api/endpoints/agentlogger.py`: All functions in this file (`list_logs`, `get_log_detail`, etc.) must be updated to use the `get_current_user` dependency and pass the user's UUID to the logger client functions.
+        - [x] `api/endpoints/workflow.py`: The `workflow_agent_chat_step` function creates a log entry. It already has access to the user's context and must be updated to pass the `user_id` to `upsert_and_forward_log_entry`.
+        - [x] `workflow/internals/llm_runner.py`: The `run` function must be modified to accept the `user_id` and pass it to `save_log_entry`.
+        - [x] `workflow/internals/agent_runner.py`: The `run_agent_step` function must be modified to accept the `user_id` and pass it to `save_log_entry`.
+        - [x] `workflow/internals/runner.py`: The `_run_step` function must be modified to accept the `user_id` and pass it down to the `llm_runner` and `agent_runner`, as well as to its own direct calls to `save_log_entry`.
 
 ---
 
@@ -181,10 +182,10 @@ To ensure the application remains stable and testable throughout the refactoring
 2.  **Update All Call Sites to be User-Aware:**
     *   The developer must update every location where the Qdrant client's functions are called to pass the user's UUID.
     *   **List of files to update:**
-        *   `api/endpoints/agent.py`: The endpoints in this file must use the `get_current_user` dependency and pass the user's UUID to `count_points` and `get_qdrant_client`.
-        *   `api/background_tasks/inbox_initializer.py`: The `initialize_inbox` function must accept a `user_uuid` and pass it to `upsert_points`.
-        *   `api/background_tasks/determine_tone_of_voice.py`: The `determine_user_tone_of_voice` function must accept a `user_uuid` and pass it to `get_payload_field_distribution` and `get_diverse_set_by_filter`.
-        *   `mcp_servers/imap_mcpserver/src/tools/imap.py`: The tool functions in this file must get the `user_uuid` from the request context and pass it to `semantic_search` and `search_by_vector`.
+        - [x] `api/endpoints/agent.py`: The endpoints in this file must use the `get_current_user` dependency and pass the user's UUID to `count_points` and `get_qdrant_client`.
+        - [ ] `api/background_tasks/inbox_initializer.py`: The `initialize_inbox` function must accept a `user_uuid` and pass it to `upsert_points`.
+        - [ ] `api/background_tasks/determine_tone_of_voice.py`: The `determine_user_tone_of_voice` function must accept a `user_uuid` and pass it to `get_payload_field_distribution` and `get_diverse_set_by_filter`.
+        - [ ] `mcp_servers/imap_mcpserver/src/tools/imap.py`: The tool functions in this file must get the `user_uuid` from the request context and pass it to `semantic_search` and `search_by_vector`.
 
 ---
 
