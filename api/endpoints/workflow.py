@@ -37,7 +37,11 @@ from user.models import User
 
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/workflows", tags=["Workflows"])
+router = APIRouter(
+    prefix="/workflows", 
+    tags=["Workflows"],
+    dependencies=[Depends(get_current_user)]
+)
 WORKFLOW_TEMPLATES_DIR = "api/workflow_templates"
 
 

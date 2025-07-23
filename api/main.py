@@ -2,7 +2,7 @@ import logging
 import os
 import sys
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from api.endpoints import app_settings, agent, agentlogger, mcp, connection, auth, workflow, prompt_optimizer
 from shared.config import settings
@@ -56,6 +56,17 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
+
+@app.middleware("http")
+async def log_requests_middleware(request: Request, call_next):
+    """
+    This middleware runs for every request. It's the earliest point
+    at which we can inspect the incoming request headers.
+    """
+    print(f"[MIDDLEWARE_DEBUG] Request received: {request.method} {request.url.path}")
+    print(f"[MIDDLEWARE_DEBUG] Raw Headers: {request.headers}")
+    response = await call_next(request)
+    return response
 
 # CORS Middleware
 app.add_middleware(

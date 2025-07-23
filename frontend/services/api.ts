@@ -2,18 +2,49 @@ import { getAccessToken } from '@auth0/nextjs-auth0';
 
 export const API_URL = '/api'; // The backend is on port 5001, but we're proxying
 
+// --- Client-side Auth Mode Management ---
+let authModePromise: Promise<'auth0' | 'password' | 'none'> | null = null;
+
+const fetchAuthMode = async (): Promise<'auth0' | 'password' | 'none'> => {
+  try {
+    // This fetch doesn't use the wrapper, as it's needed to configure the wrapper.
+    const response = await fetch(`${API_URL}/auth/mode`);
+    if (!response.ok) {
+      console.error("Failed to fetch auth mode, defaulting to 'none'.");
+      return 'none';
+    }
+    const data = await response.json();
+    return data.mode;
+  } catch (error) {
+    console.error("Error fetching auth mode, defaulting to 'none'.", error);
+    return 'none';
+  }
+};
+
+export const getClientAuthMode = (): Promise<'auth0' | 'password' | 'none'> => {
+  if (!authModePromise) {
+    authModePromise = fetchAuthMode();
+  }
+  return authModePromise;
+};
+
+
 // A centralized fetch wrapper to handle adding the auth token
 export const apiFetch = async (url: string, options: RequestInit = {}) => {
+  const mode = await getClientAuthMode();
   let token: string | undefined;
-  try {
-    // getAccessToken returns the raw token string directly.
-    const tokenResult = await getAccessToken();
-    if (typeof tokenResult === 'string') {
-      token = tokenResult;
+
+  if (mode === 'auth0') {
+    try {
+      // getAccessToken returns the raw token string directly.
+      const tokenResult = await getAccessToken();
+      if (typeof tokenResult === 'string') {
+        token = tokenResult;
+      }
+    } catch (e: any) {
+      console.error("[apiFetch] Error getting access token:", e);
+      console.warn("Could not get access token", e.message);
     }
-  } catch (e: any) {
-    console.error("[apiFetch] Error getting access token:", e);
-    console.warn("Could not get access token", e.message);
   }
 
   const headers = { ...options.headers };

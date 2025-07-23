@@ -19,8 +19,8 @@ from user.client import AnonymousLoginResponse
 # Create a new router for Auth0-specific endpoints
 auth0_router = APIRouter(prefix="/auth", tags=["authentication-auth0"])
 
-# Create a reusable dependency for getting the bearer token
-reusable_bearer = HTTPBearer()
+# Create a reusable dependency for getting the bearer token, but disable auto-error
+reusable_bearer = HTTPBearer(auto_error=False)
 
 @auth0_router.post("/anonymous-login", response_model=AnonymousLoginResponse)
 async def anonymous_login():
@@ -110,9 +110,11 @@ async def get_current_user(
     
     This dependency makes all other services agnostic to the auth method.
     """
+    print(f"[AUTH_DEBUG] Checking auth mode. settings.AUTH0_DOMAIN = '{settings.AUTH0_DOMAIN}' (Type: {type(settings.AUTH0_DOMAIN)})")
     print(f"[AUTH_DEBUG] get_current_user called. Headers: {request.headers}")
 
-    if settings.AUTH0_DOMAIN:
+    # Explicitly check for a non-empty string to avoid issues with stale env vars.
+    if settings.AUTH0_DOMAIN and settings.AUTH0_DOMAIN.strip():
         if token is None:
             print("[AUTH_DEBUG] Auth0 mode: Token is missing.")
             raise HTTPException(
@@ -190,7 +192,8 @@ async def get_auth_mode():
     This is used by the frontend to determine which authentication UI and
     logic to use.
     """
-    if settings.AUTH0_DOMAIN:
+    # Explicitly check for a non-empty string to avoid issues with stale env vars.
+    if settings.AUTH0_DOMAIN and settings.AUTH0_DOMAIN.strip():
         return {"mode": "auth0"}
     
     if settings.AUTH_PASSWORD or settings.AUTH_SELFSET_PASSWORD:
