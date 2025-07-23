@@ -14,26 +14,12 @@ from shared.security.encryption import encrypt_value, decrypt_value
 from shared.config import settings
 from user import client as user_client
 from user.models import User
-from user.client import AnonymousLoginResponse
 
 # Create a new router for Auth0-specific endpoints
 auth0_router = APIRouter(prefix="/auth", tags=["authentication-auth0"])
 
 # Create a reusable dependency for getting the bearer token, but disable auto-error
 reusable_bearer = HTTPBearer(auto_error=False)
-
-@auth0_router.post("/anonymous-login", response_model=AnonymousLoginResponse)
-async def anonymous_login():
-    """
-    Creates a new, anonymous "guest" user and returns the user object along
-    with an access token for the session.
-    """
-    try:
-        response = user_client.create_anonymous_user_and_get_token()
-        return response
-    except Exception as e:
-        # In a real app, catch specific exceptions
-        raise HTTPException(status_code=500, detail=f"Could not create anonymous user: {e}")
 
 
 # Keep the existing router for password-based and general auth endpoints

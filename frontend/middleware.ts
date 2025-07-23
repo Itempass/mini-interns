@@ -52,9 +52,26 @@ export default async function middleware(request: NextRequest) {
     const { mode } = await modeResponse.json();
 
     switch (mode) {
-      case 'auth0':
-        // In Auth0 mode, delegate entirely to the Auth0 SDK's middleware
+      case 'auth0': {
+        const { pathname } = request.nextUrl;
+
+        // The login page and the Auth0 client routes are public and should not be protected.
+        // This check prevents the redirect loop.
+        if (pathname === '/login' || pathname.startsWith('/auth-client/')) {
+          return auth0.middleware(request);
+        }
+
+        // For all other routes, check for a session.
+        const session = await auth0.getSession(request);
+
+        if (!session) {
+          // If no session exists, redirect to the login page.
+          return NextResponse.redirect(new URL('/login', request.url));
+        }
+
+        // If a session exists, proceed with the response from the Auth0 middleware.
         return await auth0.middleware(request);
+      }
       
       case 'password':
         // In password mode, run the legacy password-checking logic

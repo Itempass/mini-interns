@@ -50,6 +50,12 @@ const TopBar: React.FC<TopBarProps> = () => {
         </button>
         <div className="border-l border-gray-300 h-6"></div>
         <a
+          href="/auth-client/logout"
+          className="py-1.5 px-3 border-2 rounded cursor-pointer text-sm font-bold transition-all duration-200 ease-in-out bg-white text-black border-black hover:bg-gray-50 flex items-center gap-2"
+        >
+          Logout
+        </a>
+        <a
           href="https://github.com/Itempass/brewdock"
           target="_blank"
           rel="noopener noreferrer"
