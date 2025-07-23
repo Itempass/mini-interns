@@ -57,4 +57,30 @@ def create_auth0_anonymous_user() -> dict:
         return new_user
     except Exception as e:
         logger.error(f"Failed to create anonymous user in Auth0: {e}", exc_info=True)
-        raise 
+        raise
+
+def get_token_for_user(auth0_sub: str) -> dict:
+    """
+    Retrieves an access token for a specific user via the Client Credentials Grant.
+    This is used to get a real, Auth0-vended token for our anonymous users.
+    
+    Args:
+        auth0_sub: The user's Auth0 ID (subject).
+        
+    Returns:
+        The token response dictionary from Auth0, containing the access_token.
+    """
+    get_token = GetToken(
+        domain=settings.AUTH0_DOMAIN,
+        client_id=settings.AUTH0_M2M_CLIENT_ID,
+        client_secret=settings.AUTH0_M2M_CLIENT_SECRET,
+    )
+    
+    token_data = get_token.client_credentials(
+        audience=settings.AUTH0_API_AUDIENCE,
+        body={
+            "grant_type": "client_credentials",
+            "auth0_sub": auth0_sub
+        }
+    )
+    return token_data 

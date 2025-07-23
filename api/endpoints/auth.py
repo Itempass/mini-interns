@@ -1,5 +1,5 @@
 import os
-from fastapi import APIRouter, Response, HTTPException, status, Depends
+from fastapi import APIRouter, Response, HTTPException, status, Depends, Request
 from pydantic import BaseModel
 import secrets
 import hashlib
@@ -99,31 +99,33 @@ def get_session_token(password: str):
 
 
 async def get_current_user(
+    request: Request,
     token: Optional[HTTPAuthorizationCredentials] = Depends(reusable_bearer)
 ) -> User:
     """
     Primary dependency for user authentication.
     
-    Resolves the current user based on the active authentication mode:
-    - Auth0: Validates our own internal JWT for anonymous users or a full Auth0 JWT.
-    - Password: Validates the session cookie.
-    - None: Returns a hardcoded anonymous user object.
+    Resolves the current user based on the active authentication mode by
+    validating an Auth0-vended JWT.
     
     This dependency makes all other services agnostic to the auth method.
     """
+    print(f"[AUTH_DEBUG] get_current_user called. Headers: {request.headers}")
+
     if settings.AUTH0_DOMAIN:
         if token is None:
+            print("[AUTH_DEBUG] Auth0 mode: Token is missing.")
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Not authenticated",
                 headers={"WWW-Authenticate": "Bearer"},
             )
         
-        # This logic handles our own internally-issued JWTs for guest users.
-        # It does NOT yet handle JWTs issued directly by Auth0 for fully logged-in users.
-        from user.internals import jwt_service
-        payload = jwt_service.decode_access_token(token.credentials)
+        print(f"[AUTH_DEBUG] Auth0 mode: Received token credentials: {token.credentials[:10]}...")
         
+        from user.internals import auth0_validator
+        
+        payload = await auth0_validator.validate_auth0_token(token.credentials)
         if not payload:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -131,19 +133,20 @@ async def get_current_user(
                 headers={"WWW-Authenticate": "Bearer"},
             )
         
-        user_uuid_str = payload.get("sub")
-        if not user_uuid_str:
-            raise HTTPException(
+        auth0_sub = payload.get("sub")
+        email = payload.get("email") # Get email from the validated token
+
+        if not auth0_sub:
+             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid token: missing user subject",
             )
-            
-        user = user_client.get_user_by_uuid(UUID(user_uuid_str))
-        if not user:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="User not found for token",
-            )
+        
+        # Find the user in our DB, or create them if it's their first time.
+        user = user_client.find_or_create_user_by_auth0_sub(
+            auth0_sub=auth0_sub,
+            email=email
+        )
         return user
     
     if settings.AUTH_PASSWORD or settings.AUTH_SELFSET_PASSWORD:

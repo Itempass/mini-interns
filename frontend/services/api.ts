@@ -2,18 +2,18 @@ import { getAccessToken } from '@auth0/nextjs-auth0';
 
 export const API_URL = '/api'; // The backend is on port 5001, but we're proxying
 
-// A centralized fetch wrapper to handle adding the auth token and handling errors
+// A centralized fetch wrapper to handle adding the auth token
 export const apiFetch = async (url: string, options: RequestInit = {}) => {
   let token: string | undefined;
   try {
-    // The type inference for getAccessToken seems to be causing issues with the linter.
-    // Casting to 'any' is a workaround to bypass the misleading type errors.
-    const tokenResult: any = await getAccessToken();
-    token = tokenResult?.accessToken;
-  } catch (e) {
-    // This can happen if the user is not logged in.
-    // We can ignore it and let the API handle unauthorized requests.
-    console.warn("Could not get access token", e);
+    // getAccessToken returns the raw token string directly.
+    const tokenResult = await getAccessToken();
+    if (typeof tokenResult === 'string') {
+      token = tokenResult;
+    }
+  } catch (e: any) {
+    console.error("[apiFetch] Error getting access token:", e);
+    console.warn("Could not get access token", e.message);
   }
 
   const headers = { ...options.headers };
@@ -26,6 +26,8 @@ export const apiFetch = async (url: string, options: RequestInit = {}) => {
   if (token) {
     (headers as any)['Authorization'] = `Bearer ${token}`;
   }
+
+  console.log(`[apiFetch] Making request to ${url} with headers:`, headers);
 
   const response = await fetch(url, {
     ...options,

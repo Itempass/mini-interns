@@ -19,12 +19,18 @@ def get_user_by_uuid(user_uuid: UUID) -> Optional[User]:
     """Retrieves a user from the database by their UUID."""
     return database.get_user_by_uuid(user_uuid)
 
+def find_or_create_user_by_auth0_sub(auth0_sub: str, email: Optional[str] = None) -> User:
+    """Finds a user by their Auth0 sub, creating one if they don't exist."""
+    return database.find_or_create_user_by_auth0_sub(auth0_sub=auth0_sub, email=email)
+
+
 def create_anonymous_user_and_get_token() -> AnonymousLoginResponse:
     """
     Orchestrates the entire anonymous user creation process.
     1. Creates a user in Auth0.
-    2. Creates a corresponding user in the local database.
-    3. Creates and returns a JWT for the new user.
+    2. Requests a real access token for that user from Auth0.
+    3. Creates a corresponding user in the local database.
+    4. Returns the user object and the real Auth0 token.
     """
     from user.internals import auth0_service
 
@@ -36,22 +42,20 @@ def create_anonymous_user_and_get_token() -> AnonymousLoginResponse:
     if not auth0_sub:
         raise ValueError("Auth0 user creation did not return a user_id.")
 
-    # 2. Create a corresponding user record in our local database.
-    new_user = User(
-        uuid=uuid4(),
-        auth0_sub=auth0_sub,
-        email=email,
-        is_anonymous=True,
-        created_at=datetime.now(timezone.utc)
-    )
-    
-    created_user = database.create_user(new_user)
+    # 2. Get a real access token for our new anonymous user
+    token_response = auth0_service.get_token_for_user(auth0_sub)
+    access_token = token_response.get("access_token")
 
-    # 3. Create a JWT for the new user.
-    token_data = {"sub": str(created_user.uuid), "auth0_sub": created_user.auth0_sub}
-    access_token = jwt_service.create_access_token(data=token_data)
+    if not access_token:
+        raise ValueError("Failed to get an access token for the anonymous user.")
+
+    # 3. Create a corresponding user record in our local database.
+    new_user = find_or_create_user_by_auth0_sub(
+        auth0_sub=auth0_sub, 
+        email=email
+    )
 
     return AnonymousLoginResponse(
-        **created_user.model_dump(),
+        **new_user.model_dump(),
         access_token=access_token
     ) 

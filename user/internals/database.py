@@ -77,4 +77,50 @@ def create_user(user: User) -> User:
         raise
     finally:
         cursor.close()
+        conn.close()
+
+def find_or_create_user_by_auth0_sub(auth0_sub: str, email: Optional[str] = None, is_anonymous: bool = False) -> User:
+    """
+    Finds a user by their Auth0 subject (sub). If the user doesn't exist,
+    it creates a new one.
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    try:
+        # First, try to find the user by auth0_sub
+        query = "SELECT uuid, auth0_sub, email, is_anonymous, created_at FROM users WHERE auth0_sub = %s"
+        cursor.execute(query, (auth0_sub,))
+        user_data = cursor.fetchone()
+
+        if user_data:
+            user_data['uuid'] = UUID(bytes=user_data['uuid'])
+            return User(**user_data)
+        else:
+            # User not found, create a new one
+            from uuid import uuid4
+            from datetime import datetime
+
+            new_user = User(
+                uuid=uuid4(),
+                auth0_sub=auth0_sub,
+                email=email,
+                is_anonymous=is_anonymous,
+                created_at=datetime.utcnow()
+            )
+            
+            insert_query = """
+                INSERT INTO users (uuid, auth0_sub, email, is_anonymous, created_at)
+                VALUES (UUID_TO_BIN(%s), %s, %s, %s, %s)
+            """
+            cursor.execute(insert_query, (
+                str(new_user.uuid),
+                new_user.auth0_sub,
+                new_user.email,
+                new_user.is_anonymous,
+                new_user.created_at
+            ))
+            conn.commit()
+            return new_user
+    finally:
+        cursor.close()
         conn.close() 

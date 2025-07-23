@@ -43,3 +43,4 @@ mysql-connector-python
 # Authentication
 auth0-python
 PyJWT
+python-jose==3.5.0

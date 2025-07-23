@@ -5,6 +5,9 @@ const appBaseUrl = `http://localhost:${hostPort}`;
 
 export const auth0 = new Auth0Client({
   appBaseUrl: appBaseUrl,
+  authorizationParameters: {
+    audience: process.env.NEXT_PUBLIC_AUTH0_AUDIENCE,
+  },
   routes: {
     login: '/auth-client/login',
     callback: '/auth-client/callback',
