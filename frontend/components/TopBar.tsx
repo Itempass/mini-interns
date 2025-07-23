@@ -1,7 +1,8 @@
 'use client';
 import React from 'react';
-import { useRouter, usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import VersionCheck from './VersionCheck';
+import { getClientAuthMode } from '../services/api';
 import { Github } from 'lucide-react';
 
 interface TopBarProps {}
@@ -9,6 +10,11 @@ interface TopBarProps {}
 const TopBar: React.FC<TopBarProps> = () => {
   const router = useRouter();
   const pathname = usePathname();
+  const [authMode, setAuthMode] = React.useState<'auth0' | 'password' | 'none' | null>(null);
+
+  React.useEffect(() => {
+    getClientAuthMode().then(setAuthMode);
+  }, []);
   
   const activeView = pathname === '/logs' ? 'logs' : pathname === '/settings' ? 'settings' : 'agent';
 
@@ -48,13 +54,18 @@ const TopBar: React.FC<TopBarProps> = () => {
         >
           Settings
         </button>
+        {authMode === 'auth0' && (
+          <>
+            <div className="border-l border-gray-300 h-6"></div>
+            <a
+              href="/auth-client/logout"
+              className="py-1.5 px-3 border-2 rounded cursor-pointer text-sm font-bold transition-all duration-200 ease-in-out bg-white text-black border-black hover:bg-gray-50 flex items-center gap-2"
+            >
+              Logout
+            </a>
+          </>
+        )}
         <div className="border-l border-gray-300 h-6"></div>
-        <a
-          href="/auth-client/logout"
-          className="py-1.5 px-3 border-2 rounded cursor-pointer text-sm font-bold transition-all duration-200 ease-in-out bg-white text-black border-black hover:bg-gray-50 flex items-center gap-2"
-        >
-          Logout
-        </a>
         <a
           href="https://github.com/Itempass/brewdock"
           target="_blank"
