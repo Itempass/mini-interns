@@ -128,9 +128,14 @@ def save_app_settings(app_settings: AppSettings, user_uuid: UUID):
     # Encrypt the IMAP password if it exists
     if "IMAP_PASSWORD" in settings_to_save and settings_to_save["IMAP_PASSWORD"]:
         password = settings_to_save["IMAP_PASSWORD"]
-        encrypted_password = encrypt_value(password)
-        settings_to_save["IMAP_PASSWORD"] = encrypted_password
-        logger.info(f"ENCRYPTION_DEBUG: Encrypted password before saving to Redis: {encrypted_password}")
+        # Do not save placeholder value
+        if password == "*****":
+            del settings_to_save["IMAP_PASSWORD"]
+        else:
+            encrypted_password = encrypt_value(password)
+            settings_to_save["IMAP_PASSWORD"] = encrypted_password
+            logger.info(f"ENCRYPTION_DEBUG: Encrypted password before saving to Redis.")
+
 
     if not settings_to_save:
         logger.info("No settings to save.")
@@ -153,18 +158,7 @@ def save_app_settings(app_settings: AppSettings, user_uuid: UUID):
         if not redis_key:
             continue
 
-        # For sensitive fields, don't save the placeholder value
-        if field in ["IMAP_PASSWORD"] and value == "*****":
-            continue
-
         if value is not None:
-            # Encrypt sensitive fields before saving
-            if field in ["IMAP_PASSWORD"]:
-                logger.info(f"Value to be encrypted ({field}): '{value}'")
-                encrypted_value = encrypt_value(value)
-                logger.info(f"Encrypted value ({field}): '{encrypted_value}'")
-                value = encrypted_value
-
             # Convert boolean to string for Redis storage
             if isinstance(value, bool):
                 value = str(value).lower()
