@@ -30,6 +30,9 @@ def get_me(current_user: User = Depends(get_current_user)):
     """
     Returns the details of the currently authenticated user.
     """
+    admin_ids_str = settings.ADMIN_USER_IDS or ""
+    admin_ids = [item.strip() for item in admin_ids_str.split(',')]
+    current_user.is_admin = str(current_user.uuid) in admin_ids
     return current_user
 
 @router.post("/users/{user_uuid}/balance", response_model=User)
@@ -41,4 +44,11 @@ def set_balance(user_uuid: UUID, balance_update: BalanceUpdate, is_admin: bool =
     updated_user = user_client.set_user_balance(user_uuid, balance_update.balance)
     if not updated_user:
         raise HTTPException(status_code=404, detail="User not found")
-    return updated_user 
+    return updated_user
+
+@router.get("/users", response_model=list[User])
+def get_users(is_admin: bool = Depends(is_admin)):
+    """
+    Returns a list of all users. This endpoint is restricted to admins.
+    """
+    return user_client.get_all_users() 

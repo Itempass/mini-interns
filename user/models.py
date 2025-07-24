@@ -10,6 +10,7 @@ class User(BaseModel):
     is_anonymous: bool = False
     created_at: datetime
     balance: float = 5.0
+    is_admin: Optional[bool] = None
 
     class Config:
-        orm_mode = True 
+        from_attributes = True 

@@ -1,8 +1,8 @@
 'use client';
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import VersionCheck from './VersionCheck';
-import { getClientAuthMode } from '../services/api';
+import { getClientAuthMode, getMe, UserProfile } from '../services/api';
 import { Github } from 'lucide-react';
 
 interface TopBarProps {}
@@ -10,15 +10,17 @@ interface TopBarProps {}
 const TopBar: React.FC<TopBarProps> = () => {
   const router = useRouter();
   const pathname = usePathname();
-  const [authMode, setAuthMode] = React.useState<'auth0' | 'password' | 'none' | null>(null);
+  const [authMode, setAuthMode] = useState<'auth0' | 'password' | 'none' | null>(null);
+  const [user, setUser] = useState<UserProfile | null>(null);
 
-  React.useEffect(() => {
+  useEffect(() => {
     getClientAuthMode().then(setAuthMode);
+    getMe().then(setUser);
   }, []);
   
-  const activeView = pathname === '/logs' ? 'logs' : pathname === '/settings' ? 'settings' : 'agent';
+  const activeView = pathname === '/logs' ? 'logs' : pathname === '/settings' ? 'settings' : pathname === '/management' ? 'management' : 'agent';
 
-  const getButtonClasses = (view: 'agent' | 'settings' | 'logs') => {
+  const getButtonClasses = (view: 'agent' | 'settings' | 'logs' | 'management') => {
     const baseClasses = "py-1.5 px-3 border-2 rounded cursor-pointer text-sm font-bold transition-all duration-200 ease-in-out";
     if (activeView === view) {
       return `${baseClasses} bg-gradient-to-b from-gray-800 to-black text-white border-black shadow-lg`;
@@ -42,6 +44,14 @@ const TopBar: React.FC<TopBarProps> = () => {
         >
           Workflows
         </button>
+        {user?.is_admin && (
+            <button
+                className={getButtonClasses('management')}
+                onClick={() => router.push('/management')}
+            >
+                Management
+            </button>
+        )}
         <button
           className={getButtonClasses('logs')}
           onClick={() => router.push('/logs')}

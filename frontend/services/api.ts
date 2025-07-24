@@ -141,6 +141,7 @@ export interface UserProfile {
   created_at: string;
   updated_at: string;
   balance: number;
+  is_admin?: boolean;
 }
 
 export const getMe = async (): Promise<UserProfile | null> => {
@@ -150,6 +151,27 @@ export const getMe = async (): Promise<UserProfile | null> => {
     console.error('An error occurred while fetching user profile:', error);
     return null;
   }
+};
+
+export const getAllUsers = async (): Promise<UserProfile[]> => {
+    try {
+        return await jsonApiFetch(`${API_URL}/users`);
+    } catch (error) {
+        console.error('An error occurred while fetching all users:', error);
+        return [];
+    }
+};
+
+export const setUserBalance = async (userId: string, balance: number): Promise<UserProfile> => {
+    try {
+        return await jsonApiFetch(`${API_URL}/users/${userId}/balance`, {
+            method: 'POST',
+            body: JSON.stringify({ balance }),
+        });
+    } catch (error) {
+        console.error(`An error occurred while setting balance for user ${userId}:`, error);
+        throw error;
+    }
 };
 
 export const setPassword = async (password: string): Promise<{success: boolean, message?: string}> => {

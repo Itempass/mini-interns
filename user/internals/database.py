@@ -157,7 +157,7 @@ def deduct_from_balance(user_uuid: UUID, cost: float) -> Optional[User]:
         cursor.close()
         conn.close()
 
-def _get_all_users_from_db() -> list[User]:
+def get_all_users() -> list[User]:
     """Retrieves all users from the database."""
     conn = get_db_connection()
     cursor = conn.cursor(dictionary=True)
