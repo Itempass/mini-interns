@@ -25,7 +25,7 @@ def get_default_user() -> Optional[User]:
     cursor = conn.cursor(dictionary=True)
     try:
         # Fetch the user by UUID, converting the string to binary for the query
-        query = "SELECT uuid, auth0_sub, email, is_anonymous, created_at FROM users WHERE uuid = UUID_TO_BIN(%s)"
+        query = "SELECT uuid, auth0_sub, email, is_anonymous, created_at, balance FROM users WHERE uuid = UUID_TO_BIN(%s)"
         cursor.execute(query, (default_user_uuid_str,))
         user_data = cursor.fetchone()
         if user_data:
@@ -42,7 +42,7 @@ def get_user_by_uuid(user_uuid: UUID) -> Optional[User]:
     conn = get_db_connection()
     cursor = conn.cursor(dictionary=True)
     try:
-        query = "SELECT uuid, auth0_sub, email, is_anonymous, created_at FROM users WHERE uuid = UUID_TO_BIN(%s)"
+        query = "SELECT uuid, auth0_sub, email, is_anonymous, created_at, balance FROM users WHERE uuid = UUID_TO_BIN(%s)"
         cursor.execute(query, (str(user_uuid),))
         user_data = cursor.fetchone()
         if user_data:
@@ -59,15 +59,16 @@ def create_user(user: User) -> User:
     cursor = conn.cursor()
     try:
         query = """
-            INSERT INTO users (uuid, auth0_sub, email, is_anonymous, created_at)
-            VALUES (UUID_TO_BIN(%s), %s, %s, %s, %s)
+            INSERT INTO users (uuid, auth0_sub, email, is_anonymous, created_at, balance)
+            VALUES (UUID_TO_BIN(%s), %s, %s, %s, %s, %s)
         """
         cursor.execute(query, (
             str(user.uuid),
             user.auth0_sub,
             user.email,
             user.is_anonymous,
-            user.created_at
+            user.created_at,
+            user.balance
         ))
         conn.commit()
         return user
@@ -88,7 +89,7 @@ def find_or_create_user_by_auth0_sub(auth0_sub: str, email: Optional[str] = None
     cursor = conn.cursor(dictionary=True)
     try:
         # First, try to find the user by auth0_sub
-        query = "SELECT uuid, auth0_sub, email, is_anonymous, created_at FROM users WHERE auth0_sub = %s"
+        query = "SELECT uuid, auth0_sub, email, is_anonymous, created_at, balance FROM users WHERE auth0_sub = %s"
         cursor.execute(query, (auth0_sub,))
         user_data = cursor.fetchone()
 
@@ -109,18 +110,49 @@ def find_or_create_user_by_auth0_sub(auth0_sub: str, email: Optional[str] = None
             )
             
             insert_query = """
-                INSERT INTO users (uuid, auth0_sub, email, is_anonymous, created_at)
-                VALUES (UUID_TO_BIN(%s), %s, %s, %s, %s)
+                INSERT INTO users (uuid, auth0_sub, email, is_anonymous, created_at, balance)
+                VALUES (UUID_TO_BIN(%s), %s, %s, %s, %s, %s)
             """
             cursor.execute(insert_query, (
                 str(new_user.uuid),
                 new_user.auth0_sub,
                 new_user.email,
                 new_user.is_anonymous,
-                new_user.created_at
+                new_user.created_at,
+                new_user.balance
             ))
             conn.commit()
             return new_user
+    finally:
+        cursor.close()
+        conn.close()
+
+def set_user_balance(user_uuid: UUID, new_balance: float) -> Optional[User]:
+    """Updates the balance for a specific user."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        query = "UPDATE users SET balance = %s WHERE uuid = UUID_TO_BIN(%s)"
+        cursor.execute(query, (new_balance, str(user_uuid)))
+        conn.commit()
+        if cursor.rowcount > 0:
+            return get_user_by_uuid(user_uuid)
+        return None
+    finally:
+        cursor.close()
+        conn.close()
+
+def deduct_from_balance(user_uuid: UUID, cost: float) -> Optional[User]:
+    """Deducts a cost from a user's balance atomically."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        query = "UPDATE users SET balance = balance - %s WHERE uuid = UUID_TO_BIN(%s)"
+        cursor.execute(query, (cost, str(user_uuid)))
+        conn.commit()
+        if cursor.rowcount > 0:
+            return get_user_by_uuid(user_uuid)
+        return None
     finally:
         cursor.close()
         conn.close()
@@ -131,7 +163,7 @@ def _get_all_users_from_db() -> list[User]:
     cursor = conn.cursor(dictionary=True)
     users = []
     try:
-        query = "SELECT uuid, auth0_sub, email, is_anonymous, created_at FROM users"
+        query = "SELECT uuid, auth0_sub, email, is_anonymous, created_at, balance FROM users"
         cursor.execute(query)
         for row in cursor.fetchall():
             row['uuid'] = UUID(bytes=row['uuid'])

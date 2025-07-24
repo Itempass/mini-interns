@@ -59,6 +59,8 @@ class OpenRouterService:
             response.raise_for_status()
             data = response.json()
             
+            logger.info(f"Received cost data for generation {generation_id}: {json.dumps(data)}")
+
             # The cost is nested inside the 'data' object.
             generation_data = data.get("data", {})
             return generation_data.get("total_cost", 0.0)

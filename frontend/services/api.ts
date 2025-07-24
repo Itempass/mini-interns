@@ -21,6 +21,18 @@ const fetchAuthMode = async (): Promise<'auth0' | 'password' | 'none'> => {
   }
 };
 
+export class ApiError extends Error {
+  status: number;
+  detail: any;
+
+  constructor(message: string, status: number, detail?: any) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+    this.detail = detail;
+  }
+}
+
 export const getClientAuthMode = (): Promise<'auth0' | 'password' | 'none'> => {
   if (!authModePromise) {
     authModePromise = fetchAuthMode();
@@ -67,12 +79,15 @@ export const apiFetch = async (url: string, options: RequestInit = {}) => {
 
   if (!response.ok) {
     const errorText = await response.text();
+    let errorJson;
     try {
-        const errorJson = JSON.parse(errorText);
-        throw new Error(errorJson.detail || `Request failed with status ${response.status}`);
+        errorJson = JSON.parse(errorText);
     } catch {
-        throw new Error(errorText || `Request failed with status ${response.status}`);
+        // Not a JSON error, throw with the raw text
+        throw new ApiError(errorText || `Request failed with status ${response.status}`, response.status);
     }
+    // Is a JSON error, throw with details
+    throw new ApiError(errorJson.detail || `Request failed with status ${response.status}`, response.status, errorJson);
   }
 
   return response; // Return the raw response for flexibility

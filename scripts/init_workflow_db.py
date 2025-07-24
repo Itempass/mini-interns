@@ -160,6 +160,21 @@ def init_workflow_db():
                 logger.info("Dropping obsolete 'workflow_step_uuid' column from 'evaluation_runs'...")
                 cursor.execute("ALTER TABLE evaluation_runs DROP COLUMN workflow_step_uuid")
             # --- End of Decoupling Migration ---
+
+            # --- Start of User Balance Migration ---
+            # First, add the column if it doesn't exist
+            cursor.execute("SELECT COUNT(*) FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'balance' AND table_schema = %s", (settings.MYSQL_DATABASE,))
+            if cursor.fetchone()[0] == 0:
+                logger.info("Adding 'balance' column to 'users' table...")
+                cursor.execute("ALTER TABLE users ADD COLUMN balance REAL DEFAULT 0.0")
+                logger.info("Successfully added 'balance' column.")
+
+                # Second, set initial balance for any existing users.
+                # This should ONLY run once, immediately after the column is created.
+                logger.info("Setting initial $5.00 balance for all existing users...")
+                cursor.execute("UPDATE users SET balance = 5.0")
+                logger.info(f"{cursor.rowcount} user(s) updated to initial balance.")
+            # --- End of User Balance Migration ---
             
             conn.commit()
             cursor.close()

@@ -5,12 +5,16 @@ import os
 from typing import List, Tuple, Optional
 from uuid import UUID
 
+from fastapi import HTTPException
 from fastmcp import Client as MCPClient
 from fastmcp.client.transports import StreamableHttpTransport
 from openai import OpenAI
+import httpx
 
 from shared.config import settings
 from workflow_agent.client.models import ChatMessage, HumanInputRequired
+from user import client as user_client
+from user.exceptions import InsufficientBalanceError
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +39,27 @@ def _format_mcp_tools_for_openai(tools) -> list[dict]:
         }
         formatted_tools.append(formatted_tool)
     return formatted_tools
+
+async def _get_generation_cost(generation_id: str) -> float:
+    """Retrieves the cost of a specific generation from OpenRouter."""
+    if not generation_id:
+        return 0.0
+    
+    try:
+        # A small delay can help ensure the generation data is available.
+        await asyncio.sleep(2)
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"https://openrouter.ai/api/v1/generation?id={generation_id}",
+                headers={"Authorization": f"Bearer {settings.OPENROUTER_API_KEY}"}
+            )
+            response.raise_for_status()
+            data = response.json()
+            logger.info(f"WORKFLOW_AGENT: Received cost data for generation {generation_id}: {json.dumps(data)}")
+            return data.get("data", {}).get("total_cost", 0.0)
+    except Exception as e:
+        logger.error(f"Failed to retrieve cost for generation {generation_id}: {e}")
+        return 0.0
 
 async def run_agent_turn(
     conversation: List[ChatMessage], user_id: UUID, workflow_uuid: UUID
@@ -146,6 +171,16 @@ async def run_agent_turn(
         elif last_message.role == "user" or last_message.role == "tool":
             # STATE: User sent a message OR tools have finished. Call LLM for the next step.
             logger.info("Agent is calling LLM.")
+            
+            # --- Balance Check ---
+            try:
+                logger.info(f"Checking balance for user {user_id} before running workflow agent.")
+                user_client.check_user_balance(user_id)
+                logger.info(f"User {user_id} has sufficient balance.")
+            except InsufficientBalanceError as e:
+                logger.warning(f"Blocking workflow agent for user {user_id} due to insufficient balance.")
+                raise HTTPException(status_code=403, detail=str(e))
+
             available_tools = await mcp_client.list_tools()
             formatted_tools = _format_mcp_tools_for_openai(available_tools)
             
@@ -171,6 +206,13 @@ async def run_agent_turn(
                     "total_tokens": response.usage.total_tokens,
                 }
             generation_id = response.id
+
+            # --- Cost Deduction ---
+            if generation_id:
+                cost = await _get_generation_cost(generation_id)
+                if cost > 0:
+                    logger.info(f"Deducting cost of {cost} from user {user_id}'s balance for workflow agent turn.")
+                    user_client.deduct_from_balance(user_id, cost)
 
         # If the last message is from the assistant without tool calls, we do nothing.
         # The turn is considered complete.

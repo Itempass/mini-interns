@@ -373,7 +373,8 @@ async def _evaluate_prompt(
     prompt: str,
     model: str,
     dataset: List[Dict[str, Any]],
-    field_mapping: Dict[str, str]
+    field_mapping: Dict[str, str],
+    user_id: UUID
 ) -> List[TestCaseResult]:
     """Runs a prompt against a dataset using the self-contained LLM client."""
     results = []
@@ -388,7 +389,7 @@ async def _evaluate_prompt(
         full_prompt = f"{prompt}\n\n--- DATA ---\n{input_data}"
 
         try:
-            generated_output = await call_llm(prompt=full_prompt, model=model)
+            generated_output = await call_llm(prompt=full_prompt, model=model, user_id=user_id)
 
             # Use our new parser to handle JSON in markdown
             actual_value = _parse_llm_output(generated_output)
@@ -429,6 +430,7 @@ async def _generate_feedback(
     test_case: TestCaseResult,
     feedback_correct_template: Template,
     feedback_incorrect_template: Template,
+    user_id: UUID
 ) -> str:
     """Generates a natural language feedback summary for a single test case."""
     if test_case.is_match:
@@ -446,7 +448,7 @@ async def _generate_feedback(
         )
     
     # Use a more capable model for feedback generation
-    feedback = await call_llm(prompt, model="google/gemini-2.5-flash")
+    feedback = await call_llm(prompt, model="google/gemini-2.5-flash", user_id=user_id)
     return feedback
 
 
@@ -499,7 +501,7 @@ async def run_evaluation_and_refinement(run_uuid: UUID, user_id: UUID):
 
         # 4. Evaluate V1 Prompt (Baseline)
         logger.info(f"Running baseline evaluation for V1 prompt on validation set...")
-        v1_results = await _evaluate_prompt(original_prompt, original_model, validation_set, template.field_mapping_config.model_dump())
+        v1_results = await _evaluate_prompt(original_prompt, original_model, validation_set, template.field_mapping_config.model_dump(), user_id)
         v1_passed = sum(1 for r in v1_results if r.is_match)
         v1_accuracy = (v1_passed / len(v1_results)) if v1_results else 0.0
 
@@ -510,9 +512,9 @@ async def run_evaluation_and_refinement(run_uuid: UUID, user_id: UUID):
             raise ValueError("Training set is empty. Cannot generate feedback.")
         
         logger.info(f"Generating feedback from V1 prompt performance on training set...")
-        training_run_results = await _evaluate_prompt(original_prompt, original_model, training_set, template.field_mapping_config.model_dump())
+        training_run_results = await _evaluate_prompt(original_prompt, original_model, training_set, template.field_mapping_config.model_dump(), user_id)
         
-        feedback_tasks = [_generate_feedback(case, feedback_correct_template, feedback_incorrect_template) for case in training_run_results]
+        feedback_tasks = [_generate_feedback(case, feedback_correct_template, feedback_incorrect_template, user_id) for case in training_run_results]
         feedback_summaries = await asyncio.gather(*feedback_tasks)
         feedback_str = "\n".join(f"- {summary}" for summary in feedback_summaries)
         logger.info(f"Generated {len(feedback_summaries)} feedback summaries.")
@@ -525,12 +527,12 @@ async def run_evaluation_and_refinement(run_uuid: UUID, user_id: UUID):
         )
         
         # Use the most powerful model for the refinement step
-        refined_prompt_v2 = await call_llm(refinement_prompt, model="google/gemini-2.5-pro")
+        refined_prompt_v2 = await call_llm(refinement_prompt, model="google/gemini-2.5-pro", user_id=user_id)
         logger.info(f"Successfully generated V2 prompt.")
 
         # 7. Evaluate V2 Prompt (using the original model for a fair comparison)
         logger.info(f"Running evaluation for V2 prompt on validation set...")
-        v2_results = await _evaluate_prompt(refined_prompt_v2, original_model, validation_set, template.field_mapping_config.model_dump())
+        v2_results = await _evaluate_prompt(refined_prompt_v2, original_model, validation_set, template.field_mapping_config.model_dump(), user_id)
         v2_passed = sum(1 for r in v2_results if r.is_match)
         v2_accuracy = (v2_passed / len(v2_results)) if v2_results else 0.0
         logger.info(f"V2 Prompt Accuracy: {v2_accuracy:.2%}")

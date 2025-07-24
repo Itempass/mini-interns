@@ -10,6 +10,7 @@ from uuid import UUID
 import httpx
 from fastmcp import Client as MCPClient
 from fastmcp.client.transports import StreamableHttpTransport
+from fastapi import HTTPException
 from openai import OpenAI
 from jsonpath_ng import parse
 
@@ -33,6 +34,8 @@ from workflow.models import (
     WorkflowModel,
 )
 import workflow.client as workflow_client
+from user import client as user_client
+from user.exceptions import InsufficientBalanceError
 
 
 logger = logging.getLogger(__name__)
@@ -196,6 +199,11 @@ async def run_agent_step(
 
     
     try:
+        # --- Balance Check ---
+        logger.info(f"Checking balance for user {user_id} before running agent step.")
+        user_client.check_user_balance(user_id)
+        logger.info(f"User {user_id} has sufficient balance.")
+
         max_cycles = 10  # A reasonable limit for agent execution cycles
         
         messages_for_run = [MessageModel(role="system", content=resolved_system_prompt)]
@@ -300,11 +308,25 @@ async def run_agent_step(
                     user_id=user_id
                 )
 
+    except InsufficientBalanceError as e:
+        logger.warning(f"Blocking agent step for user {user_id} due to insufficient balance.")
+        instance.status = "failed"
+        instance.error_message = str(e)
+        # Re-raise as HTTPException to be caught by the API layer
+        raise HTTPException(status_code=403, detail=str(e))
     except Exception as e:
         logger.error(f"Error during agent step execution for instance {instance.uuid}: {e}", exc_info=True)
         instance.status = "failed"
         instance.error_message = str(e)
     finally:
+        # --- Cost Deduction ---
+        if cumulative_total_cost > 0:
+            logger.info(f"Deducting total cost of {cumulative_total_cost} from user {user_id}'s balance.")
+            try:
+                user_client.deduct_from_balance(user_id, cumulative_total_cost)
+            except Exception as e:
+                logger.error(f"Failed to deduct cost for user {user_id}: {e}", exc_info=True)
+
         # This block ensures that we try to log the conversation even if an error occurs during the run.
         try:
             logger.info(f"Saving conversation for agent instance {instance.uuid} to agentlogger.")

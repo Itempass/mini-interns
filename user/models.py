@@ -9,6 +9,7 @@ class User(BaseModel):
     email: Optional[str] = None
     is_anonymous: bool = False
     created_at: datetime
+    balance: float = 5.0
 
     class Config:
         orm_mode = True 

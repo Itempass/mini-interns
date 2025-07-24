@@ -700,6 +700,9 @@ async def workflow_agent_chat_step(
         # --- End Logging ---
         
         return chat_response
+    except HTTPException:
+        # Re-raise HTTPException directly to preserve status code and detail
+        raise
     except Exception as e:
         logger.error(f"Error during agent chat step for workflow {workflow_uuid}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="An error occurred during the agent chat turn.") 

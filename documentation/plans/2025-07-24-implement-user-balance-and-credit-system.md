@@ -2,7 +2,7 @@
 
 **Date:** 2025-07-24
 
-**Status:** Proposed
+**Status:** Completed
 
 ---
 
@@ -24,7 +24,7 @@ To fully understand the context, the developer should be familiar with the follo
 
 The implementation will be broken down into the following stages to ensure a smooth and verifiable process.
 
-#### Stage 1: Database and Data Model Updates
+#### Stage 1: Database and Data Model Updates (Completed)
 
 **Goal:** Extend the user data model to include a balance, with new users receiving a $5.00 default credit.
 
@@ -66,7 +66,7 @@ The implementation will be broken down into the following stages to ensure a smo
             balance: float = 5.0
         ```
 
-#### Stage 2: User Balance Management Logic
+#### Stage 2: User Balance Management Logic (Completed)
 
 **Goal:** Create the core functions for reading, setting, and deducting from a user's balance.
 
@@ -86,7 +86,7 @@ The implementation will be broken down into the following stages to ensure a smo
         *   Create a `POST` endpoint `/users/{user_uuid}/balance` to set a user's balance.
         *   Add a dependency to this endpoint that reads a new `ADMIN_USER_IDS` setting from `shared/config.py` and checks if the current user's UUID is in that list, returning a 403 error if not.
 
-#### Verification Point 1: Core Logic Stability
+#### Verification Point 1: Core Logic Stability (Completed)
 **Goal:** Confirm the application runs without errors after adding the backend balance functions but *before* they are actively used.
 **Action:**
 1.  Start the full application stack.
@@ -94,7 +94,7 @@ The implementation will be broken down into the following stages to ensure a smo
 3.  Perform a basic, non-costly operation (e.g., save IMAP settings).
 **Expected Result:** The application should run smoothly with no new errors in the logs related to the balance system.
 
-#### Stage 3: Implement Cost Controls in Services
+#### Stage 3: Implement Cost Controls in Services (Completed)
 
 **Goal:** Integrate the balance check and cost deduction logic into every service that makes LLM calls.
 
@@ -107,12 +107,12 @@ The implementation will be broken down into the following stages to ensure a smo
 
 2.  **Update All Cost Centers:**
     *   **Action:** Apply the logic pattern described above to the following files. This involves ensuring the `user_id` is passed down to these functions so they can perform the checks and deductions.
-    *   **List of files to update:**
-        *   `workflow/internals/llm_runner.py`: In the `run` function, wrap the LLM call.
-        *   `prompt_optimizer/service.py`: In the main function that runs the optimization LLM call (e.g., `run_optimization`), wrap the call.
-        *   `workflow_agent/client/internals/agent_runner.py`: In the main execution function that calls the `workflow_agent`'s LLM, wrap the call.
+    *   **List of files updated:**
+        *   `workflow/internals/llm_runner.py`
+        *   `prompt_optimizer/llm_client.py`
+        *   `workflow/internals/agent_runner.py`
 
-#### Verification Point 2: End-to-End Enforcement
+#### Verification Point 2: End-to-End Enforcement (Completed)
 **Goal:** Manually test the end-to-end balance deduction and blocking functionality from the backend.
 **Action (Positive Balance Test):**
 1.  Use a tool like `curl` or Postman to call the admin endpoint (`POST /users/{user_uuid}/balance`) and set your test user's balance to `$5.00`.
@@ -125,7 +125,31 @@ The implementation will be broken down into the following stages to ensure a smo
 
 ---
 
-### 4. Cost History Reporting
+### 4. Final Debugging and Refinement (Completed)
+
+**Goal:** Resolve an issue where the frontend was receiving a generic 500 error instead of the specific 403 "balance depleted" error.
+
+1.  **Problem Identification:**
+    *   The `workflow_agent_chat_step` endpoint in `api/endpoints/workflow.py` was using a broad `except Exception` block.
+    *   This block was catching the specific `HTTPException(status_code=403)` raised by the runners and replacing it with a generic `HTTPException(status_code=500)`.
+
+2.  **Solution:**
+    *   **File:** `api/endpoints/workflow.py`
+    *   **Action:** Modified the error handling in the `workflow_agent_chat_step` endpoint to first catch and re-raise any `HTTPException`, preserving its original status code and detail. A general `except Exception` block was kept to handle other unexpected server errors.
+        ```python
+        # In api/endpoints/workflow.py
+        ...
+        try:
+            # ... main logic ...
+        except HTTPException:
+            # Re-raise HTTPException directly to preserve status code and detail
+            raise
+        except Exception as e:
+            logger.error(...)
+            raise HTTPException(status_code=500, detail="An error occurred during the agent chat turn.")
+        ```
+
+### 5.  Cost History Reporting
 
 **Goal:** Provide users with a detailed breakdown of their balance deductions in the settings page.
 
@@ -167,5 +191,5 @@ The implementation will be broken down into the following stages to ensure a smo
 2.  Run a few costly workflows to generate some history.
 3.  Navigate to the `Settings -> Balance` page in the UI.
 **Expected Result:**
-*   The current balance should be displayed correctly (e.g., `$10.00` minus the costs of the workflows you ran).
+*   The main balance should be displayed correctly (e.g., `$10.00` minus the costs of the workflows you ran).
 *   The "Cost History" table should show a row for each workflow run, with the correct cost, model, and token information. 

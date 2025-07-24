@@ -3,5 +3,6 @@ CREATE TABLE IF NOT EXISTS users (
     auth0_sub VARCHAR(255) UNIQUE, -- Populated in Auth0 mode. The Auth0 user ID.
     email VARCHAR(255) UNIQUE,
     is_anonymous BOOLEAN DEFAULT FALSE, -- Used for the guest -> registered flow in Auth0 mode.
+    balance REAL DEFAULT 0.0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ); 

@@ -278,7 +278,7 @@ export const runWorkflowAgentChatStep = async (
     workflowId: string, 
     request: ChatRequest,
     signal?: AbortSignal
-): Promise<ChatStepResponse | 'aborted' | null> => {
+): Promise<ChatStepResponse | 'aborted'> => {
     try {
         return await jsonApiFetch(`${API_URL}/workflows/${workflowId}/chat/step`, {
             method: 'POST',
@@ -291,7 +291,8 @@ export const runWorkflowAgentChatStep = async (
             return 'aborted';
         }
         console.error('An error occurred during the chat step:', error);
-        return null;
+        // Re-throw the error so the component can handle it
+        throw error;
     }
 };
 
@@ -299,7 +300,7 @@ export const submitHumanInput = async (
     workflowId: string,
     submission: HumanInputSubmission,
     signal?: AbortSignal
-): Promise<ChatStepResponse | 'aborted' | null> => {
+): Promise<ChatStepResponse | 'aborted'> => {
     try {
         return await jsonApiFetch(`${API_URL}/workflows/${workflowId}/chat/submit_human_input`, {
             method: 'POST',
@@ -311,7 +312,8 @@ export const submitHumanInput = async (
             return 'aborted';
         }
         console.error('An error occurred while submitting human input:', error);
-        return null;
+        // Re-throw the error so the component can handle it
+        throw error;
     }
 };
 

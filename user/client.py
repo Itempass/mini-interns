@@ -1,6 +1,7 @@
 from typing import Optional, Dict, Any
 from user.internals import database, jwt_service
 from user.models import User
+from user.exceptions import InsufficientBalanceError
 from uuid import uuid4, UUID
 from datetime import datetime, timezone
 
@@ -18,6 +19,25 @@ def get_user_by_uuid(user_uuid: UUID) -> Optional[User]:
 def find_or_create_user_by_auth0_sub(auth0_sub: str, email: Optional[str] = None) -> User:
     """Finds a user by their Auth0 sub, creating one if they don't exist."""
     return database.find_or_create_user_by_auth0_sub(auth0_sub=auth0_sub, email=email)
+
+def check_user_balance(user_id: UUID):
+    """
+    Checks a user's balance. Raises an exception if the balance is depleted.
+    """
+    user = database.get_user_by_uuid(user_id)
+    if not user:
+        # Or handle as a different error, but for now, this is a safe default
+        raise ValueError("User not found")
+    if user.balance <= 0:
+        raise InsufficientBalanceError()
+
+def set_user_balance(user_uuid: UUID, new_balance: float) -> Optional[User]:
+    """Updates the balance for a specific user."""
+    return database.set_user_balance(user_uuid, new_balance)
+
+def deduct_from_balance(user_uuid: UUID, cost: float) -> Optional[User]:
+    """Deducts a cost from a user's balance."""
+    return database.deduct_from_balance(user_uuid, cost)
 
 def get_all_users() -> list[User]:
     """Retrieves all users from the database."""
