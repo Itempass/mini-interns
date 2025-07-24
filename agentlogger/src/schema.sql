@@ -22,7 +22,8 @@ CREATE TABLE IF NOT EXISTS logs (
     completion_tokens INTEGER,
     total_tokens INTEGER,
     total_cost REAL,
-    user_id TEXT
+    user_id TEXT,
+    model TEXT
 );
 
 -- Index on start_time for chronological queries

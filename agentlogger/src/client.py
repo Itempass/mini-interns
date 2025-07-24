@@ -95,6 +95,15 @@ def get_grouped_log_entries(user_id: str, limit: int, offset: int, workflow_id: 
         logger.error(f"Error retrieving grouped logs: {e}", exc_info=True)
         return {"workflows": [], "total_workflows": 0}
 
+def get_cost_history(user_id: str) -> List[LogEntry]:
+    """Retrieve cost history for a user."""
+    try:
+        db_service = get_database_service()
+        return db_service.get_cost_history(user_id=user_id)
+    except Exception as e:
+        logger.error(f"Error retrieving cost history for user {user_id}: {e}")
+        return []
+
 def get_workflow_usage_stats(workflow_instance_id: str) -> Dict[str, Any]:
     """
     Get usage statistics for a specific workflow instance from the database.

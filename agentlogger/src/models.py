@@ -41,5 +41,6 @@ class LogEntry(BaseModel):
     completion_tokens: Optional[int] = None
     total_tokens: Optional[int] = None
     total_cost: Optional[float] = None
+    model: Optional[str] = None
 
     model_config = {"extra": "allow"}

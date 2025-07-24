@@ -25,6 +25,13 @@ def is_admin(current_user: User = Depends(get_current_user)) -> bool:
         )
     return True
 
+@router.get("/users/me", response_model=User)
+def get_me(current_user: User = Depends(get_current_user)):
+    """
+    Returns the details of the currently authenticated user.
+    """
+    return current_user
+
 @router.post("/users/{user_uuid}/balance", response_model=User)
 def set_balance(user_uuid: UUID, balance_update: BalanceUpdate, is_admin: bool = Depends(is_admin)):
     """

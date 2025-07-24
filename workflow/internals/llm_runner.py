@@ -139,6 +139,7 @@ async def run_llm_step(
                 completion_tokens=completion_tokens,
                 total_tokens=total_tokens,
                 total_cost=total_cost,
+                model=llm_definition.model,
             )
             await save_log_entry(log_entry)
             logger.info(f"Successfully saved LLM conversation for instance {instance.uuid}.")

@@ -56,7 +56,8 @@ class DatabaseService:
                     'completion_tokens': "ALTER TABLE logs ADD COLUMN completion_tokens INTEGER",
                     'total_tokens': "ALTER TABLE logs ADD COLUMN total_tokens INTEGER",
                     'total_cost': "ALTER TABLE logs ADD COLUMN total_cost REAL",
-                    'user_id': "ALTER TABLE logs ADD COLUMN user_id TEXT"
+                    'user_id': "ALTER TABLE logs ADD COLUMN user_id TEXT",
+                    'model': "ALTER TABLE logs ADD COLUMN model TEXT"
                 }
 
                 for col, statement in migrations.items():
@@ -117,7 +118,7 @@ class DatabaseService:
             'id', 'reference_string', 'log_type', 'workflow_id', 'workflow_instance_id',
             'workflow_name', 'step_id', 'step_instance_id', 'step_name', 'messages',
             'needs_review', 'feedback', 'start_time', 'end_time', 'anonymized',
-            'prompt_tokens', 'completion_tokens', 'total_tokens', 'total_cost', 'user_id'
+            'prompt_tokens', 'completion_tokens', 'total_tokens', 'total_cost', 'user_id', 'model'
         ]
         
         # Select only the columns that exist in the old table
@@ -146,8 +147,8 @@ class DatabaseService:
             with sqlite3.connect(self.db_path) as conn:
                 conn.execute(
                     """
-                    INSERT INTO logs (id, reference_string, log_type, workflow_id, workflow_instance_id, workflow_name, step_id, step_instance_id, step_name, messages, needs_review, feedback, start_time, end_time, anonymized, prompt_tokens, completion_tokens, total_tokens, total_cost, user_id)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO logs (id, reference_string, log_type, workflow_id, workflow_instance_id, workflow_name, step_id, step_instance_id, step_name, messages, needs_review, feedback, start_time, end_time, anonymized, prompt_tokens, completion_tokens, total_tokens, total_cost, user_id, model)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         log_entry.id,
@@ -170,6 +171,7 @@ class DatabaseService:
                         log_entry.total_tokens,
                         log_entry.total_cost,
                         log_entry.user_id,
+                        log_entry.model,
                     )
                 )
                 conn.commit()
@@ -195,8 +197,8 @@ class DatabaseService:
             with sqlite3.connect(self.db_path) as conn:
                 conn.execute(
                     """
-                    INSERT INTO logs (id, reference_string, log_type, workflow_id, workflow_instance_id, workflow_name, step_id, step_instance_id, step_name, messages, needs_review, feedback, start_time, end_time, anonymized, prompt_tokens, completion_tokens, total_tokens, total_cost, user_id)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO logs (id, reference_string, log_type, workflow_id, workflow_instance_id, workflow_name, step_id, step_instance_id, step_name, messages, needs_review, feedback, start_time, end_time, anonymized, prompt_tokens, completion_tokens, total_tokens, total_cost, user_id, model)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(id) DO UPDATE SET
                         reference_string = excluded.reference_string,
                         log_type = excluded.log_type,
@@ -216,7 +218,8 @@ class DatabaseService:
                         completion_tokens = excluded.completion_tokens,
                         total_tokens = excluded.total_tokens,
                         total_cost = excluded.total_cost,
-                        user_id = excluded.user_id
+                        user_id = excluded.user_id,
+                        model = excluded.model
                     """,
                     (
                         log_entry.id,
@@ -239,6 +242,7 @@ class DatabaseService:
                         log_entry.total_tokens,
                         log_entry.total_cost,
                         log_entry.user_id,
+                        log_entry.model,
                     )
                 )
                 conn.commit()
@@ -293,6 +297,26 @@ class DatabaseService:
             logger.error(f"Failed to retrieve log entries for user {user_id}: {e}")
             return []
             
+    def get_cost_history(self, user_id: str) -> List[LogEntry]:
+        """
+        Retrieve all log entries with a cost for a specific user.
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                conn.row_factory = sqlite3.Row
+                
+                query = "SELECT * FROM logs WHERE user_id = ? AND total_cost > 0 ORDER BY start_time DESC"
+                params = (user_id,)
+                
+                cursor = conn.execute(query, params)
+                rows = cursor.fetchall()
+
+            return [self._row_to_log_entry(row) for row in rows]
+
+        except Exception as e:
+            logger.error(f"Failed to retrieve cost history for user {user_id}: {e}")
+            return []
+
     def get_grouped_log_entries(self, user_id: str, limit: int, offset: int, workflow_id: Optional[str] = None, log_type: Optional[str] = None) -> Dict[str, Any]:
         """
         Retrieve paginated and grouped log entries from the database for a specific user.

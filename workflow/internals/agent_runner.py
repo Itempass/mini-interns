@@ -353,6 +353,7 @@ async def run_agent_step(
                 completion_tokens=cumulative_completion_tokens,
                 total_tokens=cumulative_total_tokens,
                 total_cost=cumulative_total_cost,
+                model=agent_definition.model,
             )
             await save_log_entry(log_entry)
             logger.info(f"Successfully saved conversation for instance {instance.uuid}.")

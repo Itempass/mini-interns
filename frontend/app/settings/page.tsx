@@ -7,6 +7,7 @@ import GoogleAppPasswordHelp from '../../components/help/GoogleAppPasswordHelp';
 import SettingsSidebar from '../../components/settings/SettingsSidebar';
 import ImapSettings from '../../components/settings/ImapSettings';
 import McpServersSettings from '../../components/settings/McpServersSettings';
+import BalanceSettings from '../../components/settings/BalanceSettings';
 
 const SettingsPage = () => {
   const [version, setVersion] = useState<string>('');
@@ -43,6 +44,7 @@ const SettingsPage = () => {
                 />
             )}
             {selectedCategory === 'mcp' && <McpServersSettings />}
+            {selectedCategory === 'balance' && <BalanceSettings />}
         </div>
 
         {isHelpPanelOpen && (

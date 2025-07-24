@@ -134,6 +134,24 @@ export const getAuthStatus = async (): Promise<AuthStatus> => {
   }
 };
 
+export interface UserProfile {
+  uuid: string;
+  email: string | null;
+  auth0_sub: string | null;
+  created_at: string;
+  updated_at: string;
+  balance: number;
+}
+
+export const getMe = async (): Promise<UserProfile | null> => {
+  try {
+    return await jsonApiFetch(`${API_URL}/users/me`);
+  } catch (error) {
+    console.error('An error occurred while fetching user profile:', error);
+    return null;
+  }
+};
+
 export const setPassword = async (password: string): Promise<{success: boolean, message?: string}> => {
   try {
     const response = await fetch(`${API_URL}/auth/set-password`, {
@@ -406,6 +424,28 @@ export const addReview = async (logId: string, feedback: string, needs_review: b
   } catch (error: any) {
     console.error('An error occurred while adding review:', error);
     return { success: false, error: error.message };
+  }
+};
+
+export interface CostLogEntry {
+  start_time: string;
+  step_name: string | null;
+  model: string | null;
+  total_tokens: number | null;
+  total_cost: number | null;
+}
+
+export interface CostHistoryResponse {
+  costs: CostLogEntry[];
+  total_costs: number;
+}
+
+export const getCostHistory = async (): Promise<CostHistoryResponse> => {
+  try {
+    return await jsonApiFetch(`${API_URL}/agentlogger/logs/costs`);
+  } catch (error) {
+    console.error('An error occurred while fetching cost history:', error);
+    return { costs: [], total_costs: 0 };
   }
 };
 

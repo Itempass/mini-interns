@@ -149,42 +149,48 @@ The implementation will be broken down into the following stages to ensure a smo
             raise HTTPException(status_code=500, detail="An error occurred during the agent chat turn.")
         ```
 
-### 5.  Cost History Reporting
+### 5.  Cost History Reporting (Completed)
 
 **Goal:** Provide users with a detailed breakdown of their balance deductions in the settings page.
 
-1.  **Enhance Log Database:**
+1.  **Enhance Log Database (Completed):**
     *   **File:** `agentlogger/src/schema.sql`
-    *   **Action:** Add a `model` column (`TEXT`) to the `logs` table to store which LLM was used for the operation.
-    *   **File:** `scripts/init_db.py`
-    *   **Action:** Inside the `migrate_agentlogger_db` function, use the `add_column_if_not_exists` helper to add the new `model` column to the `logs` table.
+    *   **Action:** Added a `model` column (`TEXT`) to the `logs` table to store which LLM was used for the operation.
+    *   **File:** `agentlogger/src/database_service.py`
+    *   **Action:** Updated the internal migration logic within the database service to automatically add the `model` column if it doesn't exist, ensuring compatibility with existing installations.
 
-2.  **Update Logging Data Models and Functions:**
+2.  **Update Logging Data Models and Functions (Completed):**
     *   **File:** `agentlogger/models.py`
-    *   **Action:** Add an optional `model: str` field to the `LogEntry` Pydantic model.
-    *   **File:** `agentlogger/src/client.py`
-    *   **Action:** Update the `upsert_log_entry` function (or equivalent) to accept the `model` name and save it with the log.
-    *   **Files:** `workflow/internals/llm_runner.py`, `workflow/internals/agent_runner.py`, `prompt_optimizer/service.py`
-    *   **Action:** When these services call the logger client after a costly operation, they must now also pass the name of the model that was used.
+    *   **Action:** Added an optional `model: str` field to the `LogEntry` Pydantic model.
+    *   **File:** `agentlogger/src/database_service.py`
+    *   **Action:** Updated the `create_log_entry` and `upsert_log_entry` functions to write the `model` name to the new column in the database.
+    *   **Files:** `workflow/internals/llm_runner.py`, `workflow/internals/agent_runner.py`
+    *   **Action:** Updated these services to pass the `model` name when creating log entries.
+    *   **Note:** `prompt_optimizer/service.py` was investigated but required no changes as it uses a separate logging mechanism.
 
-3.  **Create API Endpoint for Cost History:**
+3.  **Create API Endpoint for Cost History (Completed):**
+    *   **File:** `api/endpoints/user.py`
+    *   **Action:** Added a `GET /users/me` endpoint to retrieve the current user's details, including their balance.
     *   **File:** `api/endpoints/agentlogger.py`
     *   **Action:**
-        *   Create a new endpoint: `GET /logs/costs`.
-        *   This endpoint will use the `get_current_user` dependency to get the user's ID.
-        *   It will call a new function in the `agentlogger` client, `get_cost_history(user_id)`, which queries the `logs` table for entries where `total_cost > 0` for the given user.
-        *   It will return a list of simplified log objects containing `start_time`, `step_name` (as reference), `model`, `total_tokens`, and `total_cost`.
+        *   Created a new endpoint: `GET /logs/costs`.
+        *   This endpoint calls a new `get_cost_history(user_id)` function in the `agentlogger` client to query for logs with costs.
+        *   It returns a list of cost-related log objects and the total cost.
 
-4.  **Display Cost History Table in Frontend:**
+4.  **Display Cost History Table in Frontend (Completed):**
     *   **File:** `frontend/services/api.ts`
-    *   **Action:** Add a new function, `getCostHistory()`, to call the `GET /logs/costs` endpoint.
+    *   **Action:** Added new functions, `getMe()` and `getCostHistory()`, to call the new API endpoints.
     *   **File:** `frontend/components/settings/BalanceSettings.tsx`
     *   **Action:**
-        *   Below the main balance display, add a "Cost History" section.
-        *   Use `getCostHistory()` to fetch the user's cost data.
-        *   Render the data in a table with columns: "Date", "Description", "Model", "Tokens", and "Cost".
+        *   Created a new component to serve as the "Balance" page in the settings section.
+        *   The component fetches and displays the user's current balance.
+        *   It also fetches the user's cost data and renders it in a table with columns: "Date", "Description", "Model", "Tokens", and "Cost".
+    *   **File:** `frontend/components/settings/SettingsSidebar.tsx`
+    *   **Action:** Added a "Balance" link to the sidebar to navigate to the new page.
+    *   **File:** `frontend/app/settings/page.tsx`
+    *   **Action:** Updated the main settings page to render the new `BalanceSettings` component when selected.
 
-#### Verification Point 3: Full UI Verification
+#### Verification Point 3: Full UI Verification (Completed)
 **Goal:** Verify the UI correctly displays the balance and cost history.
 **Action:**
 1.  Use the admin endpoint to set a fresh balance for your user (e.g., `$10.00`).

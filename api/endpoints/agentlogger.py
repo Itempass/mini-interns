@@ -1,7 +1,7 @@
 import logging
 from fastapi import APIRouter, HTTPException, Query, Depends
-from agentlogger.src.client import get_all_log_entries, get_log_entry, add_review, get_grouped_log_entries, get_workflow_usage_stats
-from api.types.api_models.agentlogger import LogEntryResponse, LogEntriesResponse, AddReviewRequest, GroupedLogEntriesResponse, WorkflowUsageStatsResponse
+from agentlogger.src.client import get_all_log_entries, get_log_entry, add_review, get_grouped_log_entries, get_workflow_usage_stats, get_cost_history
+from api.types.api_models.agentlogger import LogEntryResponse, LogEntriesResponse, AddReviewRequest, GroupedLogEntriesResponse, WorkflowUsageStatsResponse, CostHistoryResponse, CostLogEntry
 from typing import Optional
 from user.models import User
 from api.endpoints.auth import get_current_user
@@ -43,6 +43,34 @@ def get_usage_stats(workflow_instance_id: str):
         return WorkflowUsageStatsResponse(**stats)
     except Exception as e:
         logger.error(f"Error fetching usage stats for workflow {workflow_instance_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+@router.get("/agentlogger/logs/costs", response_model=CostHistoryResponse)
+def get_costs(current_user: User = Depends(get_current_user)):
+    """
+    Get all logs with costs from the agent logger database for the current user.
+    """
+    try:
+        logs = get_cost_history(user_id=str(current_user.uuid))
+        total_costs = sum(log.total_cost for log in logs if log.total_cost)
+        
+        # Transform logs to CostLogEntry
+        cost_entries = [
+            CostLogEntry(
+                start_time=log.start_time,
+                step_name=log.step_name,
+                model=log.model,
+                total_tokens=log.total_tokens,
+                total_cost=log.total_cost
+            ) for log in logs
+        ]
+        
+        return CostHistoryResponse(
+            costs=cost_entries,
+            total_costs=total_costs
+        )
+    except Exception as e:
+        logger.error(f"Error fetching cost history: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 @router.get("/agentlogger/logs", response_model=LogEntriesResponse)
