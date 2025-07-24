@@ -85,6 +85,7 @@ def find_or_create_user_by_auth0_sub(auth0_sub: str, email: Optional[str] = None
     Finds a user by their Auth0 subject (sub). If the user doesn't exist,
     it creates a new one.
     """
+    logger.info(f"Attempting to find or create user with auth0_sub: {auth0_sub}, email: {email}")
     conn = get_db_connection()
     cursor = conn.cursor(dictionary=True)
     try:
@@ -101,6 +102,7 @@ def find_or_create_user_by_auth0_sub(auth0_sub: str, email: Optional[str] = None
             from uuid import uuid4
             from datetime import datetime
 
+            logger.info(f"User with auth0_sub: {auth0_sub} not found. Creating new user with email: {email}")
             new_user = User(
                 uuid=uuid4(),
                 auth0_sub=auth0_sub,

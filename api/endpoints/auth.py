@@ -114,6 +114,7 @@ async def get_current_user(
         from user.internals import auth0_validator
         
         payload = await auth0_validator.validate_auth0_token(token.credentials)
+        print(f"[AUTH_DEBUG] Decoded Auth0 token payload: {payload}")
         if not payload:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -122,7 +123,10 @@ async def get_current_user(
             )
         
         auth0_sub = payload.get("sub")
-        email = payload.get("email") # Get email from the validated token
+        # The email is now in a namespaced claim.
+        # Replace this with the namespace you defined in your Auth0 Action.
+        email_claim = f"https://api.brewdock.com/email" 
+        email = payload.get(email_claim)
 
         if not auth0_sub:
              raise HTTPException(

@@ -60,7 +60,7 @@ async def validate_auth0_token(token: str) -> Optional[Dict[str, Any]]:
         print("[AUTH_VALIDATOR] Token has expired.")
         return None
     except JWTClaimsError as e:
-        print(f"[AUTH_VALIDATOR] Token claims are invalid: {e}")
+        print(f"[AUTH_VALIDATOR] Token claims are invalid. This is likely an audience or issuer mismatch. Error: {e}")
         return None
     except JWTError as e:
         print(f"[AUTH_VALIDATOR] Signature validation failed: {e}")
