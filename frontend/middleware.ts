@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
-import { auth0 } from './lib/auth0';
+import { getAuth0Client } from './lib/auth0';
 
 // This salt must be the same as the one in the Python backend.
 const SESSION_SALT = "a1b2c3d4-e5f6-7890-a1b2-c3d4e5f67890";
@@ -30,6 +30,7 @@ async function get_session_token(password: string): Promise<string> {
 // This is the main middleware handler
 export default async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
+  const auth0 = getAuth0Client(request);
   
   // Always allow API routes and static files to pass through
   if (pathname.startsWith('/api') || pathname.startsWith('/_next')) {
