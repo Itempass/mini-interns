@@ -6,6 +6,7 @@ import { ChatMessage, runWorkflowAgentChatStep, submitHumanInput, ChatStepRespon
 import { Send, Bot, User, Loader2, Square } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import FeatureRequestForm from './chat_input/FeatureRequestForm';
+import { ApiError } from '../services/api';
 
 interface WorkflowChatProps {
   workflowId: string;
@@ -166,21 +167,21 @@ const WorkflowChat: React.FC<WorkflowChatProps> = ({ workflowId, onWorkflowUpdat
     let isComplete = false;
 
     while (!isComplete) {
-      const response = await runWorkflowAgentChatStep(
-        workflowId,
-        {
-          conversation_id: conversationId,
-          messages: conversationState,
-        },
-        abortControllerRef.current?.signal
-      );
+      try {
+        const response = await runWorkflowAgentChatStep(
+          workflowId,
+          {
+            conversation_id: conversationId,
+            messages: conversationState,
+          },
+          abortControllerRef.current?.signal
+        );
 
-      if (response === 'aborted') {
-        console.log('Conversation interrupted by user.');
-        break;
-      }
+        if (response === 'aborted') {
+          console.log('Conversation interrupted by user.');
+          break;
+        }
 
-      if (response) {
         // Check for human input request before continuing the loop
         if (response.human_input_required) {
           setMessages(response.messages);
@@ -192,11 +193,14 @@ const WorkflowChat: React.FC<WorkflowChatProps> = ({ workflowId, onWorkflowUpdat
           isComplete = response.is_complete;
           onWorkflowUpdate();
         }
-      } else {
-        // Handle API error
+      } catch (error) {
+        let errorMessageContent = "Sorry, I encountered an error and can't continue. Please check the server logs.";
+        if (error instanceof ApiError) {
+          errorMessageContent = error.message; // Use the specific error message from the API
+        }
         const errorMessage: ChatMessage = {
           role: 'assistant',
-          content: "Sorry, I encountered an error and can't continue. Please check the server logs.",
+          content: errorMessageContent,
         };
         setMessages([...conversationState, errorMessage]);
         isComplete = true; // Stop the loop on error

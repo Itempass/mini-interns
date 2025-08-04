@@ -35,6 +35,12 @@ const SettingsSidebar: React.FC<SettingsSidebarProps> = ({ version, selectedCate
           >
             MCP Servers
           </li>
+          <li
+            className={getListItemClasses('balance')}
+            onClick={() => setSelectedCategory('balance')}
+          >
+            Balance
+          </li>
         </ul>
       </div>
       {version && (

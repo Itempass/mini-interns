@@ -1,24 +1,35 @@
 import os
-from fastapi import APIRouter, Response, HTTPException, status, Depends
+from fastapi import APIRouter, Response, HTTPException, status, Depends, Request
 from pydantic import BaseModel
 import secrets
 import hashlib
 import hmac
 from pathlib import Path
 from uuid import uuid4, UUID
+from typing import Optional
+from datetime import datetime
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 from shared.security.encryption import encrypt_value, decrypt_value
+from shared.config import settings
+from user import client as user_client
+from user.models import User
 
+# Create a new router for Auth0-specific endpoints
+auth0_router = APIRouter(prefix="/auth", tags=["authentication-auth0"])
+
+# Create a reusable dependency for getting the bearer token, but disable auto-error
+reusable_bearer = HTTPBearer(auto_error=False)
+
+
+# Keep the existing router for password-based and general auth endpoints
 router = APIRouter(prefix="/auth", tags=["authentication"])
 
 # --- New Configuration ---
-AUTH_SELFSET_PASSWORD = os.getenv("AUTH_SELFSET_PASSWORD", "false").lower() == "true"
-# Use an absolute path within the container that corresponds to the mounted volume
 AUTH_PASSWORD_FILE_PATH = "/data/keys/auth_password.key"
-LEGACY_AUTH_PASSWORD = os.getenv("AUTH_PASSWORD")
 
 # Use a different cookie name for each auth method to prevent session bleed-over
-if AUTH_SELFSET_PASSWORD:
+if settings.AUTH_SELFSET_PASSWORD:
     AUTH_COOKIE_NAME = "min_interns_auth_session_selfset"
 else:
     AUTH_COOKIE_NAME = "min_interns_auth_session_legacy"
@@ -44,21 +55,21 @@ def is_self_set_configured():
     return os.path.exists(AUTH_PASSWORD_FILE_PATH)
 
 def get_auth_configuration_status():
-    if AUTH_SELFSET_PASSWORD:
+    if settings.AUTH_SELFSET_PASSWORD:
         if is_self_set_configured():
             return "self_set_configured"
         else:
             return "self_set_unconfigured"
-    elif LEGACY_AUTH_PASSWORD:
+    elif settings.AUTH_PASSWORD:
         return "legacy_configured"
     else:
         return "unconfigured"
 
 async def get_active_password():
     """Gets the active password based on the configuration."""
-    if AUTH_SELFSET_PASSWORD:
+    if settings.AUTH_SELFSET_PASSWORD:
         return await get_password_from_file()
-    return LEGACY_AUTH_PASSWORD
+    return settings.AUTH_PASSWORD
 
 def get_session_token(password: str):
     """Generates a verification token based on a given password."""
@@ -73,13 +84,80 @@ def get_session_token(password: str):
     return hmac.new(salt_bytes, token_source_bytes, hashlib.sha256).hexdigest()
 
 
-def get_current_user_id() -> UUID:
+async def get_current_user(
+    request: Request,
+    token: Optional[HTTPAuthorizationCredentials] = Depends(reusable_bearer)
+) -> User:
     """
-    Returns a hardcoded UUID as the current user ID.
-    This is a placeholder implementation for the workflow system.
-    In a real application, this would validate the session and return the actual user ID.
+    Primary dependency for user authentication.
+    
+    Resolves the current user based on the active authentication mode by
+    validating an Auth0-vended JWT.
+    
+    This dependency makes all other services agnostic to the auth method.
     """
-    return UUID("12345678-1234-5678-9012-123456789012")
+    print(f"[AUTH_DEBUG] Checking auth mode. settings.AUTH0_DOMAIN = '{settings.AUTH0_DOMAIN}' (Type: {type(settings.AUTH0_DOMAIN)})")
+    print(f"[AUTH_DEBUG] get_current_user called.")
+
+    # Explicitly check for a non-empty string to avoid issues with stale env vars.
+    if settings.AUTH0_DOMAIN and settings.AUTH0_DOMAIN.strip():
+        if token is None:
+            print("[AUTH_DEBUG] Auth0 mode: Token is missing.")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Not authenticated",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        
+        print(f"[AUTH_DEBUG] Auth0 mode: Received token credentials: {token.credentials[:10]}...")
+        
+        from user.internals import auth0_validator
+        
+        payload = await auth0_validator.validate_auth0_token(token.credentials)
+        print(f"[AUTH_DEBUG] Decoded Auth0 token payload: {payload}")
+        if not payload:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or expired token",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        
+        auth0_sub = payload.get("sub")
+        # The email is now in a namespaced claim.
+        # Replace this with the namespace you defined in your Auth0 Action.
+        email_claim = f"https://api.brewdock.com/email" 
+        email = payload.get(email_claim)
+
+        if not auth0_sub:
+             raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid token: missing user subject",
+            )
+        
+        # Find the user in our DB, or create them if it's their first time.
+        user = user_client.find_or_create_user_by_auth0_sub(
+            auth0_sub=auth0_sub,
+            email=email
+        )
+        return user
+    
+    if settings.AUTH_PASSWORD or settings.AUTH_SELFSET_PASSWORD:
+        # TODO: Get session cookie from request and validate it.
+        # For now, we'll just return the default user if password auth is on.
+        user = user_client.get_default_system_user()
+        if not user:
+             raise HTTPException(
+                status_code=500,
+                detail="Default system user not found in the database. A misconfiguration has occurred.",
+            )
+        return user
+
+    # "No Auth" mode
+    return User(
+        uuid=UUID("12345678-1234-5678-9012-123456789012"),
+        email="anonymous@example.com",
+        created_at=datetime.utcnow()
+    )
 
 
 class LoginRequest(BaseModel):
@@ -96,6 +174,29 @@ class VerifyTokenRequest(BaseModel):
 async def auth_status():
     """Returns the current authentication configuration status."""
     return {"status": get_auth_configuration_status()}
+
+@router.get("/mode")
+async def get_auth_mode():
+    """
+    Returns the active authentication mode for the entire application.
+    This is used by the frontend to determine which authentication UI and
+    logic to use.
+    """
+    # Explicitly check for a non-empty string to avoid issues with stale env vars.
+    if settings.AUTH0_DOMAIN and settings.AUTH0_DOMAIN.strip():
+        return {"mode": "auth0"}
+    
+    if settings.AUTH_PASSWORD or settings.AUTH_SELFSET_PASSWORD:
+        return {"mode": "password"}
+    
+    return {"mode": "none"}
+
+# Conditionally include the Auth0 router if Auth0 is enabled
+# This logic is moved to api/main.py to prevent circular imports.
+# if settings.AUTH0_DOMAIN:
+#     from api.main import app as main_app
+#     main_app.include_router(auth0_router)
+
 
 @router.post("/set-password")
 async def set_password(request: SetPasswordRequest, response: Response):

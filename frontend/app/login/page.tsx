@@ -1,73 +1,44 @@
-"use client";
+import { getAuthMode } from "../../lib/auth";
+import Link from "next/link";
+import { ShieldCheck } from "lucide-react";
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { login } from '../../services/api';
+// Keep the original client component for the password form
+import LoginPageClient from "./LoginPageClient";
 
-export default function LoginPage() {
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
-  const router = useRouter();
+export default async function LoginPage() {
+  const authMode = await getAuthMode();
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsLoading(true);
-    setError('');
-
-    const success = await login(password);
-
-    if (success) {
-      router.push('/');
-      router.refresh(); // Forces a refresh to re-evaluate middleware and fetch new data
-    } else {
-      setError('Incorrect password. Please try again.');
-      setIsLoading(false);
-    }
-  };
-
-  return (
-    <div className="flex items-center justify-center min-h-screen bg-gray-50">
-      <div className="w-full max-w-md p-8 space-y-8 bg-white rounded-lg shadow-md">
-        <div className="text-center">
-          <h1 className="text-3xl font-bold text-gray-900">Brewdock</h1>
-          <p className="mt-2 text-gray-600">The Agents Factory</p>
-          <p className="mt-2 text-gray-600">Please enter your password to continue</p>
+  if (authMode === 'auth0') {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-gray-100" style={{
+        backgroundImage: 'radial-gradient(#E5E7EB 1px, transparent 1px)',
+        backgroundSize: '24px 24px'
+      }}>
+        <div className="w-full max-w-sm p-8 space-y-6 bg-white border border-gray-300 rounded-2xl shadow-xl text-center">
+            <div className="inline-block p-3 bg-indigo-100 rounded-full">
+                <div className="w-8 h-8 rounded-full border-2 border-black flex items-center justify-center bg-transparent">
+                    <span className="text-black font-bold text-sm">B</span>
+                </div>
+            </div>
+            <h2 className="mt-4 text-2xl font-bold text-gray-900">Sign in to Brewdock</h2>
+            <p className="mt-2 text-sm text-gray-600">You will be redirected to our secure login provider.</p>
+            <Link
+                href="/auth-client/login"
+                className="inline-block w-full px-4 py-3 text-sm font-semibold text-white bg-gray-900 border border-transparent rounded-lg shadow-sm hover:bg-black focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-900 transition-all duration-200"
+            >
+                Continue to Login
+            </Link>
+            <div className="text-center pt-4">
+                <p className="text-xs text-gray-500 flex items-center justify-center">
+                    <ShieldCheck className="w-4 h-4 mr-2" />
+                    Authentication is handled by Auth0.
+                </p>
+            </div>
         </div>
-        <form className="space-y-6" onSubmit={handleSubmit}>
-          <div>
-            <label
-              htmlFor="password"
-              className="block text-sm font-medium text-gray-700 sr-only"
-            >
-              Password
-            </label>
-            <input
-              id="password"
-              name="password"
-              type="password"
-              autoComplete="current-password"
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full px-3 py-2 text-gray-900 placeholder-gray-500 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
-              placeholder="Password"
-            />
-          </div>
-
-          {error && <p className="text-sm text-red-600">{error}</p>}
-
-          <div>
-            <button
-              type="submit"
-              disabled={isLoading}
-              className="w-full px-4 py-2 text-sm font-medium text-white bg-indigo-600 border border-transparent rounded-md shadow-sm hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:bg-indigo-400 disabled:cursor-not-allowed"
-            >
-              {isLoading ? 'Logging in...' : 'Login'}
-            </button>
-          </div>
-        </form>
       </div>
-    </div>
-  );
+    );
+  }
+
+  // If not 'auth0', render the original password login form.
+  return <LoginPageClient />;
 } 

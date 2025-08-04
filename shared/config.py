@@ -2,6 +2,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import model_validator, Field
 from dotenv import load_dotenv
 from typing import Optional, Any, Dict
+import os
 
 # Load environment variables from .env file.
 # `override=True` ensures that the .env file takes precedence over system environment variables.
@@ -37,6 +38,16 @@ class Settings(BaseSettings):
     EMBEDDING_VOYAGE_API_KEY: Optional[str] = None
     QDRANT_NAMESPACE_UUID: str = 'a1b2c3d4-e5f6-7890-1234-567890abcdef' # For deterministic UUID generation for Qdrant points
     OPENROUTER_API_KEY: str
+
+    # Authentication settings
+    AUTH0_DOMAIN: Optional[str] = None
+    AUTH0_API_AUDIENCE: Optional[str] = None
+    AUTH0_ISSUER_URL: Optional[str] = None
+    AUTH0_M2M_CLIENT_ID: Optional[str] = None
+    AUTH0_M2M_CLIENT_SECRET: Optional[str] = None
+    AUTH_PASSWORD: Optional[str] = None
+    AUTH_SELFSET_PASSWORD: bool = False
+    ADMIN_USER_IDS: str = Field(default="11111111-1111-1111-1111-111111111111,22222222-2222-2222-2222-222222222222", env="ADMIN_USER_IDS")
     
     model_config = SettingsConfigDict(env_file=(".env", ".env.local"), extra='ignore')
 

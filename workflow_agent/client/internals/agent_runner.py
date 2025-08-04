@@ -2,15 +2,19 @@ import asyncio
 import json
 import logging
 import os
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 from uuid import UUID
 
+from fastapi import HTTPException
 from fastmcp import Client as MCPClient
 from fastmcp.client.transports import StreamableHttpTransport
 from openai import OpenAI
+import httpx
 
 from shared.config import settings
 from workflow_agent.client.models import ChatMessage, HumanInputRequired
+from user import client as user_client
+from user.exceptions import InsufficientBalanceError
 
 logger = logging.getLogger(__name__)
 
@@ -36,9 +40,30 @@ def _format_mcp_tools_for_openai(tools) -> list[dict]:
         formatted_tools.append(formatted_tool)
     return formatted_tools
 
+async def _get_generation_cost(generation_id: str) -> float:
+    """Retrieves the cost of a specific generation from OpenRouter."""
+    if not generation_id:
+        return 0.0
+    
+    try:
+        # A small delay can help ensure the generation data is available.
+        await asyncio.sleep(2)
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"https://openrouter.ai/api/v1/generation?id={generation_id}",
+                headers={"Authorization": f"Bearer {settings.OPENROUTER_API_KEY}"}
+            )
+            response.raise_for_status()
+            data = response.json()
+            logger.info(f"WORKFLOW_AGENT: Received cost data for generation {generation_id}: {json.dumps(data)}")
+            return data.get("data", {}).get("total_cost", 0.0)
+    except Exception as e:
+        logger.error(f"Failed to retrieve cost for generation {generation_id}: {e}")
+        return 0.0
+
 async def run_agent_turn(
     conversation: List[ChatMessage], user_id: UUID, workflow_uuid: UUID
-) -> Tuple[List[ChatMessage], HumanInputRequired | None]:
+) -> Tuple[List[ChatMessage], HumanInputRequired | None, Optional[dict], Optional[str]]:
     """
     Runs a single turn of the workflow agent. This is a state machine driven by
     the role of the last message in the conversation history.
@@ -46,11 +71,15 @@ async def run_agent_turn(
     - assistant(with tool_calls) -> execute tools
     - tool -> call LLM
     """
+    # Initialize usage_stats and generation_id to return in all paths
+    usage_stats = None
+    generation_id = None
+
     if not settings.OPENROUTER_API_KEY:
         error_message = "Error: OPENROUTER_API_KEY not configured."
         logger.error(error_message)
         conversation.append(ChatMessage(role="assistant", content=error_message))
-        return conversation, None
+        return conversation, None, usage_stats, generation_id
 
     llm_client = OpenAI(
         base_url="https://openrouter.ai/api/v1",
@@ -75,13 +104,13 @@ async def run_agent_turn(
                         },
                     )
                     # We don't execute the tool, just return the request for input
-                    return conversation, human_input_required
+                    return conversation, human_input_required, usage_stats, generation_id
                 except (json.JSONDecodeError, KeyError) as e:
                     logger.error(f"Error processing feature_request arguments: {e}")
                     # Fallback to returning an error message in the conversation
                     error_message = f"Internal error processing your request: {e}"
                     conversation.append(ChatMessage(role="assistant", content=error_message))
-                    return conversation, None
+                    return conversation, None, usage_stats, generation_id
 
     mcp_url = f"http://localhost:{settings.CONTAINERPORT_MCP_WORKFLOW_AGENT}/mcp"
     headers = {
@@ -142,6 +171,16 @@ async def run_agent_turn(
         elif last_message.role == "user" or last_message.role == "tool":
             # STATE: User sent a message OR tools have finished. Call LLM for the next step.
             logger.info("Agent is calling LLM.")
+            
+            # --- Balance Check ---
+            try:
+                logger.info(f"Checking balance for user {user_id} before running workflow agent.")
+                user_client.check_user_balance(user_id)
+                logger.info(f"User {user_id} has sufficient balance.")
+            except InsufficientBalanceError as e:
+                logger.warning(f"Blocking workflow agent for user {user_id} due to insufficient balance.")
+                raise HTTPException(status_code=403, detail=str(e))
+
             available_tools = await mcp_client.list_tools()
             formatted_tools = _format_mcp_tools_for_openai(available_tools)
             
@@ -158,8 +197,24 @@ async def run_agent_turn(
             )
             response_message = response.choices[0].message
             conversation.append(ChatMessage.model_validate(response_message.model_dump()))
-        
+            
+            # Capture usage stats and generation ID
+            if response.usage:
+                usage_stats = {
+                    "prompt_tokens": response.usage.prompt_tokens,
+                    "completion_tokens": response.usage.completion_tokens,
+                    "total_tokens": response.usage.total_tokens,
+                }
+            generation_id = response.id
+
+            # --- Cost Deduction ---
+            if generation_id:
+                cost = await _get_generation_cost(generation_id)
+                if cost > 0:
+                    logger.info(f"Deducting cost of {cost} from user {user_id}'s balance for workflow agent turn.")
+                    user_client.deduct_from_balance(user_id, cost)
+
         # If the last message is from the assistant without tool calls, we do nothing.
         # The turn is considered complete.
 
-    return conversation, None 
+    return conversation, None, usage_stats, generation_id 

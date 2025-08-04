@@ -11,11 +11,14 @@ from workflow import client as workflow_client
 from workflow import trigger_client
 from workflow.internals import runner
 from workflow.models import InitialWorkflowData
+from user.models import User
 from shared.config import settings
 import json
 from mcp_servers.imap_mcpserver.src.imap_client import client as imap_client
-from api.endpoints.auth import get_current_user_id
+from api.endpoints.auth import get_current_user
 from mcp_servers.imap_mcpserver.src.imap_client.internals.connection_manager import imap_connection, FolderNotFoundError
+import user.client as user_client
+from shared.security.encryption import decrypt_value
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -34,121 +37,125 @@ def set_last_uid(username: str, uid: str):
 
 async def main():
     """
-    Main polling loop that checks for new emails and runs them against database-driven triggers.
+    Main polling loop that checks for new emails and runs them against database-driven triggers for all users.
     """
     logger.info("Trigger service started.")
     
-    resolved_inbox_name = None
-
     while True:
         try:
             # Quick MCP server health check
-            try: requests.get(f"http://localhost:{settings.CONTAINERPORT_MCP_IMAP}/mcp", timeout=2)
-            except: 
+            try:
+                requests.get(f"http://localhost:{settings.CONTAINERPORT_MCP_IMAP}/mcp", timeout=2)
+            except requests.exceptions.RequestException:
+                logger.warning("MCP IMAP server is not reachable. Retrying in 10 seconds.")
                 await asyncio.sleep(10)
                 continue
-            
-            app_settings = load_app_settings()
 
-            if app_settings.IMAP_SERVER and app_settings.IMAP_USERNAME and app_settings.IMAP_PASSWORD:
-                # Dynamically resolve the Inbox folder name once
-                if not resolved_inbox_name:
+            all_users = user_client.get_all_users()
+            logger.info(f"Found {len(all_users)} users to check for new mail.")
+
+            for user in all_users:
+                try:
+                    app_settings = load_app_settings(user_uuid=user.uuid)
+                    if not all([app_settings.IMAP_SERVER, app_settings.IMAP_USERNAME, app_settings.IMAP_PASSWORD]):
+                        logger.info(f"User {user.uuid} has incomplete IMAP settings. Skipping.")
+                        continue
+                    
+                    # Use a user-specific resolved inbox name
+                    resolved_inbox_name = None
                     try:
-                        logger.info("Attempting to resolve special-use folder for Inbox...")
-                        with imap_connection() as (_, resolver):
+                        with imap_connection(app_settings=app_settings) as (_, resolver):
                             resolved_inbox_name = resolver.get_folder_by_attribute('\\Inbox')
-                        logger.info(f"Successfully resolved Inbox to: '{resolved_inbox_name}'")
                     except FolderNotFoundError:
-                        logger.error("Could not resolve the Inbox folder. Trigger checking will be paused. Retrying in 1 minute.")
-                        await asyncio.sleep(60)
+                        logger.error(f"Could not resolve Inbox for user {user.uuid}. Skipping this user.")
                         continue
                     except Exception as e:
-                        logger.error(f"An unexpected error occurred during Inbox resolution: {e}. Retrying in 1 minute.", exc_info=True)
-                        await asyncio.sleep(60)
-                        continue
-                
-                logger.info(f"Settings loaded for {app_settings.IMAP_USERNAME}. Checking for mail in '{resolved_inbox_name}'...")
-                
-                with MailBox(app_settings.IMAP_SERVER).login(app_settings.IMAP_USERNAME, app_settings.IMAP_PASSWORD, initial_folder=resolved_inbox_name) as mailbox:
-                    last_uid = get_last_uid(app_settings.IMAP_USERNAME)
-                    logger.info(f"Last processed UID for '{app_settings.IMAP_USERNAME}': {last_uid}")
-
-                    if last_uid is None:
-                        uids = mailbox.uids()
-                        if uids:
-                            latest_uid_on_server = uids[-1]
-                            set_last_uid(app_settings.IMAP_USERNAME, latest_uid_on_server)
-                            logger.info(f"No previous UID found for '{app_settings.IMAP_USERNAME}'. Baseline set to latest email UID: {latest_uid_on_server}.")
-                        else:
-                            logger.info("No emails found in the inbox. Will check again.")
-                        await asyncio.sleep(60)
+                        logger.error(f"Error resolving Inbox for user {user.uuid}: {e}. Skipping.", exc_info=True)
                         continue
 
-                    messages = list(mailbox.fetch(A(uid=f'{int(last_uid) + 1}:*'), mark_seen=False))
-                    filtered_messages = [msg for msg in messages if int(msg.uid) > int(last_uid)]
+                    logger.info(f"Checking for mail for user {user.uuid} ({app_settings.IMAP_USERNAME}) in '{resolved_inbox_name}'...")
+                    
+                    with MailBox(app_settings.IMAP_SERVER).login(app_settings.IMAP_USERNAME, app_settings.IMAP_PASSWORD, initial_folder=resolved_inbox_name) as mailbox:
+                        # IMPORTANT: We use the username here to handle cases where the user changes their email address.
+                        last_uid = get_last_uid(app_settings.IMAP_USERNAME)
+                        logger.info(f"Last processed UID for '{app_settings.IMAP_USERNAME}': {last_uid}")
 
-                    if filtered_messages:
-                        logger.info(f"Found {len(filtered_messages)} new email(s).")
+                        if last_uid is None:
+                            uids = mailbox.uids()
+                            if uids:
+                                latest_uid_on_server = uids[-1]
+                                set_last_uid(app_settings.IMAP_USERNAME, latest_uid_on_server)
+                                logger.info(f"No previous UID found for '{app_settings.IMAP_USERNAME}'. Baseline set to {latest_uid_on_server}.")
+                            else:
+                                logger.info(f"No emails in inbox for '{app_settings.IMAP_USERNAME}'.")
+                            continue
+
+                        messages = list(mailbox.fetch(A(uid=f'{int(last_uid) + 1}:*'), mark_seen=False))
                         
-                        my_email_address = app_settings.IMAP_USERNAME.lower() if app_settings.IMAP_USERNAME else ""
+                        # The UID in the response can be lower than last_uid, so we must filter.
+                        filtered_messages = [msg for msg in messages if int(msg.uid) > int(last_uid)]
 
-                        for msg in filtered_messages:
-                            # ADDED: Skip emails sent by the user to avoid loops
-                            if msg.from_ and my_email_address and my_email_address in msg.from_.lower():
-                                logger.info(f"Skipping email sent by self: '{msg.subject}'")
-                                continue
+                        if filtered_messages:
+                            logger.info(f"Found {len(filtered_messages)} new email(s) for {app_settings.IMAP_USERNAME}.")
+                            
+                            my_email_address = app_settings.IMAP_USERNAME.lower()
 
-                            message_id_tuple = msg.headers.get('message-id')
-                            if not message_id_tuple:
-                                logger.warning(f"Skipping an email because it has no Message-ID.")
-                                continue
+                            for msg in filtered_messages:
+                                if msg.from_ and my_email_address in msg.from_.lower():
+                                    logger.info(f"Skipping email sent by self: '{msg.subject}'")
+                                    continue
 
-                            message_id = message_id_tuple[0].strip().strip('<>')
-                            logger.info(f"Processing message: {message_id}")
-                            await process_message(msg, message_id)
+                                message_id_tuple = msg.headers.get('message-id')
+                                if not message_id_tuple:
+                                    logger.warning("Skipping email with no Message-ID.")
+                                    continue
+                                
+                                message_id = message_id_tuple[0].strip().strip('<>')
+                                logger.info(f"Processing message: {message_id} for user {user.uuid}")
+                                await process_message(user, msg, message_id)
 
-                        latest_uid = filtered_messages[-1].uid
-                        set_last_uid(app_settings.IMAP_USERNAME, latest_uid)
-                        logger.info(f"Last processed UID for '{app_settings.IMAP_USERNAME}' updated to {latest_uid}")
-                    else:
-                        logger.info("No new emails.")
-            else:
-                logger.info("IMAP settings are not fully configured. Skipping poll cycle.")
+                            latest_uid = filtered_messages[-1].uid
+                            set_last_uid(app_settings.IMAP_USERNAME, latest_uid)
+                            logger.info(f"Updated last UID for '{app_settings.IMAP_USERNAME}' to {latest_uid}")
+                        else:
+                            logger.info(f"No new emails for {app_settings.IMAP_USERNAME}.")
+                
+                except Exception as e:
+                    logger.error(f"An error occurred processing user {user.uuid}: {e}", exc_info=True)
+                    # Continue to the next user
+                    continue
+
         except Exception as e:
-            logger.error(f"An unexpected error occurred in main loop: {e}. Skipping poll cycle.", exc_info=True)
+            logger.error(f"An unexpected error occurred in main loop: {e}. Retrying in 30 seconds.", exc_info=True)
 
         await asyncio.sleep(30)
 
-async def process_message(msg, message_id: str):
-    """Process a single message against all database workflows."""
+async def process_message(user: User, msg, message_id: str):
+    """Process a single message against all database workflows for a specific user."""
     
     logger.info("--------------------")
-    logger.info(f"New Email Received: Message-ID: {message_id}, From: {msg.from_}, Subject: {msg.subject}")
+    logger.info(f"Processing Email for User {user.uuid}: Message-ID: {message_id}, From: {msg.from_}, Subject: {msg.subject}")
     body = msg.text or msg.html
     if not body:
         logger.info("Email has no body content. Skipping processing.")
         return
 
-    # 1. Fetch user_id
-    user_id = get_current_user_id()
-    if not user_id:
-        logger.error("Could not determine user_id. Skipping processing.")
-        return
-
+    # User is now passed in, so we don't need to fetch it.
+    
     # 2. Fetch all workflows for the user
-    workflows = await workflow_client.list_all(user_id=user_id)
+    workflows = await workflow_client.list_all(user_id=user.uuid)
     if not workflows:
-        logger.info("No workflows found in the database. Skipping processing.")
+        logger.info(f"No workflows found for user {user.uuid}. Skipping processing.")
         return
-    logger.info(f"Found {len(workflows)} workflows in the database. Evaluating...")
+    logger.info(f"Found {len(workflows)} workflows for user {user.uuid}. Evaluating...")
 
     # 3. Fetch thread context once for all triggers
     thread_context = None
     try:
         logger.info(f"Fetching message and thread context for Message-ID: {message_id}")
-        email_message = await imap_client.get_message_by_id(message_id)
+        email_message = await imap_client.get_message_by_id(user_uuid=user.uuid, message_id=message_id)
         if email_message:
-            thread = await imap_client.get_complete_thread(email_message)
+            thread = await imap_client.get_complete_thread(user_uuid=user.uuid, source_message=email_message)
             if thread:
                 thread_context = thread.markdown
                 logger.info(f"Successfully fetched thread context with {len(thread.messages)} messages.")
@@ -180,7 +187,7 @@ async def process_message(msg, message_id: str):
             continue
 
         # 4b. Get the trigger for the workflow
-        trigger = await trigger_client.get(uuid=workflow.trigger_uuid, user_id=user_id)
+        trigger = await trigger_client.get(uuid=workflow.trigger_uuid, user_id=user.uuid)
         if not trigger:
             logger.error(f"Trigger with UUID '{workflow.trigger_uuid}' not found for workflow '{workflow.name}'. Skipping.")
             continue
@@ -206,12 +213,12 @@ async def process_message(msg, message_id: str):
             instance = await workflow_client.create_instance(
                 workflow_uuid=workflow.uuid,
                 initial_markdown=initial_workflow_data.markdown_representation,
-                user_id=user_id,
+                user_id=user.uuid,
             )
             logger.info(f"Successfully created instance {instance.uuid} for workflow '{workflow.name}'")
             
             # Schedule the workflow to run in the background.
-            asyncio.create_task(runner.run_workflow(instance.uuid, user_id))
+            asyncio.create_task(runner.run_workflow(instance.uuid, user.uuid))
             logger.info(f"Scheduled workflow instance {instance.uuid} for execution.")
 
         except Exception as e:

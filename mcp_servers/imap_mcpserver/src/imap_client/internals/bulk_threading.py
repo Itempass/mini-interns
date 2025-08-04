@@ -25,24 +25,27 @@ except ImportError:
 
 from mcp_servers.imap_mcpserver.src.imap_client.models import EmailMessage, EmailThread
 from mcp_servers.imap_mcpserver.src.imap_client.helpers.contextual_id import create_contextual_id
-from mcp_servers.imap_mcpserver.src.imap_client.internals.connection_manager import IMAPConnectionManager, get_default_connection_manager, FolderResolver, FolderNotFoundError
+from mcp_servers.imap_mcpserver.src.imap_client.internals.connection_manager import imap_connection, FolderResolver, FolderNotFoundError
 from mcp_servers.imap_mcpserver.src.imap_client.helpers.body_parser import extract_body_formats
+from uuid import UUID
+
+from shared.app_settings import AppSettings, load_app_settings
 
 logger = logging.getLogger(__name__)
 
 def _fetch_bulk_threads_sync(
-    connection_manager: IMAPConnectionManager,
     target_thread_count: int,
     max_age_months: int,
-    source_folder_attribute: str = '\\Sent'
+    user_uuid: UUID,
+    source_folder_attribute: str = '\\Sent',
 ) -> tuple[list[EmailThread], dict[str, float]]:
     """
     Synchronous implementation of bulk thread fetching.
     
     Args:
-        connection_manager: An IMAPConnectionManager instance to handle connections.
         target_thread_count: Number of unique threads to return
         max_age_months: Maximum age of threads to consider (default 6 months)
+        user_uuid: The UUID of the user to fetch threads for.
         source_folder_attribute: The special-use attribute for the folder to search (e.g., '\\Sent'). Defaults to '\\Sent'.
         
     Returns:
@@ -51,7 +54,11 @@ def _fetch_bulk_threads_sync(
     start_time = time.time()
     
     try:
-        with connection_manager.connect() as (mail, resolver):
+        app_settings = load_app_settings(user_uuid=user_uuid)
+        if not app_settings:
+            raise ValueError("Could not load app settings for user.")
+
+        with imap_connection(app_settings=app_settings) as (mail, resolver):
             timing = {}
             
             # Step 1: Get all messages from source mailbox within age limit
@@ -145,7 +152,7 @@ def _fetch_bulk_threads_sync(
             
             logger.info(f"Smart fetching {len(thread_id_to_uids)} unique threads (target was {target_thread_count})...")
             
-            user_email = os.getenv("IMAP_USERNAME")
+            user_email = app_settings.IMAP_USERNAME
 
             for thread_id, sent_uids in thread_id_to_uids.items():
                 # Skip if we've already processed this thread (deduplication)
@@ -254,7 +261,8 @@ def _fetch_bulk_threads_sync(
 async def fetch_recent_threads_bulk(
     target_thread_count: int = 50,
     max_age_months: int = 6,
-    source_folder_attribute: str = '\\Sent'
+    source_folder_attribute: str = '\\Sent',
+    user_uuid: Optional[UUID] = None
 ) -> tuple[list[EmailThread], dict[str, float]]:
     """
     Fetch a target number of recent email threads efficiently.
@@ -266,17 +274,19 @@ async def fetch_recent_threads_bulk(
         target_thread_count: Number of unique threads to return (default 50)
         max_age_months: Maximum age of threads to consider in months (default 6)
         source_folder_attribute: The special-use attribute for the folder to search (e.g., '\\Sent'). Defaults to '\\Sent'.
+        user_uuid: The UUID of the user to fetch threads for.
         
     Returns:
         Tuple of (threads_list, timing_dict)
     """
-    connection_manager = get_default_connection_manager()
-    
+    if not user_uuid:
+        raise ValueError("user_uuid must be provided for bulk thread fetching.")
+
     return await asyncio.get_running_loop().run_in_executor(
         None, 
         _fetch_bulk_threads_sync,
-        connection_manager,
         target_thread_count,
         max_age_months,
+        user_uuid,
         source_folder_attribute
     ) 

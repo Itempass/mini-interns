@@ -1,8 +1,10 @@
 import logging
-from fastapi import APIRouter, HTTPException, Query
-from agentlogger.src.client import get_all_log_entries, get_log_entry, add_review, get_grouped_log_entries
-from api.types.api_models.agentlogger import LogEntryResponse, LogEntriesResponse, AddReviewRequest, GroupedLogEntriesResponse
+from fastapi import APIRouter, HTTPException, Query, Depends
+from agentlogger.src.client import get_all_log_entries, get_log_entry, add_review, get_grouped_log_entries, get_workflow_usage_stats, get_cost_history
+from api.types.api_models.agentlogger import LogEntryResponse, LogEntriesResponse, AddReviewRequest, GroupedLogEntriesResponse, WorkflowUsageStatsResponse, CostHistoryResponse, CostLogEntry
 from typing import Optional
+from user.models import User
+from api.endpoints.auth import get_current_user
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -12,25 +14,72 @@ def get_grouped_logs(
     limit: int = Query(20, ge=1, le=100), 
     offset: int = Query(0, ge=0),
     workflow_id: Optional[str] = Query(None),
-    log_type: Optional[str] = Query(None)
+    log_type: Optional[str] = Query(None),
+    current_user: User = Depends(get_current_user)
 ):
     """
-    Get paginated, grouped logs from the agent logger database.
+    Get paginated, grouped logs from the agent logger database for the current user.
     """
     try:
-        grouped_data = get_grouped_log_entries(limit=limit, offset=offset, workflow_id=workflow_id, log_type=log_type)
+        grouped_data = get_grouped_log_entries(
+            limit=limit, 
+            offset=offset, 
+            workflow_id=workflow_id, 
+            log_type=log_type, 
+            user_id=str(current_user.uuid)
+        )
         return GroupedLogEntriesResponse(**grouped_data)
     except Exception as e:
         logger.error(f"Error fetching grouped logs: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
 
-@router.get("/agentlogger/logs", response_model=LogEntriesResponse)
-def get_all_logs():
+@router.get("/agentlogger/logs/usage-stats/{workflow_instance_id}", response_model=WorkflowUsageStatsResponse)
+def get_usage_stats(workflow_instance_id: str):
     """
-    Get all logs from the agent logger database.
+    Get usage statistics for a specific workflow instance.
     """
     try:
-        logs = get_all_log_entries()
+        stats = get_workflow_usage_stats(workflow_instance_id)
+        return WorkflowUsageStatsResponse(**stats)
+    except Exception as e:
+        logger.error(f"Error fetching usage stats for workflow {workflow_instance_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+@router.get("/agentlogger/logs/costs", response_model=CostHistoryResponse)
+def get_costs(current_user: User = Depends(get_current_user)):
+    """
+    Get all logs with costs from the agent logger database for the current user.
+    """
+    try:
+        logs = get_cost_history(user_id=str(current_user.uuid))
+        total_costs = sum(log.total_cost for log in logs if log.total_cost)
+        
+        # Transform logs to CostLogEntry
+        cost_entries = [
+            CostLogEntry(
+                start_time=log.start_time,
+                step_name=log.step_name,
+                model=log.model,
+                total_tokens=log.total_tokens,
+                total_cost=log.total_cost
+            ) for log in logs
+        ]
+        
+        return CostHistoryResponse(
+            costs=cost_entries,
+            total_costs=total_costs
+        )
+    except Exception as e:
+        logger.error(f"Error fetching cost history: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+@router.get("/agentlogger/logs", response_model=LogEntriesResponse)
+def get_all_logs(current_user: User = Depends(get_current_user)):
+    """
+    Get all logs from the agent logger database for the current user.
+    """
+    try:
+        logs = get_all_log_entries(user_id=str(current_user.uuid))
         return LogEntriesResponse(
             log_entries=[log.model_dump() for log in logs],
             count=len(logs)
@@ -40,12 +89,12 @@ def get_all_logs():
         raise HTTPException(status_code=500, detail="Internal server error")
 
 @router.get("/agentlogger/logs/{log_id}", response_model=LogEntryResponse)
-def get_single_log(log_id: str):
+def get_single_log(log_id: str, current_user: User = Depends(get_current_user)):
     """
-    Get a single log by ID from the agent logger database.
+    Get a single log by ID from the agent logger database for the current user.
     """
     try:
-        log = get_log_entry(log_id)
+        log = get_log_entry(log_id, user_id=str(current_user.uuid))
         if log is None:
             raise HTTPException(status_code=404, detail=f"Log {log_id} not found")
         

@@ -4,6 +4,8 @@ from typing import Any
 from datetime import datetime, timezone
 from uuid import UUID
 
+from fastapi import HTTPException
+
 from agentlogger.src.client import save_log_entry
 from agentlogger.src.models import (
     LogEntry,
@@ -15,6 +17,8 @@ from mcp_servers.tone_of_voice_mcpserver.src.services.openrouter_service import 
 from workflow.internals.output_processor import create_output_data, generate_summary
 from workflow.models import CustomLLM, CustomLLMInstanceModel, MessageModel, StepOutputData, WorkflowModel
 from shared.config import settings
+from user import client as user_client
+from user.exceptions import InsufficientBalanceError
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +43,11 @@ async def run_llm_step(
         logger.error("OPENROUTER_API_KEY not found. Cannot proceed.")
     
     try:
+        # --- Balance Check ---
+        logger.info(f"Checking balance for user {user_id} before running LLM step.")
+        user_client.check_user_balance(user_id)
+        logger.info(f"User {user_id} has sufficient balance.")
+
         logger.debug(f"LLM definition: {llm_definition.model_dump_json(indent=2)}")
         logger.debug(f"Resolved system prompt: {resolved_system_prompt}")
 
@@ -51,13 +60,32 @@ async def run_llm_step(
 
         logger.info(f"Calling OpenRouter for instance {instance.uuid} with model {llm_definition.model}")
         # Use the OpenRouter service to get the LLM response
-        response_content = await openrouter_service.get_llm_response(
+        response_data = await openrouter_service.get_llm_response(
             prompt="Proceed as instructed.",
             system_prompt=resolved_system_prompt,
             model=llm_definition.model,
         )
         logger.info(f"Received response from OpenRouter for instance {instance.uuid}")
-        logger.debug(f"Response content: {response_content}")
+        logger.debug(f"Response data: {response_data}")
+
+        # Extract the content and other details from the response
+        response_content = response_data["choices"][0]["message"]["content"]
+        generation_id = response_data.get("id")
+        usage = response_data.get("usage", {})
+        prompt_tokens = usage.get("prompt_tokens")
+        completion_tokens = usage.get("completion_tokens")
+        total_tokens = usage.get("total_tokens")
+        
+        # Get the cost
+        total_cost = None
+        if generation_id:
+            try:
+                total_cost = await openrouter_service.get_generation_cost(generation_id)
+                if total_cost is not None and total_cost > 0:
+                    logger.info(f"Deducting {total_cost} from balance of user {user_id}.")
+                    user_client.deduct_from_balance(user_id, total_cost)
+            except Exception as e:
+                logger.error(f"Could not retrieve cost for generation {generation_id}: {e}")
 
         # Add the response to the messages
         instance.messages.append(MessageModel(role="assistant", content=response_content))
@@ -73,6 +101,12 @@ async def run_llm_step(
         instance.status = "completed"
         logger.info(f"LLM step for instance {instance.uuid} completed successfully.")
 
+    except InsufficientBalanceError as e:
+        logger.warning(f"Blocking LLM step for user {user_id} due to insufficient balance.")
+        instance.status = "failed"
+        instance.error_message = str(e)
+        # Re-raise as HTTPException to be caught by the API layer
+        raise HTTPException(status_code=403, detail=str(e))
     except Exception as e:
         logger.error(f"Error during LLM step execution for instance {instance.uuid}: {e}", exc_info=True)
         instance.status = "failed"
@@ -100,6 +134,12 @@ async def run_llm_step(
                 start_time=instance.started_at,
                 end_time=datetime.now(timezone.utc),
                 reference_string="TODO: PASS REFERENCE STRING",
+                # Add token and cost info
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                total_tokens=total_tokens,
+                total_cost=total_cost,
+                model=llm_definition.model,
             )
             await save_log_entry(log_entry)
             logger.info(f"Successfully saved LLM conversation for instance {instance.uuid}.")

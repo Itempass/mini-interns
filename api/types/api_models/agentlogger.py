@@ -19,4 +19,21 @@ class GroupedLog(BaseModel):
 
 class GroupedLogEntriesResponse(BaseModel):
     workflows: List[GroupedLog]
-    total_workflows: int 
+    total_workflows: int
+
+class WorkflowUsageStatsResponse(BaseModel):
+    total_prompt_tokens: int
+    total_completion_tokens: int
+    total_tokens: int
+    total_cost: float 
+
+class CostLogEntry(BaseModel):
+    start_time: Any
+    step_name: Optional[str] = None
+    model: Optional[str] = None
+    total_tokens: Optional[int] = None
+    total_cost: Optional[float] = None
+
+class CostHistoryResponse(BaseModel):
+    costs: List[CostLogEntry]
+    total_costs: float 

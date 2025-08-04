@@ -1,7 +1,8 @@
 'use client';
-import React from 'react';
-import { useRouter, usePathname } from 'next/navigation';
+import React, { useState, useEffect } from 'react';
+import { usePathname, useRouter } from 'next/navigation';
 import VersionCheck from './VersionCheck';
+import { getClientAuthMode, getMe, UserProfile } from '../services/api';
 import { Github } from 'lucide-react';
 
 interface TopBarProps {}
@@ -9,10 +10,17 @@ interface TopBarProps {}
 const TopBar: React.FC<TopBarProps> = () => {
   const router = useRouter();
   const pathname = usePathname();
-  
-  const activeView = pathname === '/logs' ? 'logs' : pathname === '/settings' ? 'settings' : 'agent';
+  const [authMode, setAuthMode] = useState<'auth0' | 'password' | 'none' | null>(null);
+  const [user, setUser] = useState<UserProfile | null>(null);
 
-  const getButtonClasses = (view: 'agent' | 'settings' | 'logs') => {
+  useEffect(() => {
+    getClientAuthMode().then(setAuthMode);
+    getMe().then(setUser);
+  }, []);
+  
+  const activeView = pathname === '/logs' ? 'logs' : pathname === '/settings' ? 'settings' : pathname === '/management' ? 'management' : 'agent';
+
+  const getButtonClasses = (view: 'agent' | 'settings' | 'logs' | 'management') => {
     const baseClasses = "py-1.5 px-3 border-2 rounded cursor-pointer text-sm font-bold transition-all duration-200 ease-in-out";
     if (activeView === view) {
       return `${baseClasses} bg-gradient-to-b from-gray-800 to-black text-white border-black shadow-lg`;
@@ -36,6 +44,14 @@ const TopBar: React.FC<TopBarProps> = () => {
         >
           Workflows
         </button>
+        {user?.is_admin && (
+            <button
+                className={getButtonClasses('management')}
+                onClick={() => router.push('/management')}
+            >
+                Management
+            </button>
+        )}
         <button
           className={getButtonClasses('logs')}
           onClick={() => router.push('/logs')}
@@ -48,6 +64,17 @@ const TopBar: React.FC<TopBarProps> = () => {
         >
           Settings
         </button>
+        {authMode === 'auth0' && (
+          <>
+            <div className="border-l border-gray-300 h-6"></div>
+            <a
+              href="/auth-client/logout"
+              className="py-1.5 px-3 border-2 rounded cursor-pointer text-sm font-bold transition-all duration-200 ease-in-out bg-white text-black border-black hover:bg-gray-50 flex items-center gap-2"
+            >
+              Logout
+            </a>
+          </>
+        )}
         <div className="border-l border-gray-300 h-6"></div>
         <a
           href="https://github.com/Itempass/brewdock"

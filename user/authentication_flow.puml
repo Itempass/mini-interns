@@ -1,0 +1,64 @@
+@startuml Authentication Flow
+
+actor "User Browser" as User
+participant "Next.js Frontend" as Frontend
+participant "FastAPI Backend" as Backend
+database "Database" as DB
+participant "Auth0" as Auth0
+
+autonumber
+
+User -> Frontend: Navigate to protected page
+activate Frontend
+
+Frontend -> Backend: GET /api/auth/mode
+activate Backend
+alt Auth Mode is 'auth0'
+    Backend -> Frontend: Return {"mode": "auth0"}
+    deactivate Backend
+
+    Frontend -> Frontend: Cache auth mode
+    Frontend -> Frontend: getAccessToken() from SDK (returns cached JWT)
+
+    Frontend -> Backend: GET /api/workflows\n(with Auth Bearer Token)
+    activate Backend
+
+    Backend -> Auth0: Get JWKS for token validation\n(cached after first time)
+    activate Auth0
+    Auth0 -> Backend: Return public keys
+    deactivate Auth0
+
+    Backend -> Backend: Validate JWT signature & claims
+    alt Token is Valid
+        Backend -> DB: find_or_create_user_by_auth0_sub()
+        activate DB
+        DB -> Backend: Return user record
+        deactivate DB
+
+        Backend -> Backend: Execute endpoint logic
+        Backend -> Frontend: 200 OK with workflow data
+        deactivate Backend
+        Frontend -> User: Render page with data
+        deactivate Frontend
+    else Token is Invalid
+        Backend -> Frontend: 401 Unauthorized
+        deactivate Backend
+        Frontend -> User: Handle error (e.g., redirect to login)
+        deactivate Frontend
+    end
+else Auth Mode is 'none' or 'password'
+    Backend -> Frontend: Return {"mode": "none"}
+    deactivate Backend
+
+    Frontend -> Frontend: Cache auth mode
+    Frontend -> Backend: GET /api/workflows\n(No Auth Header)
+    activate Backend
+    Backend -> Backend: get_current_user resolves to default system user
+    Backend -> Backend: Execute endpoint logic
+    Backend -> Frontend: 200 OK with workflow data
+    deactivate Backend
+    Frontend -> User: Render page with data
+    deactivate Frontend
+end
+
+@enduml 

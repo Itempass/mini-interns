@@ -113,6 +113,18 @@ const LogsList: React.FC<LogsListProps> = ({ onSelectLog, workflowId, logType })
         <td className={tdClasses}>
           {duration !== null ? `${(duration / 1000).toFixed(2)}s` : 'N/A'}
         </td>
+        <td className={tdClasses}>
+          <div className="flex flex-col">
+            {log.total_tokens != null && (
+              <span className="font-mono text-xs" title={`Prompt: ${log.prompt_tokens}, Completion: ${log.completion_tokens}`}>
+                {log.prompt_tokens || 0} → {log.completion_tokens || 0} tokens
+              </span>
+            )}
+            {log.total_cost != null && log.total_cost > 0 && (
+              <span className="font-mono text-xs text-gray-500">${log.total_cost.toFixed(4)}</span>
+            )}
+          </div>
+        </td>
          <td className={tdClasses}>
           <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
               status === 'Needs Review' ? 'bg-yellow-100 text-yellow-800' :
@@ -148,6 +160,7 @@ const LogsList: React.FC<LogsListProps> = ({ onSelectLog, workflowId, logType })
                 <th className={thClasses}>Name</th>
                 <th className={thClasses}>Start Time</th>
                 <th className={thClasses}>Duration</th>
+                <th className={thClasses}>Usage</th>
                 <th className={thClasses}>Status</th>
                 <th className={`${thClasses} rounded-tr-lg`}>Log ID</th>
               </tr>

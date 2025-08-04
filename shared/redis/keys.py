@@ -1,36 +1,61 @@
 from typing import List
+from uuid import UUID
 
 class RedisKeys:
     """
     Centralized repository for Redis keys used throughout the application.
+    This class uses methods to generate user-specific keys, ensuring data
+    isolation in a multi-user environment.
     """
-    # Key for the last processed email UID
+    # Key for the last processed email UID (User-Specific)
     @staticmethod
-    def get_last_email_uid_key(username: str) -> str:
+    def get_last_email_uid_key(user_uuid: UUID) -> str:
         """Returns the Redis key for storing the last email UID for a specific user."""
-        if not username:
-            # This case should ideally not be hit if checks are in place,
-            # but it prevents a malformed key like "last_email_uid:"
-            return "last_email_uid_default"
-        return f"last_email_uid:{username}"
+        return f"user:{user_uuid}:trigger:last_email_uid"
 
-    # Key for inbox initialization status
-    INBOX_INITIALIZATION_STATUS = "inbox:initialization:status"
-    INBOX_VECTORIZATION_INTERRUPTED = "inbox:vectorization:interrupted"
+    # Key for inbox initialization status (User-Specific)
+    @staticmethod
+    def get_inbox_initialization_status_key(user_uuid: UUID) -> str:
+        return f"user:{user_uuid}:inbox:initialization:status"
 
-    # Keys for application-wide settings
-    IMAP_SERVER = "settings:imap_server"
-    IMAP_USERNAME = "settings:imap_username"
-    IMAP_PASSWORD = "settings:imap_password"
-    EMBEDDING_MODEL = "settings:embedding_model"
+    # Key for vectorization interruption status (User-Specific)
+    @staticmethod
+    def get_inbox_vectorization_interrupted_key(user_uuid: UUID) -> str:
+        return f"user:{user_uuid}:inbox:vectorization:interrupted"
 
-    # --- Vectorization ---
-    VECTORIZATION_DATA_VERSION = "vectorization:data_version"
+    # Keys for application settings (User-Specific)
+    @staticmethod
+    def get_imap_server_key(user_uuid: UUID) -> str:
+        return f"user:{user_uuid}:settings:imap_server"
+    
+    @staticmethod
+    def get_imap_username_key(user_uuid: UUID) -> str:
+        return f"user:{user_uuid}:settings:imap_username"
 
-    # --- Tone of Voice ---
-    TONE_OF_VOICE_PROFILE = "tone_of_voice_profile"
-    TONE_OF_VOICE_STATUS = "tone_of_voice_status"
+    @staticmethod
+    def get_imap_password_key(user_uuid: UUID) -> str:
+        return f"user:{user_uuid}:settings:imap_password"
 
-    # Vectorization status keys
-    INBOX_VECTORIZATION_STATUS = "inbox_vectorization_status" # e.g., 'running', 'completed', 'failed', 'not_started'
-    INBOX_VECTORIZATION_LAST_ERROR = "inbox_vectorization_last_error"
+    @staticmethod
+    def get_embedding_model_key(user_uuid: UUID) -> str:
+        return f"user:{user_uuid}:settings:embedding_model"
+
+    # --- Vectorization (Global and User-Specific) ---
+    VECTORIZATION_DATA_VERSION = "vectorization:data_version" # Global
+
+    @staticmethod
+    def get_vectorization_status_key(user_uuid: UUID) -> str: # User-Specific
+        return f"user:{user_uuid}:inbox_vectorization_status"
+
+    @staticmethod
+    def get_vectorization_last_error_key(user_uuid: UUID) -> str: # User-Specific
+        return f"user:{user_uuid}:inbox_vectorization_last_error"
+
+    # --- Tone of Voice (User-Specific) ---
+    @staticmethod
+    def get_tone_of_voice_profile_key(user_uuid: UUID) -> str:
+        return f"user:{user_uuid}:tone_of_voice_profile"
+
+    @staticmethod
+    def get_tone_of_voice_status_key(user_uuid: UUID) -> str:
+        return f"user:{user_uuid}:tone_of_voice_status"

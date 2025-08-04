@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
-import { getAuthStatus, AuthStatus } from './services/api';
+import { getAuth0Client } from './lib/auth0';
 
 // This salt must be the same as the one in the Python backend.
 const SESSION_SALT = "a1b2c3d4-e5f6-7890-a1b2-c3d4e5f67890";
@@ -27,144 +27,141 @@ async function get_session_token(password: string): Promise<string> {
   return Array.from(new Uint8Array(signature)).map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
-export async function middleware(request: NextRequest) {
-  console.log(`[MIDDLEWARE] Request for: ${request.url}`);
+// This is the main middleware handler
+export default async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
-  console.log(`[MIDDLEWARE] Pathname: ${pathname}`);
+  const auth0 = getAuth0Client(request);
   
-  // Pass-through for API routes and static files
+  // Always allow API routes and static files to pass through
   if (pathname.startsWith('/api') || pathname.startsWith('/_next')) {
-    console.log('[MIDDLEWARE] Passing through for API or _next route.');
     return NextResponse.next();
   }
 
-  // Environment variables are available in middleware
-  const isSelfSet = process.env.AUTH_SELFSET_PASSWORD === 'true';
-  const legacyPassword = process.env.AUTH_PASSWORD;
-  const authCookieName = getAuthCookieName(isSelfSet);
-  console.log(`[MIDDLEWARE] isSelfSet: ${isSelfSet}, authCookieName: ${authCookieName}`);
-
-  let authStatus: AuthStatus;
-
-  if (isSelfSet) {
-    console.log('[MIDDLEWARE] Self-set mode enabled. Querying backend for status.');
-    // In self-set mode, we MUST query the backend to know if a password has been created.
-    const apiUrl = `http://127.0.0.1:${process.env.CONTAINERPORT_API}`;
-    const statusUrl = `${apiUrl}/auth/status`;
-    console.log(`[MIDDLEWARE] Fetching auth status from: ${statusUrl}`);
-
-    const statusResponse = await fetch(statusUrl);
-    console.log(`[MIDDLEWARE] Auth status response status: ${statusResponse.status}`);
-
-    if (statusResponse.ok) {
-      const data = await statusResponse.json();
-      authStatus = data.status;
-      console.log(`[MIDDLEWARE] Auth status from backend: ${authStatus}`);
-    } else {
-      // If the backend is down or returns an error, we can't determine status.
-      // Throwing an error here will prevent access, acting as a "fail closed" mechanism.
-      throw new Error(`Backend status check failed with status: ${statusResponse.status}`);
-    }
-  } else {
-    authStatus = legacyPassword ? 'legacy_configured' : 'unconfigured';
-    console.log(`[MIDDLEWARE] Legacy mode. Auth status: ${authStatus}`);
+  // If the request is for an Auth0 route, delegate to the Auth0 middleware directly
+  if (pathname.startsWith('/auth-client/')) {
+    return await auth0.middleware(request);
   }
+
+  // Fetch the auth mode from the backend
+  const apiUrl = process.env.NEXT_PUBLIC_API_BASE_URL || `http://127.0.0.1:${process.env.CONTAINERPORT_API}`;
+  const modeUrl = `${apiUrl}/auth/mode`;
   
-  const isConfigured = authStatus === 'legacy_configured' || authStatus === 'self_set_configured';
-  const needsSetup = authStatus === 'self_set_unconfigured';
-  console.log(`[MIDDLEWARE] isConfigured: ${isConfigured}, needsSetup: ${needsSetup}`);
+  try {
+    const modeResponse = await fetch(modeUrl);
+    if (!modeResponse.ok) throw new Error('Failed to fetch auth mode');
+    
+    const { mode } = await modeResponse.json();
 
-  const sessionCookie = request.cookies.get(authCookieName);
-  const loginUrl = new URL('/login', request.url);
-  const setupUrl = new  URL('/set-password', request.url);
-  const homeUrl = new URL('/', request.url);
+    switch (mode) {
+      case 'auth0': {
+        const { pathname } = request.nextUrl;
 
+        // The login page and the Auth0 client routes are public and should not be protected.
+        // This check prevents the redirect loop.
+        if (pathname === '/login' || pathname.startsWith('/auth-client/')) {
+          return auth0.middleware(request);
+        }
 
-  // State 1: Application needs initial password setup
-  if (needsSetup) {
-    if (pathname !== '/set-password') {
-      console.log('[MIDDLEWARE] Needs setup. Redirecting to /set-password.');
-      return NextResponse.redirect(setupUrl);
+        // For all other routes, check for a session.
+        const session = await auth0.getSession(request);
+
+        if (!session) {
+          // If no session exists, redirect to the login page.
+          return NextResponse.redirect(new URL('/login', request.url));
+        }
+
+        // If a session exists, proceed with the response from the Auth0 middleware.
+        return await auth0.middleware(request);
+      }
+      
+      case 'password':
+        // In password mode, run the legacy password-checking logic
+        return await handlePasswordAuth(request, apiUrl);
+        
+      case 'none':
+      default:
+        // In "none" mode, or if the mode is unrecognized, allow access
+        return NextResponse.next();
     }
-    console.log('[MIDDLEWARE] Needs setup. Already on /set-password. Allowing.');
-    return NextResponse.next();
+  } catch (error) {
+    console.error("Could not fetch auth mode from backend. The API might be down.", error);
+    return new NextResponse('Could not connect to authentication service.', { status: 503 });
   }
+}
 
-  // State 2: Application is not configured and not in self-set mode. No protection.
-  if (!isConfigured) {
-    console.log('[MIDDLEWARE] Not configured. Allowing access.');
-    return NextResponse.next();
-  }
 
-  // State 3: Application is configured. Protect all routes.
-  const password = isSelfSet ? '' : legacyPassword; // For legacy, we need password to validate token.
-
-  // If there's no cookie, redirect to login.
-  if (!sessionCookie) {
-    if (pathname !== '/login') {
-      console.log('[MIDDLEWARE] No session cookie. Redirecting to /login.');
-      return NextResponse.redirect(loginUrl);
+// --- Helper function for the legacy password logic ---
+async function handlePasswordAuth(request: NextRequest, apiUrl: string) {
+    const { pathname } = request.nextUrl;
+    
+    const isSelfSet = process.env.AUTH_SELFSET_PASSWORD === 'true';
+    const legacyPassword = process.env.AUTH_PASSWORD;
+    const authCookieName = getAuthCookieName(isSelfSet);
+    
+    let authStatus;
+    if (isSelfSet) {
+        const statusUrl = `${apiUrl}/auth/status`;
+        const statusResponse = await fetch(statusUrl);
+        if (statusResponse.ok) {
+            const data = await statusResponse.json();
+            authStatus = data.status;
+        } else {
+            throw new Error(`Backend status check failed: ${statusResponse.status}`);
+        }
+    } else {
+        authStatus = legacyPassword ? 'legacy_configured' : 'unconfigured';
     }
-    console.log('[MIDDLEWARE] No session cookie. Already on /login. Allowing.');
-    return NextResponse.next();
-  }
-  console.log('[MIDDLEWARE] Session cookie found.');
 
-  // If there IS a cookie, validate it.
-  if (isSelfSet) {
-    console.log('[MIDDLEWARE] Self-set mode. Verifying session cookie with backend.');
-    // In self-set mode, we MUST ask the backend to verify the token.
-    const apiUrl = `http://127.0.0.1:${process.env.CONTAINERPORT_API}`;
-    const verifyUrl = `${apiUrl}/auth/verify`;
-    console.log(`[MIDDLEWARE] Verifying token at: ${verifyUrl}`);
+    const needsSetup = authStatus === 'self_set_unconfigured';
+    const loginUrl = new URL('/login', request.url);
+    const setupUrl = new URL('/set-password', request.url);
 
-    const verifyResponse = await fetch(verifyUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token: sessionCookie.value }),
-    });
-    console.log(`[MIDDLEWARE] Verify response status: ${verifyResponse.status}`);
+    if (needsSetup) {
+        if (pathname !== '/set-password') return NextResponse.redirect(setupUrl);
+        return NextResponse.next();
+    }
 
-    if (verifyResponse.ok) {
-        const data = await verifyResponse.json();
-        if (data.valid !== true) {
-            console.log('[MIDDLEWARE] Token invalid. Deleting cookie and redirecting to /login.');
+    const sessionCookie = request.cookies.get(authCookieName);
+    if (!sessionCookie) {
+        if (pathname !== '/login') return NextResponse.redirect(loginUrl);
+        return NextResponse.next();
+    }
+
+    if (isSelfSet) {
+        const verifyUrl = `${apiUrl}/auth/verify`;
+        const verifyResponse = await fetch(verifyUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token: sessionCookie.value }),
+        });
+        if (verifyResponse.ok) {
+            const data = await verifyResponse.json();
+            if (data.valid !== true) {
+                const response = NextResponse.redirect(loginUrl);
+                response.cookies.delete(authCookieName);
+                return response;
+            }
+        } else {
             const response = NextResponse.redirect(loginUrl);
             response.cookies.delete(authCookieName);
             return response;
         }
-        console.log('[MIDDLEWARE] Token is valid.');
-    } else {
-        console.log('[MIDDLEWARE] Verify endpoint returned non-ok status. Deleting cookie and redirecting to /login.');
-        const response = NextResponse.redirect(loginUrl);
-        response.cookies.delete(authCookieName);
-        return response;
+    } else if (legacyPassword) {
+        const expectedToken = await get_session_token(legacyPassword);
+        if (sessionCookie.value !== expectedToken) {
+            const response = NextResponse.redirect(loginUrl);
+            response.cookies.delete(authCookieName);
+            return response;
+        }
     }
-  } else if (password) {
-    console.log('[MIDDLEWARE] Legacy mode. Verifying session cookie in middleware.');
-    // For legacy mode, we can validate the token directly in the middleware.
-    const expectedToken = await get_session_token(password);
-    if (sessionCookie.value !== expectedToken) {
-      console.log('[MIDDLEWARE] Legacy token invalid. Deleting cookie and redirecting to /login.');
-      // The cookie is invalid. Redirect to login and delete the bad cookie.
-      const response = NextResponse.redirect(loginUrl);
-      response.cookies.delete(authCookieName);
-      return response;
-    }
-    console.log('[MIDDLEWARE] Legacy token valid.');
-  }
-  
-  // The cookie is valid.
-  // If the user tries to access login or setup, redirect them to the home page.
-  if (pathname === '/login' || pathname === '/set-password') {
-    console.log('[MIDDLEWARE] User is authenticated. Redirecting from login/setup to home.');
-    return NextResponse.redirect(homeUrl);
-  }
 
-  // Otherwise, allow them to proceed.
-  console.log('[MIDDLEWARE] User is authenticated. Allowing access.');
-  return NextResponse.next();
+    if (pathname === '/login' || pathname === '/set-password') {
+        return NextResponse.redirect(new URL('/', request.url));
+    }
+
+    return NextResponse.next();
 }
+
 
 // See "Matching Paths" below to learn more
 export const config = {

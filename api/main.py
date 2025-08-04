@@ -2,9 +2,9 @@ import logging
 import os
 import sys
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from api.endpoints import app_settings, agent, agentlogger, mcp, connection, auth, workflow, prompt_optimizer
+from api.endpoints import app_settings, agent, agentlogger, mcp, connection, auth, workflow, prompt_optimizer, user
 from shared.config import settings
 from shared.version import __version__, get_latest_version
 import uvicorn
@@ -37,18 +37,25 @@ async def lifespan(app: FastAPI):
     try:
         redis_client = get_redis_client()
         
-        # Check Inbox Vectorization status
-        inbox_status = redis_client.get(RedisKeys.INBOX_INITIALIZATION_STATUS)
-        if inbox_status == b'running':
-            redis_client.set(RedisKeys.INBOX_INITIALIZATION_STATUS, "failed")
-            logger.warning("Stale 'running' status for inbox vectorization found. Resetting to 'failed'.")
+        # --- Scan for and reset stale 'running' statuses for all users ---
+        patterns_to_check = [
+            "user:*:inbox:initialization:status",
+            "user:*:tone_of_voice_status"
+        ]
+        
+        for pattern in patterns_to_check:
+            stale_keys = []
+            for key in redis_client.scan_iter(match=pattern):
+                if redis_client.get(key) == b'running':
+                    stale_keys.append(key)
             
-        # Check Tone of Voice status
-        tone_status = redis_client.get(RedisKeys.TONE_OF_VOICE_STATUS)
-        if tone_status == b'running':
-            redis_client.set(RedisKeys.TONE_OF_VOICE_STATUS, "failed")
-            logger.warning("Stale 'running' status for tone of voice analysis found. Resetting to 'failed'.")
-            
+            if stale_keys:
+                logger.warning(f"Found {len(stale_keys)} stale 'running' statuses for pattern '{pattern}'. Resetting to 'failed'.")
+                for key in stale_keys:
+                    redis_client.set(key, "failed")
+            else:
+                logger.info(f"No stale 'running' statuses found for pattern '{pattern}'.")
+
     except Exception as e:
         logger.error(f"Error during startup status check: {e}", exc_info=True)
     
@@ -56,6 +63,17 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
+
+@app.middleware("http")
+async def log_requests_middleware(request: Request, call_next):
+    """
+    This middleware runs for every request. It's the earliest point
+    at which we can inspect the incoming request headers.
+    """
+    #print(f"[MIDDLEWARE_DEBUG] Request received: {request.method} {request.url.path}")
+    #print(f"[MIDDLEWARE_DEBUG] Raw Headers: {request.headers}")
+    response = await call_next(request)
+    return response
 
 # CORS Middleware
 app.add_middleware(
@@ -66,7 +84,14 @@ app.add_middleware(
     allow_headers=["*"],  # Allows all headers
 )
 
-app.include_router(auth.router) # Add auth router
+# Include the main auth router which has password-based and mode-selection endpoints
+app.include_router(auth.router)
+
+# Conditionally include the Auth0-specific router if Auth0 is enabled
+if settings.AUTH0_DOMAIN:
+    from api.endpoints.auth import auth0_router
+    app.include_router(auth0_router)
+    
 app.include_router(app_settings.router, tags=["app_settings"])
 app.include_router(agent.router, tags=["agent"])
 app.include_router(agentlogger.router, tags=["agentlogger"])
@@ -74,6 +99,7 @@ app.include_router(mcp.router, tags=["mcp"])
 app.include_router(connection.router, tags=["connection"])
 app.include_router(workflow.router, tags=["workflow"])
 app.include_router(prompt_optimizer.router, tags=["prompt_optimizer"])
+app.include_router(user.router, tags=["user"])
 
 @app.get("/version")
 def get_app_version():

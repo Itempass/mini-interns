@@ -11,6 +11,7 @@ import ast
 
 from mcp_servers.imap_mcpserver.src.imap_client.client import get_emails, get_all_labels, get_all_special_use_folders, get_complete_thread, EmailMessage
 from . import database
+from shared.app_settings import load_app_settings
 
 from .models import EvaluationTemplate, EvaluationTemplateCreate, EvaluationRun, TestCaseResult, DataSourceConfig, FieldMappingConfig
 from .llm_client import call_llm, LLMClientError
@@ -159,10 +160,9 @@ class IMAPDataSource:
         logger.info(f"Fetching IMAP labels and folders for config schema for user {user_id}")
         try:
             # In a real multi-tenant app, user_id would be used to select the correct IMAP credentials.
-            # For now, it's unused as we have a single system-wide IMAP connection.
             labels, folders = await asyncio.gather(
-                get_all_labels(),
-                get_all_special_use_folders()
+                get_all_labels(user_id=user_id),
+                get_all_special_use_folders(user_id=user_id)
             )
             logger.debug(f"Fetched {len(labels)} labels and {len(folders)} special-use folders for user {user_id}")
             
@@ -209,7 +209,7 @@ class IMAPDataSource:
         params = {**{k: v for k, v in config.items() if k != 'folder_names'}, 'count': 1, 'folder_name': folder_to_sample}
         
         try:
-            email_messages = await get_emails(**params)
+            email_messages = await get_emails(user_id=user_id, **params)
             if not email_messages:
                 return {} # No sample found is a valid result
             
@@ -217,7 +217,7 @@ class IMAPDataSource:
 
             # 2. Fetch the complete thread for that email
             logger.info(f"Fetching complete thread for sample email with Message-ID: {source_email.message_id}")
-            email_thread = await get_complete_thread(source_email)
+            email_thread = await get_complete_thread(user_id=user_id, source_message=source_email)
 
             if not email_thread:
                 logger.warning(f"Could not fetch thread for sample Message-ID: {source_email.message_id}. Returning empty sample.")
@@ -251,7 +251,7 @@ class IMAPDataSource:
             for folder in folder_names:
                 per_folder_count = config.get("count", 200) // len(folder_names)
                 fetch_params = {**params_without_folders, 'folder_name': folder, 'count': per_folder_count}
-                results = await get_emails(**fetch_params)
+                results = await get_emails(user_id=user_id, **fetch_params)
                 all_matching_emails.extend(results)
 
             # Deduplicate the initial list of emails
@@ -262,7 +262,7 @@ class IMAPDataSource:
             full_thread_dataset = []
             
             # Using asyncio.gather for concurrent thread fetching
-            tasks = [get_complete_thread(email) for email in unique_emails]
+            tasks = [get_complete_thread(user_id=user_id, source_message=email) for email in unique_emails]
             email_threads = await asyncio.gather(*tasks)
 
             # We no longer need to map back to the source email for labels.
@@ -373,7 +373,8 @@ async def _evaluate_prompt(
     prompt: str,
     model: str,
     dataset: List[Dict[str, Any]],
-    field_mapping: Dict[str, str]
+    field_mapping: Dict[str, str],
+    user_id: UUID
 ) -> List[TestCaseResult]:
     """Runs a prompt against a dataset using the self-contained LLM client."""
     results = []
@@ -388,7 +389,7 @@ async def _evaluate_prompt(
         full_prompt = f"{prompt}\n\n--- DATA ---\n{input_data}"
 
         try:
-            generated_output = await call_llm(prompt=full_prompt, model=model)
+            generated_output = await call_llm(prompt=full_prompt, model=model, user_id=user_id)
 
             # Use our new parser to handle JSON in markdown
             actual_value = _parse_llm_output(generated_output)
@@ -429,6 +430,7 @@ async def _generate_feedback(
     test_case: TestCaseResult,
     feedback_correct_template: Template,
     feedback_incorrect_template: Template,
+    user_id: UUID
 ) -> str:
     """Generates a natural language feedback summary for a single test case."""
     if test_case.is_match:
@@ -446,7 +448,7 @@ async def _generate_feedback(
         )
     
     # Use a more capable model for feedback generation
-    feedback = await call_llm(prompt, model="google/gemini-2.5-flash")
+    feedback = await call_llm(prompt, model="google/gemini-2.5-flash", user_id=user_id)
     return feedback
 
 
@@ -499,7 +501,7 @@ async def run_evaluation_and_refinement(run_uuid: UUID, user_id: UUID):
 
         # 4. Evaluate V1 Prompt (Baseline)
         logger.info(f"Running baseline evaluation for V1 prompt on validation set...")
-        v1_results = await _evaluate_prompt(original_prompt, original_model, validation_set, template.field_mapping_config.model_dump())
+        v1_results = await _evaluate_prompt(original_prompt, original_model, validation_set, template.field_mapping_config.model_dump(), user_id)
         v1_passed = sum(1 for r in v1_results if r.is_match)
         v1_accuracy = (v1_passed / len(v1_results)) if v1_results else 0.0
 
@@ -510,9 +512,9 @@ async def run_evaluation_and_refinement(run_uuid: UUID, user_id: UUID):
             raise ValueError("Training set is empty. Cannot generate feedback.")
         
         logger.info(f"Generating feedback from V1 prompt performance on training set...")
-        training_run_results = await _evaluate_prompt(original_prompt, original_model, training_set, template.field_mapping_config.model_dump())
+        training_run_results = await _evaluate_prompt(original_prompt, original_model, training_set, template.field_mapping_config.model_dump(), user_id)
         
-        feedback_tasks = [_generate_feedback(case, feedback_correct_template, feedback_incorrect_template) for case in training_run_results]
+        feedback_tasks = [_generate_feedback(case, feedback_correct_template, feedback_incorrect_template, user_id) for case in training_run_results]
         feedback_summaries = await asyncio.gather(*feedback_tasks)
         feedback_str = "\n".join(f"- {summary}" for summary in feedback_summaries)
         logger.info(f"Generated {len(feedback_summaries)} feedback summaries.")
@@ -525,12 +527,12 @@ async def run_evaluation_and_refinement(run_uuid: UUID, user_id: UUID):
         )
         
         # Use the most powerful model for the refinement step
-        refined_prompt_v2 = await call_llm(refinement_prompt, model="google/gemini-2.5-pro")
+        refined_prompt_v2 = await call_llm(refinement_prompt, model="google/gemini-2.5-pro", user_id=user_id)
         logger.info(f"Successfully generated V2 prompt.")
 
         # 7. Evaluate V2 Prompt (using the original model for a fair comparison)
         logger.info(f"Running evaluation for V2 prompt on validation set...")
-        v2_results = await _evaluate_prompt(refined_prompt_v2, original_model, validation_set, template.field_mapping_config.model_dump())
+        v2_results = await _evaluate_prompt(refined_prompt_v2, original_model, validation_set, template.field_mapping_config.model_dump(), user_id)
         v2_passed = sum(1 for r in v2_results if r.is_match)
         v2_accuracy = (v2_passed / len(v2_results)) if v2_results else 0.0
         logger.info(f"V2 Prompt Accuracy: {v2_accuracy:.2%}")

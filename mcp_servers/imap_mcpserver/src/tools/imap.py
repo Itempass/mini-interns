@@ -10,9 +10,11 @@ from typing import List, Optional, Dict, Any, Union
 from email_reply_parser import EmailReplyParser
 
 from ..mcp_builder import mcp_builder
-from ..imap_client.client import get_message_by_id, get_complete_thread, draft_reply as client_draft_reply, set_label as client_set_label, get_recent_inbox_messages
+from ..dependencies import get_context_from_headers
+from ..imap_client.client import get_message_by_id, get_complete_thread, draft_reply as client_draft_reply, set_label as client_set_label, get_recent_inbox_messages, get_all_labels
 from shared.qdrant.qdrant_client import semantic_search, search_by_vector, generate_qdrant_point_id
 from shared.services.embedding_service import get_embedding, rerank_documents
+from shared.app_settings import load_app_settings
 
 # Instantiate the services that the tools will use
 logger = logging.getLogger(__name__)
@@ -25,16 +27,15 @@ async def draft_reply(messageId: str, body: str) -> Dict[str, Any]:
     Drafts a reply to a given email and saves it in the drafts folder.
     It does NOT send the email. Draft_reply will include the signature automatically, so you do not need to include it in the body.
     """
-
-    # TODO: Add validation for messageId
-
+    context = get_context_from_headers()
+    
     # Get the original message using the client
-    original_message = await get_message_by_id(messageId)
+    original_message = await get_message_by_id(user_uuid=context.user_id, message_id=messageId)
     if not original_message:
         return {"error": f"Could not find email with messageId: {messageId}"}
 
     # Use the client's draft_reply function
-    result = await client_draft_reply(original_message, body)
+    result = await client_draft_reply(user_uuid=context.user_id, original_message=original_message, reply_body=body)
     
     return result
 
@@ -44,10 +45,11 @@ async def set_label(messageId: str, label: str) -> Dict[str, Any]:
     Adds a label to a specific email message.
     The label must already exist in Gmail. If the label does not exist, an error will be returned with a list of available labels.
     """
+    context = get_context_from_headers()
     if not messageId or not label:
         return {"success": False, "message": "messageId and label are required."}
 
-    result = await client_set_label(messageId, label)
+    result = await client_set_label(user_uuid=context.user_id, message_id=messageId, label=label)
     return result
 
 @mcp_builder.tool()
@@ -55,13 +57,14 @@ async def get_thread_for_message_id(messageId: str) -> Dict[str, Any]:
     """
     Retrieves the full email thread for a given message ID and formats it as markdown.
     """
+    context = get_context_from_headers()
     # 1. Get the original message using the client
-    original_message = await get_message_by_id(messageId)
+    original_message = await get_message_by_id(user_uuid=context.user_id, message_id=messageId)
     if not original_message:
         return {"error": f"Could not find email with messageId: {messageId}"}
 
     # 2. Get the complete thread using the client
-    thread = await get_complete_thread(original_message)
+    thread = await get_complete_thread(user_uuid=context.user_id, source_message=original_message)
     if not thread:
         return {"error": f"Could not retrieve the thread for email ID {messageId}."}
 
@@ -73,7 +76,8 @@ async def list_most_recent_inbox_emails(count: int = 10) -> List[Dict[str, Any]]
     """
     Lists the most recent emails from the inbox, providing a summary of each.
     """
-    messages = await get_recent_inbox_messages(count)
+    context = get_context_from_headers()
+    messages = await get_recent_inbox_messages(user_uuid=context.user_id, count=count)
     
     summaries = []
     for message in messages:
@@ -99,13 +103,14 @@ async def find_similar_threads(messageId: str, top_k: Optional[int] = 5) -> str:
     and returns them as a single markdown formatted string.
     Uses vector search followed by reranking for improved relevance.
     """
+    context = get_context_from_headers()
     # 1. Get the original message using the client
-    original_message = await get_message_by_id(messageId)
+    original_message = await get_message_by_id(user_uuid=context.user_id, message_id=messageId)
     if not original_message:
         return f"## Error\n\nCould not find email with messageId: {messageId}"
 
     # 2. Get the complete thread using the client
-    source_thread = await get_complete_thread(original_message)
+    source_thread = await get_complete_thread(user_uuid=context.user_id, source_message=original_message)
     if not source_thread:
         return f"## Error\n\nCould not retrieve the thread for email ID {messageId} to find similar conversations."
 
@@ -114,7 +119,7 @@ async def find_similar_threads(messageId: str, top_k: Optional[int] = 5) -> str:
     if not thread_markdown.strip():
         return f"## Error\n\nCould not extract any content from the source thread of email {messageId}."
     
-    source_embedding = get_embedding(f"embed this email thread, focus on the meaning of the conversation: {thread_markdown}")
+    source_embedding = get_embedding(f"embed this email thread, focus on the meaning of the conversation: {thread_markdown}", user_uuid=context.user_id)
 
     # 4. Determine the Qdrant point ID of the source thread to exclude it from search results
     source_point_id = generate_qdrant_point_id(source_thread.thread_id)
@@ -122,7 +127,7 @@ async def find_similar_threads(messageId: str, top_k: Optional[int] = 5) -> str:
     # 5. Perform initial vector search in the 'email_threads' collection (get more results for reranking)
     initial_search_k = max(top_k * 3, 10)  # Get 3x more results for reranking
     similar_hits = search_by_vector(
-        collection_name="email_threads",
+        user_uuid=context.user_id,
         query_vector=source_embedding,
         top_k=initial_search_k,
         exclude_ids=[source_point_id],
@@ -151,7 +156,8 @@ async def find_similar_threads(messageId: str, top_k: Optional[int] = 5) -> str:
         reranked_results = rerank_documents(
             query="Find similar threads to the following email and contain content that is relevant to the following email: " + source_thread.markdown,
             documents=thread_contents,
-            top_k=top_k
+            top_k=top_k,
+            user_uuid=context.user_id
         )
     except Exception as e:
         logger.warning(f"Reranking failed, falling back to vector search results: {e}")

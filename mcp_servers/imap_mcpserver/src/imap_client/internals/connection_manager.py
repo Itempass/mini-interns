@@ -10,7 +10,9 @@ import imaplib
 import logging
 import re
 from typing import Generator, Optional, Dict, List, Tuple
-from shared.app_settings import load_app_settings
+from shared.app_settings import load_app_settings, AppSettings
+from uuid import UUID
+from shared.security.encryption import decrypt_value
 
 logger = logging.getLogger(__name__)
 
@@ -138,7 +140,8 @@ class IMAPConnectionManager:
                  server: Optional[str] = None,
                  username: Optional[str] = None, 
                  password: Optional[str] = None,
-                 port: int = 993):
+                 port: int = 993,
+                 user_uuid: Optional[UUID] = None):
         """
         Initialize connection manager with IMAP settings.
         
@@ -147,9 +150,17 @@ class IMAPConnectionManager:
             username: IMAP username (defaults to app settings)
             password: IMAP password (defaults to app settings)
             port: IMAP port (defaults to 993)
+            user_uuid: The UUID of the user to load settings for.
         """
-        # Only load settings from app_settings if any parameters are missing
-        if not server or not username or not password:
+        # Load user-specific settings if a UUID is provided.
+        # Fall back to provided parameters or global settings if no UUID.
+        if user_uuid:
+            settings = load_app_settings(user_uuid=user_uuid)
+            self.server = settings.IMAP_SERVER
+            self.username = settings.IMAP_USERNAME
+            self.password = settings.IMAP_PASSWORD
+        elif not server or not username or not password:
+            # Fallback to global settings if no user_uuid and parameters are missing
             settings = load_app_settings()
             self.server = server or settings.IMAP_SERVER
             self.username = username or settings.IMAP_USERNAME
@@ -166,7 +177,7 @@ class IMAPConnectionManager:
             raise ValueError("IMAP username and password must be provided via parameters or app settings")
 
     @contextlib.contextmanager
-    def connect(self) -> Generator[Tuple[imaplib.IMAP4_SSL, FolderResolver], None, None]:
+    def connect(self, user_uuid: Optional[UUID] = None) -> Generator[Tuple[imaplib.IMAP4_SSL, FolderResolver], None, None]:
         """
         Create a new IMAP connection with guaranteed cleanup.
         
@@ -180,6 +191,13 @@ class IMAPConnectionManager:
         """
         mail = None
         try:
+            # If user_uuid is provided, re-initialize settings to ensure they are for the correct user.
+            if user_uuid:
+                settings = load_app_settings(user_uuid=user_uuid)
+                self.server = settings.IMAP_SERVER
+                self.username = settings.IMAP_USERNAME
+                self.password = settings.IMAP_PASSWORD
+
             logger.debug(f"Connecting to IMAP server: {self.server}:{self.port}")
             mail = imaplib.IMAP4_SSL(self.server, self.port)
             mail.login(self.username, self.password)
@@ -205,28 +223,50 @@ class IMAPConnectionManager:
                     logger.warning(f"Error during IMAP logout (connection may already be closed): {e}")
 
 # No longer using a singleton for the default manager to ensure settings are always fresh.
-def get_default_connection_manager() -> IMAPConnectionManager:
+def get_default_connection_manager(user_uuid: Optional[UUID] = None) -> IMAPConnectionManager:
     """
-    Get a new connection manager instance.
+    Get a new connection manager instance for a specific user.
     
-    This ensures that the latest application settings are loaded each time
-    a connection is requested, allowing for dynamic updates without restarting
-    the service.
+    This ensures that the latest application settings for the given user
+    are loaded each time a connection is requested.
     """
-    return IMAPConnectionManager()
+    return IMAPConnectionManager(user_uuid=user_uuid)
 
 @contextlib.contextmanager
-def imap_connection() -> Generator[Tuple[imaplib.IMAP4_SSL, FolderResolver], None, None]:
+def imap_connection(app_settings: Optional[AppSettings] = None) -> Tuple[imaplib.IMAP4_SSL, 'FolderResolver']:
     """
-    Convenience function for getting an IMAP connection using default settings.
-    
-    This is equivalent to get_default_connection_manager().connect() but shorter.
-    
-    Example:
-        with imap_connection() as (mail, resolver):
-            sent_folder = resolver.get_folder_by_attribute('\\Sent')
-            mail.select(sent_folder)
-            # ... do IMAP operations
+    Context manager for a user-specific IMAP connection.
+    If app_settings are provided, it uses them. Otherwise, it loads them globally (legacy).
     """
-    with get_default_connection_manager().connect() as (mail, resolver):
-        yield mail, resolver 
+    if not app_settings:
+        logger.warning("IMAP connection using legacy global settings loader.")
+        app_settings = load_app_settings()
+
+    if not all([app_settings.IMAP_SERVER, app_settings.IMAP_USERNAME, app_settings.IMAP_PASSWORD]):
+        raise IMAPConnectionError("IMAP credentials are not fully configured for the user.")
+
+    # The password in the app_settings object is already decrypted by the load_app_settings function.
+    # We can use it directly.
+    password = app_settings.IMAP_PASSWORD
+    
+    mail = None
+    try:
+        logger.info(f"Connecting to IMAP server: {app_settings.IMAP_SERVER} for user {app_settings.IMAP_USERNAME}")
+        mail = imaplib.IMAP4_SSL(app_settings.IMAP_SERVER)
+        mail.login(app_settings.IMAP_USERNAME, password)
+        
+        resolver = FolderResolver(mail)
+        yield mail, resolver
+    except imaplib.IMAP4.error as e:
+        logger.error(f"IMAP login failed for {app_settings.IMAP_USERNAME}: {e}")
+        raise IMAPConnectionError(f"IMAP login failed: {e}")
+    except Exception as e:
+        logger.error(f"An unexpected error occurred during IMAP connection: {e}", exc_info=True)
+        raise IMAPConnectionError(f"An unexpected error occurred: {e}")
+    finally:
+        if mail:
+            try:
+                mail.logout()
+                logger.info(f"Successfully logged out for user {app_settings.IMAP_USERNAME}")
+            except Exception as e:
+                logger.error(f"IMAP logout failed: {e}") 

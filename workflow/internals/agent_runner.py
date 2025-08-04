@@ -9,6 +9,8 @@ from uuid import UUID
 
 import httpx
 from fastmcp import Client as MCPClient
+from fastmcp.client.transports import StreamableHttpTransport
+from fastapi import HTTPException
 from openai import OpenAI
 from jsonpath_ng import parse
 
@@ -21,6 +23,9 @@ from mcp.types import Tool
 from shared.app_settings import load_app_settings
 from shared.config import settings
 from workflow.internals.output_processor import create_output_data, generate_summary
+from mcp_servers.tone_of_voice_mcpserver.src.services.openrouter_service import (
+    openrouter_service,
+)
 from workflow.models import (
     CustomAgent,
     CustomAgentInstanceModel,
@@ -29,6 +34,8 @@ from workflow.models import (
     WorkflowModel,
 )
 import workflow.client as workflow_client
+from user import client as user_client
+from user.exceptions import InsufficientBalanceError
 
 
 logger = logging.getLogger(__name__)
@@ -109,11 +116,16 @@ async def run_agent_step(
             servers_info = response.json()
 
             if servers_info:
+                headers = {
+                    "X-User-ID": str(user_id),
+                    "X-Workflow-UUID": str(workflow_instance_uuid)
+                }
                 for server_info in servers_info:
                     server_name = server_info.get("name")
                     server_url = server_info.get("url")
                     if server_name and server_url:
-                        mcp_clients[server_name] = MCPClient(server_url)
+                        transport = StreamableHttpTransport(url=server_url, headers=headers)
+                        mcp_clients[server_name] = MCPClient(transport)
     except Exception as e:
         logger.warning(
             f"Could not discover MCP servers: {e}. This is okay if no tools are used."
@@ -187,10 +199,21 @@ async def run_agent_step(
 
     
     try:
+        # --- Balance Check ---
+        logger.info(f"Checking balance for user {user_id} before running agent step.")
+        user_client.check_user_balance(user_id)
+        logger.info(f"User {user_id} has sufficient balance.")
+
         max_cycles = 10  # A reasonable limit for agent execution cycles
         
         messages_for_run = [MessageModel(role="system", content=resolved_system_prompt)]
         instance.messages.extend(messages_for_run)
+
+        # To store cumulative token and cost information
+        cumulative_prompt_tokens = 0
+        cumulative_completion_tokens = 0
+        cumulative_total_tokens = 0
+        cumulative_total_cost = 0.0
 
         logger.info(f"Starting agent execution loop for instance {instance.uuid}. Max cycles: {max_cycles}")
         for turn in range(max_cycles):
@@ -216,6 +239,24 @@ async def run_agent_step(
             instance.messages.append(
                 MessageModel.model_validate(response_message.model_dump())
             )
+
+            # Accumulate usage data
+            if response.usage:
+                cumulative_prompt_tokens += response.usage.prompt_tokens
+                cumulative_completion_tokens += response.usage.completion_tokens
+                cumulative_total_tokens += response.usage.total_tokens
+                # Cost retrieval would need a generation ID, which is available in the 'id' of the response.
+                # Assuming openrouter_service can be used here as well.
+                if response.id:
+                    try:
+                        # This assumes a similar setup as llm_runner and might need adjustment
+                        # if openrouter_service is not directly available here.
+                        # For now, let's assume we can fetch it.
+                        cost = await openrouter_service.get_generation_cost(response.id)
+                        cumulative_total_cost += cost
+                    except Exception as e:
+                        logger.error(f"Could not retrieve cost for generation {response.id}: {e}")
+
 
             if not response_message.tool_calls:
                 logger.info("Agent finished execution loop.")
@@ -267,11 +308,25 @@ async def run_agent_step(
                     user_id=user_id
                 )
 
+    except InsufficientBalanceError as e:
+        logger.warning(f"Blocking agent step for user {user_id} due to insufficient balance.")
+        instance.status = "failed"
+        instance.error_message = str(e)
+        # Re-raise as HTTPException to be caught by the API layer
+        raise HTTPException(status_code=403, detail=str(e))
     except Exception as e:
         logger.error(f"Error during agent step execution for instance {instance.uuid}: {e}", exc_info=True)
         instance.status = "failed"
         instance.error_message = str(e)
     finally:
+        # --- Cost Deduction ---
+        if cumulative_total_cost > 0:
+            logger.info(f"Deducting total cost of {cumulative_total_cost} from user {user_id}'s balance.")
+            try:
+                user_client.deduct_from_balance(user_id, cumulative_total_cost)
+            except Exception as e:
+                logger.error(f"Failed to deduct cost for user {user_id}: {e}", exc_info=True)
+
         # This block ensures that we try to log the conversation even if an error occurs during the run.
         try:
             logger.info(f"Saving conversation for agent instance {instance.uuid} to agentlogger.")
@@ -293,7 +348,12 @@ async def run_agent_step(
                 messages=logger_messages,
                 start_time=instance.started_at,
                 end_time=datetime.now(timezone.utc),
-                reference_string="TODO: PASS REFERENCE STRING"
+                reference_string="TODO: PASS REFERENCE STRING",
+                prompt_tokens=cumulative_prompt_tokens,
+                completion_tokens=cumulative_completion_tokens,
+                total_tokens=cumulative_total_tokens,
+                total_cost=cumulative_total_cost,
+                model=agent_definition.model,
             )
             await save_log_entry(log_entry)
             logger.info(f"Successfully saved conversation for instance {instance.uuid}.")

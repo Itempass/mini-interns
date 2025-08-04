@@ -160,7 +160,7 @@ async def add_step(
     name: str,
     system_prompt: Optional[str] = None,
     model: Optional[str] = None,
-) -> dict:
+) -> str:
     """
     Adds a new step to the end of a specified workflow, optionally setting its system prompt and model.
     Use 'list_available_step_types' to see valid options for 'step_type'.
@@ -189,8 +189,10 @@ async def add_step(
         model=model,
     )
 
+    new_step_uuid = workflow.steps[-1]
+
     if system_prompt and step_type in ["custom_llm", "custom_agent"]:
-        new_step_uuid = workflow.steps[-1]
+        
 
         step_to_update = None
         if step_type == "custom_llm":
@@ -206,9 +208,28 @@ async def add_step(
         step_to_update.system_prompt = system_prompt
         await workflow_client.update_step(step_to_update, user_uuid)
 
-    workflow = await workflow_client.get_with_details(workflow_uuid, user_uuid)
+    warning_message = ""
+    if system_prompt:
+        # As requested, I am using the final `get_with_details` call to perform the validation.
+        final_workflow = await workflow_client.get_with_details(workflow_uuid, user_uuid)
+        
+        has_trigger = final_workflow.trigger is not None
+        # The new step is now part of final_workflow.steps. Any step other than the last one is a potential input source.
+        has_preceding_steps = len(final_workflow.steps) > 1 
+        has_potential_inputs = has_trigger or has_preceding_steps
 
-    return workflow.model_dump()
+        has_trigger_reference = "<<trigger_output>>" in system_prompt
+        has_step_reference = "<<step_output." in system_prompt
+
+        if has_potential_inputs and not (has_trigger_reference or has_step_reference):
+            warning_message = (
+                " Warning: no input found. Make sure to include "
+                "<<trigger_output>> or <<step_output.[step_uuid]>> as previous outputs "
+                "are not automatically forwarded to next steps."
+            )
+
+    # return workflow.model_dump()
+    return f"Step '{name}' added successfully. Step ID: {new_step_uuid}. {warning_message}"
 
 
 @mcp_builder.tool()
@@ -244,7 +265,7 @@ async def reorder_steps(ordered_step_uuids: List[str]) -> dict:
 async def update_system_prompt_for_step(
     step_uuid: str,
     system_prompt: str,
-) -> dict:
+) -> str:
     """
     Updates the system prompt for a specific workflow step. This works for steps of type 'custom_llm' or 'custom_agent'. Use <<trigger_output>> or <<step_output.[step uuid]>> to reference the trigger output or the output of a previous step.
     """
@@ -254,10 +275,17 @@ async def update_system_prompt_for_step(
     if not workflow:
         raise ValueError("Workflow not found")
 
-    step_to_update = next((s for s in workflow.steps if str(s.uuid) == step_uuid), None)
+    step_to_update = None
+    step_index = -1
+    for i, step in enumerate(workflow.steps):
+        if str(step.uuid) == step_uuid:
+            step_to_update = step
+            step_index = i
+            break
+
     if not step_to_update:
         raise ValueError("Step not found in workflow")
-    
+
     validate_prompt_references(system_prompt, workflow, step_to_update.uuid)
 
     if not hasattr(step_to_update, "system_prompt"):
@@ -266,8 +294,24 @@ async def update_system_prompt_for_step(
         )
 
     step_to_update.system_prompt = system_prompt
-    updated_step = await workflow_client.update_step(step_to_update, user_uuid)
-    return updated_step.model_dump()
+    await workflow_client.update_step(step_to_update, user_uuid)
+
+    # Check for missing input references, similar to the frontend warning
+    has_trigger = workflow.trigger is not None
+    preceding_steps = workflow.steps[:step_index]
+    has_potential_inputs = has_trigger or len(preceding_steps) > 0
+
+    has_trigger_reference = "<<trigger_output>>" in system_prompt
+    has_step_reference = "<<step_output." in system_prompt
+
+    if has_potential_inputs and not (has_trigger_reference or has_step_reference):
+        return (
+            "Prompt applied, but no input found. Make sure to include "
+            "<<trigger_output>> or <<step_output.[step_uuid]>> as previous outputs "
+            "are not automatically forwarded to next steps."
+        )
+
+    return "Prompt applied"
 
 
 @mcp_builder.tool()
@@ -476,14 +520,14 @@ def _build_llm_prompt(emails: List[EmailMessage], label_name: str) -> str:
     return prompt
 
 
-async def _process_single_label(label_name: str) -> tuple[str, str | None]:
+async def _process_single_label(user_uuid: UUID, label_name: str) -> tuple[str, str | None]:
     """
     Fetches emails for a single label and generates a description.
     Returns the label name and the new description, or None if it fails.
     """
     logger.info(f"Processing label: {label_name}")
     # Fetch up to 10 sample emails for the label
-    sample_emails = await get_messages_from_folder(label_name, count=10)
+    sample_emails = await get_messages_from_folder(user_uuid=user_uuid, folder_name=label_name, count=10)
 
     if not sample_emails:
         logger.info(f"No emails found for label '{label_name}'. Skipping.")
@@ -512,9 +556,10 @@ async def get_email_labels_with_descriptions() -> str:
     and returns them as a markdown formatted list. This is useful for understanding how emails are currently organized.
     """
     logger.info("Starting label description generation from tool.")
+    context = get_context_from_headers()
     try:
         # 1. Fetch all available labels from the IMAP server
-        available_labels = await get_all_labels()
+        available_labels = await get_all_labels(user_uuid=context.user_id)
         if not available_labels:
             logger.warning("No labels found in the user's inbox.")
             return "No labels found in your inbox."
@@ -522,7 +567,7 @@ async def get_email_labels_with_descriptions() -> str:
         logger.info(f"Found {len(available_labels)} labels in inbox: {available_labels}")
 
         # 2. Create and run description generation tasks in parallel
-        tasks = [_process_single_label(label_name) for label_name in available_labels]
+        tasks = [_process_single_label(user_uuid=context.user_id, label_name=label_name) for label_name in available_labels]
         results = await asyncio.gather(*tasks)
 
         # 3. Format results into markdown
