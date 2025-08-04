@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { Copy, HelpCircle } from 'lucide-react';
+import { Copy, HelpCircle, AlertCircle } from 'lucide-react';
 import { 
     AppSettings, 
     EmbeddingModel, 
@@ -37,6 +37,7 @@ const ImapSettings: React.FC<ImapSettingsProps> = ({
     const [toneAnalysisStatus, setToneAnalysisStatus] = useState<string | null>(null);
     const [toneAnalysisMessage, setToneAnalysisMessage] = useState<string>('');
     const [showGmailWarning, setShowGmailWarning] = useState(false);
+    const [showAppPasswordFormatWarning, setShowAppPasswordFormatWarning] = useState(false);
 
     const hasUnsavedChanges = JSON.stringify(settings) !== JSON.stringify(initialSettings);
 
@@ -134,6 +135,16 @@ const ImapSettings: React.FC<ImapSettingsProps> = ({
             fetchToneProfile();
         }
       }, [toneAnalysisStatus]);
+
+      useEffect(() => {
+        const password = settings.IMAP_PASSWORD || '';
+        if (password) {
+            const passwordWithoutSpaces = password.replace(/\s/g, '');
+            setShowAppPasswordFormatWarning(passwordWithoutSpaces.length !== 16);
+        } else {
+            setShowAppPasswordFormatWarning(false);
+        }
+      }, [settings.IMAP_PASSWORD]);
 
       const handleSave = async () => {
         setSaveStatus('saving');
@@ -288,7 +299,13 @@ const ImapSettings: React.FC<ImapSettingsProps> = ({
             <label className={labelClasses} htmlFor="imap-password">IMAP Password:</label>
             <div className="flex-1">
             <input className={inputClasses} type="password" id="imap-password" name="IMAP_PASSWORD" value={settings.IMAP_PASSWORD || ''} onChange={handleInputChange} />
-            <div className="flex items-center mt-1">
+            <div className="mt-1">
+                {showAppPasswordFormatWarning && (
+                    <button onClick={() => setHelpPanelOpen(true)} className="flex items-center text-xs text-red-600 hover:underline font-bold mb-1">
+                        <AlertCircle size={14} className="mr-1" />
+                        This is not your regular Google Password!
+                    </button>
+                )}
                 <button onClick={() => setHelpPanelOpen(true)} className="flex items-center text-xs text-blue-500 hover:underline">
                 <HelpCircle size={14} className="mr-1" />
                 Where to find your gmail App Password
