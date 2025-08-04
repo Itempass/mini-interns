@@ -52,15 +52,18 @@ const GoogleAppPasswordHelp: React.FC<GoogleAppPasswordHelpProps> = ({ onClose }
       <div className={settingsSectionClasses}>
         <h2 className="text-2xl font-bold mb-3">Step 2: Create your App Password</h2>
         <ol className="list-decimal list-inside space-y-2">
-          <li>Go to your Google Account's <a href="https://myaccount.google.com/security" target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline">Security settings</a>.</li>
-          <li>Under "How you sign in to Google," find and click on "2-Step Verification". You might need to sign in again.</li>
-          <li>Scroll down to the bottom and click on "App passwords".</li>
           <li>
-            When asked to "Select app", choose "Other (Custom name)" and give it a name you'll remember, like "My AI Agent".
+            Go to the Google App Passwords page: <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline">https://myaccount.google.com/apppasswords</a>.
+          </li>
+          <li>
+            Create a new app password and give it a name you'll remember, like "Brewdock".
           </li>
           <li>Click "Generate". Google will show you a 16-character password.</li>
           <li className="font-bold">Copy this password immediately. Google won't show it to you again. Do not store it anywhere, only paste it into the settings page.</li>
         </ol>
+        <p className="mt-4 p-3 bg-gray-100 rounded-lg text-sm text-gray-700">
+          <strong>Note:</strong> You must have 2-Step Verification enabled on your account (see Step 1). If you are using a company Google account, your administrator must have enabled the option to use App Passwords.
+        </p>
       </div>
 
       <div className={settingsSectionClasses}>
