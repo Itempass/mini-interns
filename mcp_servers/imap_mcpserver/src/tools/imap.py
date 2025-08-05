@@ -144,7 +144,7 @@ async def find_similar_threads(messageId: str, top_k: Optional[int] = 5) -> str:
         thread_markdown_content = hit.get("thread_markdown", "")
         
         if thread_markdown_content:
-            thread_contents.append(thread_markdown_content)
+            thread_contents.append(thread_markdown_content[:5000] if len(thread_markdown_content) > 5000 else thread_markdown_content) # truncate to 5000 characters
             # Store the hit payload as metadata for formatting
             thread_metadata.append(hit)
 
