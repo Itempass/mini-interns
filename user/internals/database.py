@@ -1,7 +1,8 @@
 import logging
 from typing import Optional
-from uuid import UUID
+from uuid import UUID, uuid4
 import mysql.connector
+from datetime import datetime
 
 from shared.config import settings
 from user.models import User
@@ -18,24 +19,66 @@ def get_db_connection():
         port=3306
     )
 
-def get_default_user() -> Optional[User]:
-    """Retrieves the default system user from the database."""
+def get_or_create_default_user() -> User:
+    """
+    Retrieves the default system user from the database.
+    If the user does not exist, it creates one.
+    """
     default_user_uuid_str = "12345678-1234-5678-9012-123456789012"
+    default_user_uuid = UUID(default_user_uuid_str)
+
+    # First, try to get the user
+    user = get_user_by_uuid(default_user_uuid)
+    if user:
+        return user
+
+    # If user not found, create it
+    logger.info("Default user not found. Creating a new one.")
+    new_user = User(
+        uuid=default_user_uuid,
+        auth0_sub=None,  # No Auth0 sub for the default user
+        email="default-user@example.com",
+        is_anonymous=True,
+        created_at=datetime.utcnow()
+    )
+    
+    # Use a new connection to avoid issues with closed cursors from get_user_by_uuid
     conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
+    cursor = conn.cursor()
     try:
-        # Fetch the user by UUID, converting the string to binary for the query
-        query = "SELECT uuid, auth0_sub, email, is_anonymous, created_at, balance FROM users WHERE uuid = UUID_TO_BIN(%s)"
-        cursor.execute(query, (default_user_uuid_str,))
-        user_data = cursor.fetchone()
-        if user_data:
-            # The UUID from the database needs to be converted back from bytes to a UUID object
-            user_data['uuid'] = UUID(bytes=user_data['uuid'])
-            return User(**user_data)
-        return None
+        # Check again if the user was created by another process
+        # This is a simple way to handle potential race conditions
+        cursor.execute("SELECT uuid FROM users WHERE uuid = UUID_TO_BIN(%s)", (str(default_user_uuid),))
+        if cursor.fetchone():
+            cursor.close()
+            conn.close()
+            return get_user_by_uuid(default_user_uuid)
+
+        query = """
+            INSERT INTO users (uuid, auth0_sub, email, is_anonymous, created_at, balance)
+            VALUES (UUID_TO_BIN(%s), %s, %s, %s, %s, %s)
+        """
+        cursor.execute(query, (
+            str(new_user.uuid),
+            new_user.auth0_sub,
+            new_user.email,
+            new_user.is_anonymous,
+            new_user.created_at,
+            new_user.balance
+        ))
+        conn.commit()
+        return new_user
+    except mysql.connector.Error as err:
+        logger.error(f"Failed to create default user: {err}")
+        # If it's a duplicate entry error, it means another process created it.
+        # We can try to fetch it again.
+        if err.errno == 1062: # ER_DUP_ENTRY
+             return get_user_by_uuid(default_user_uuid)
+        raise
     finally:
         cursor.close()
         conn.close()
+
 
 def get_user_by_uuid(user_uuid: UUID) -> Optional[User]:
     """Retrieves a user from the database by their UUID."""
@@ -99,9 +142,6 @@ def find_or_create_user_by_auth0_sub(auth0_sub: str, email: Optional[str] = None
             return User(**user_data)
         else:
             # User not found, create a new one
-            from uuid import uuid4
-            from datetime import datetime
-
             logger.info(f"User with auth0_sub: {auth0_sub} not found. Creating new user with email: {email}")
             new_user = User(
                 uuid=uuid4(),
