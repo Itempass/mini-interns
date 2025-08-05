@@ -892,8 +892,11 @@ async def get_all_labels(user_uuid: UUID) -> List[str]:
     try:
         with imap_connection(app_settings=app_settings) as (mail, resolver):
             return await asyncio.to_thread(_get_all_labels_sync, mail, resolver)
+    except IMAPConnectionError:
+        logger.error(f"IMAP connection failed when getting all labels for user {user_uuid}")
+        raise  # Re-raise the connection error to be handled by the caller
     except Exception as e:
-        logger.error(f"Error getting all labels: {e}")
+        logger.error(f"An unexpected error occurred while getting all labels: {e}")
         return []
 
 async def get_all_special_use_folders(user_uuid: UUID) -> List[str]:
