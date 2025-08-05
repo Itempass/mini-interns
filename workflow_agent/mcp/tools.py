@@ -11,6 +11,7 @@ from mcp_servers.imap_mcpserver.src.imap_client.client import (
     get_all_labels,
     get_messages_from_folder,
 )
+from mcp_servers.imap_mcpserver.src.imap_client.internals.connection_manager import IMAPConnectionError
 from mcp_servers.imap_mcpserver.src.imap_client.models import EmailMessage
 from shared.config import settings
 
@@ -585,6 +586,9 @@ async def get_email_labels_with_descriptions() -> str:
 
         return markdown_output
 
+    except IMAPConnectionError:
+        logger.warning(f"IMAP connection failed for user {context.user_id} when getting labels.")
+        return "Could not connect to your email account. Please check your IMAP settings."
     except Exception as e:
         logger.error(
             f"An error occurred during label description generation: {e}", exc_info=True
