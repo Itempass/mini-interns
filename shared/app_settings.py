@@ -103,7 +103,6 @@ def load_app_settings(user_uuid: UUID) -> AppSettings:
     # Decrypt sensitive fields if they exist
     try:
         if settings_data.get("IMAP_PASSWORD"):
-            logger.info(f"DECRYPTION_DEBUG (app_settings): Raw IMAP_PASSWORD from Redis: '{settings_data['IMAP_PASSWORD']}'")
             settings_data["IMAP_PASSWORD"] = decrypt_value(settings_data["IMAP_PASSWORD"])
     except Exception as e:
         logger.error(f"An unexpected error occurred during settings decryption: {e}", exc_info=True)

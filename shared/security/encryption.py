@@ -29,7 +29,7 @@ def get_encryption_key() -> bytes:
     
     global _ENCRYPTION_KEY
     if _ENCRYPTION_KEY:
-        logger.info(f"[PID: {pid}] Returning cached key: {_ENCRYPTION_KEY[:8]}...")
+        logger.info(f"[PID: {pid}] Returning cached key: {_ENCRYPTION_KEY[:4]}...")
         return _ENCRYPTION_KEY
 
     # The key is read outside the lock to allow for concurrent reads.
@@ -39,7 +39,7 @@ def get_encryption_key() -> bytes:
         with open(KEY_FILE_PATH, "rb") as key_file:
             key = key_file.read()
         _ENCRYPTION_KEY = key
-        logger.info(f"[PID: {pid}] Loaded key from disk: {key[:8]}...")
+        logger.info(f"[PID: {pid}] Loaded key from disk: {key[:4]}...")
         return key
 
     lock_file_path = KEY_FILE_PATH + ".lock"
@@ -109,7 +109,7 @@ def decrypt_value(encrypted_value: str) -> str:
         The decrypted plaintext string.
     """
     pid = os.getpid()
-    logger.info(f"DECRYPTION_DEBUG (encryption): Value received for decryption: '{encrypted_value}'")
+    logger.info(f"DECRYPTION_DEBUG (encryption): Value received for decryption: '{encrypted_value[:4]}...{encrypted_value[-4:]}'")
     if not encrypted_value:
         return encrypted_value
         
