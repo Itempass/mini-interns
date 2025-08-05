@@ -24,13 +24,22 @@ jobs:
           REDIS_URL: ${{ secrets.REDIS_URL }}
           CONTAINERPORT_API: ${{ secrets.CONTAINERPORT_API }}
           CONTAINERPORT_MCP_IMAP: ${{ secrets.CONTAINERPORT_MCP_IMAP }}
+          CONTAINERPORT_MCP_TONE_OF_VOICE: ${{ secrets.CONTAINERPORT_MCP_TONE_OF_VOICE }}
+          CONTAINERPORT_MCP_WORKFLOW_AGENT: ${{ secrets.CONTAINERPORT_MCP_WORKFLOW_AGENT }}
           CONTAINERPORT_QDRANT: ${{ secrets.CONTAINERPORT_QDRANT }}
+          CONTAINERPORT_QDRANT_GRPC: ${{ secrets.CONTAINERPORT_QDRANT_GRPC }}
           EMBEDDING_VOYAGE_API_KEY: ${{ secrets.EMBEDDING_VOYAGE_API_KEY }}
           EMBEDDING_OPENAI_API_KEY: ${{ secrets.EMBEDDING_OPENAI_API_KEY }}
-          DISABLE_LOG_FORWARDING: ${{ secrets.DISABLE_LOG_FORWARDING }}
           ENABLE_LOG_FORWARDING: ${{ secrets.ENABLE_LOG_FORWARDING }}
           QDRANT_NAMESPACE_UUID: ${{ secrets.QDRANT_NAMESPACE_UUID }}
           HOSTPORT_FRONTEND: ${{ secrets.HOSTPORT_FRONTEND }}
+          HOSTPORT_QDRANT: ${{ secrets.HOSTPORT_QDRANT }}
+          HOSTPORT_QDRANT_GRPC: ${{ secrets.HOSTPORT_QDRANT_GRPC }}
+          CONTAINERPORT_MCP_IMAP: ${{ secrets.CONTAINERPORT_MCP_IMAP }}
+          MYSQL_DATABASE: "workflow_db"
+          MYSQL_USER: "workflow_user"
+          MYSQL_PASSWORD: "a_secure_password"
+          MYSQL_ROOT_PASSWORD: "a_secure_password"
         run: |
           echo "Creating .env file with only the secrets that are set..."
           touch .env
@@ -39,7 +48,10 @@ jobs:
           if [ -n "$REDIS_URL" ]; then echo "REDIS_URL=$REDIS_URL" >> .env.ci; fi
           if [ -n "$CONTAINERPORT_API" ]; then echo "CONTAINERPORT_API=$CONTAINERPORT_API" >> .env.ci; fi
           if [ -n "$CONTAINERPORT_MCP_IMAP" ]; then echo "CONTAINERPORT_MCP_IMAP=$CONTAINERPORT_MCP_IMAP" >> .env.ci; fi
+          if [ -n "$CONTAINERPORT_MCP_TONE_OF_VOICE" ]; then echo "CONTAINERPORT_MCP_TONE_OF_VOICE=$CONTAINERPORT_MCP_TONE_OF_VOICE" >> .env.ci; fi
+          if [ -n "$CONTAINERPORT_MCP_WORKFLOW_AGENT" ]; then echo "CONTAINERPORT_MCP_WORKFLOW_AGENT=$CONTAINERPORT_MCP_WORKFLOW_AGENT" >> .env.ci; fi
           if [ -n "$CONTAINERPORT_QDRANT" ]; then echo "CONTAINERPORT_QDRANT=$CONTAINERPORT_QDRANT" >> .env.ci; fi
+          if [ -n "$CONTAINERPORT_QDRANT_GRPC" ]; then echo "CONTAINERPORT_QDRANT_GRPC=$CONTAINERPORT_QDRANT_GRPC" >> .env.ci; fi
           if [ -n "$EMBEDDING_VOYAGE_API_KEY" ]; then echo "EMBEDDING_VOYAGE_API_KEY=$EMBEDDING_VOYAGE_API_KEY" >> .env.ci; fi
           if [ -n "$AGENTLOGGER_ENABLE_ANONIMIZER" ]; then echo "AGENTLOGGER_ENABLE_ANONIMIZER=$AGENTLOGGER_ENABLE_ANONIMIZER" >> .env.ci; fi
           if [ -n "$AGENTLOGGER_OPENROUTER_ANONIMIZER_API_KEY" ]; then echo "AGENTLOGGER_OPENROUTER_ANONIMIZER_API_KEY=$AGENTLOGGER_OPENROUTER_ANONIMIZER_API_KEY" >> .env.ci; fi
@@ -49,7 +61,12 @@ jobs:
           if [ -n "$ENABLE_LOG_FORWARDING" ]; then echo "ENABLE_LOG_FORWARDING=$ENABLE_LOG_FORWARDING" >> .env.ci; fi
           if [ -n "$QDRANT_NAMESPACE_UUID" ]; then echo "QDRANT_NAMESPACE_UUID=$QDRANT_NAMESPACE_UUID" >> .env.ci; fi
           if [ -n "$HOSTPORT_FRONTEND" ]; then echo "HOSTPORT_FRONTEND=$HOSTPORT_FRONTEND" >> .env.ci; fi
-
+          if [ -n "$HOSTPORT_QDRANT" ]; then echo "HOSTPORT_QDRANT=$HOSTPORT_QDRANT" >> .env.ci; fi
+          if [ -n "$HOSTPORT_QDRANT_GRPC" ]; then echo "HOSTPORT_QDRANT_GRPC=$HOSTPORT_QDRANT_GRPC" >> .env.ci; fi
+          if [ -n "$MYSQL_DATABASE" ]; then echo "MYSQL_DATABASE=$MYSQL_DATABASE" >> .env.ci; fi
+          if [ -n "$MYSQL_USER" ]; then echo "MYSQL_USER=$MYSQL_USER" >> .env.ci; fi
+          if [ -n "$MYSQL_PASSWORD" ]; then echo "MYSQL_PASSWORD=$MYSQL_PASSWORD" >> .env.ci; fi
+          if [ -n "$MYSQL_ROOT_PASSWORD" ]; then echo "MYSQL_ROOT_PASSWORD=$MYSQL_ROOT_PASSWORD" >> .env.ci; fi
           echo "--- Contents of generated .env.ci file: ---"
           cat .env
 
@@ -63,3 +80,6 @@ jobs:
           echo "Waiting 20 seconds..."
           sleep 20
           docker compose ps
+
+      - name: View Container Logs
+        run: docker compose logs
