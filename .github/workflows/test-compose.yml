@@ -35,7 +35,6 @@ jobs:
           HOSTPORT_FRONTEND: ${{ secrets.HOSTPORT_FRONTEND }}
           HOSTPORT_QDRANT: ${{ secrets.HOSTPORT_QDRANT }}
           HOSTPORT_QDRANT_GRPC: ${{ secrets.HOSTPORT_QDRANT_GRPC }}
-          CONTAINERPORT_MCP_IMAP: ${{ secrets.CONTAINERPORT_MCP_IMAP }}
           MYSQL_DATABASE: "workflow_db"
           MYSQL_USER: "workflow_user"
           MYSQL_PASSWORD: "a_secure_password"
