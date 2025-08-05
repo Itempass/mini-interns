@@ -71,7 +71,18 @@ jobs:
 
       # STEP 2: Run Docker Compose using ONLY the generated .env.ci file
       - name: Build and Run Application
+        id: docker_up
         run: docker compose up -d --build
+        continue-on-error: true
+
+      - name: Show logs
+        run: docker compose logs
+
+      - name: Exit if docker-compose failed
+        if: steps.docker_up.outcome == 'failure'
+        run: |
+          echo "Docker compose up failed. See logs above."
+          exit 1
 
       # STEP 3: Check the status of the running containers
       - name: Check Container Status
@@ -81,4 +92,5 @@ jobs:
           docker compose ps
 
       - name: View Container Logs
+        if: steps.docker_up.outcome == 'success'
         run: docker compose logs
