@@ -139,25 +139,23 @@ async def get_current_user(
             auth0_sub=auth0_sub,
             email=email
         )
-        return user
-    
-    if settings.AUTH_PASSWORD or settings.AUTH_SELFSET_PASSWORD:
-        # TODO: Get session cookie from request and validate it.
-        # For now, we'll just return the default user if password auth is on.
-        user = user_client.get_default_system_user()
         if not user:
              raise HTTPException(
                 status_code=500,
-                detail="Default system user not found in the database. A misconfiguration has occurred.",
+                detail="Could not find or create user for the given Auth0 subject.",
             )
         return user
-
-    # "No Auth" mode
-    return User(
-        uuid=UUID("12345678-1234-5678-9012-123456789012"),
-        email="anonymous@example.com",
-        created_at=datetime.utcnow()
-    )
+    
+    # For both password-based auth and "no-auth" mode, we rely on a default user.
+    # This ensures consistency and that a valid user object is always available.
+    user = user_client.get_or_create_default_user()
+    if not user:
+        # This case should ideally not be reached if the get_or_create function works correctly.
+        raise HTTPException(
+            status_code=500,
+            detail="Default system user could not be retrieved or created.",
+        )
+    return user
 
 
 class LoginRequest(BaseModel):
