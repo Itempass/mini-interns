@@ -15,6 +15,7 @@ const TopBar: React.FC<TopBarProps> = () => {
 
   useEffect(() => {
     getClientAuthMode().then(setAuthMode);
+    console.log('[DEBUG] TopBar: Attempting to call getMe()');
     getMe().then(setUser);
   }, []);
   

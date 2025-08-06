@@ -103,6 +103,7 @@ async def get_current_user(
     if settings.AUTH0_DOMAIN and settings.AUTH0_DOMAIN.strip():
         if token is None:
             print("[AUTH_DEBUG] Auth0 mode: Token is missing.")
+            print(f"[AUTH_DEBUG] Request details: client={request.client} headers={dict(request.headers)}")
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Not authenticated",
