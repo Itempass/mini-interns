@@ -49,6 +49,7 @@ const WorkflowsPage = () => {
   };
 
   useEffect(() => {
+    console.log('[DEBUG] WorkflowsPage: Attempting to call fetchWorkflows()');
     fetchWorkflows();
   }, []);
 
