@@ -43,6 +43,7 @@ export const getClientAuthMode = (): Promise<'auth0' | 'password' | 'none'> => {
 
 // A centralized fetch wrapper to handle adding the auth token
 export const apiFetch = async (url: string, options: RequestInit = {}) => {
+  console.log(`[DEBUG] apiFetch called for URL: ${url}`);
   const mode = await getClientAuthMode();
   let token: string | undefined;
 
@@ -52,10 +53,15 @@ export const apiFetch = async (url: string, options: RequestInit = {}) => {
       const tokenResult = await getAccessToken();
       if (typeof tokenResult === 'string') {
         token = tokenResult;
+        console.log(`[DEBUG] Successfully attached token for: ${url}`);
       }
     } catch (e: any) {
-      console.error("[apiFetch] Error getting access token:", e);
-      console.warn("Could not get access token", e.message);
+      console.error(`[DEBUG] FAILED to get access token for ${url}:`, e);
+      // The session is invalid, redirect to the login page.
+      // This should only happen in the browser.
+      if (typeof window !== 'undefined') {
+        window.location.href = '/login';
+      }
     }
   }
 
@@ -148,7 +154,7 @@ export const getMe = async (): Promise<UserProfile | null> => {
   try {
     return await jsonApiFetch(`${API_URL}/users/me`);
   } catch (error) {
-    console.error('An error occurred while fetching user profile:', error);
+    console.error('[DEBUG] IN CATCH BLOCK of getMe(): An error occurred while fetching user profile. This will return null.', error);
     return null;
   }
 };
@@ -307,7 +313,7 @@ export const testImapConnection = async () => {
     console.log('Successfully tested IMAP connection:', result);
     return result;
   } catch (error) {
-    console.error('An error occurred while testing IMAP connection:', error);
+    console.error('[DEBUG] IN CATCH BLOCK of testImapConnection():', error);
     throw error;
   }
 };
