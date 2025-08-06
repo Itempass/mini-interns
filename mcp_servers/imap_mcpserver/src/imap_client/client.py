@@ -677,6 +677,40 @@ def _set_label_sync(message_id: str, label: str, app_settings: AppSettings) -> D
         logger.error(f"Error setting label: {e}")
         return {"status": "error", "message": str(e)}
 
+def _remove_from_inbox_sync(message_id: str, app_settings: AppSettings) -> Dict[str, Any]:
+    """
+    Synchronous function to remove Gmail message from inbox by moving it to All Mail.
+    Uses IMAP COPY + DELETE + EXPUNGE pattern to move from current mailbox to [Gmail]/All Mail.
+    """
+    try:
+        with imap_connection(app_settings=app_settings) as (mail, resolver):
+            # Find message UID and mailbox
+            uid, mailbox = _find_uid_by_message_id(mail, resolver, message_id)
+            if not uid:
+                return {"status": "error", "message": "Message not found"}
+            
+            # Select source mailbox for modification
+            mail.select(f'"{mailbox}"', readonly=False)
+            
+            # Copy to Gmail All Mail (hardcoded destination for inbox skipping)
+            destination = "[Gmail]/All Mail"
+            typ, data = mail.uid('COPY', uid, f'"{destination}"')
+            if typ != 'OK':
+                return {"status": "error", "message": "Remove from inbox failed - copy to All Mail failed"}
+            
+            # Mark original as deleted and expunge
+            mail.uid('STORE', uid, '+FLAGS', r'(\Deleted)')
+            mail.expunge()
+            
+            return {
+                "status": "success", 
+                "message": f"Email removed from inbox: moved from {mailbox} to All Mail"
+            }
+            
+    except Exception as e:
+        logger.error(f"Error removing from inbox: {e}")
+        return {"status": "error", "message": str(e)}
+
 def _get_all_folders_sync(mail: imaplib.IMAP4_SSL) -> List[str]:
     """
     Synchronous function to get all folders/mailboxes.
@@ -864,6 +898,11 @@ async def set_label(user_uuid: UUID, message_id: str, label: str) -> Dict[str, A
     app_settings = load_app_settings(user_uuid=user_uuid)
     loop = asyncio.get_running_loop()
     return await loop.run_in_executor(None, _set_label_sync, message_id, label, app_settings)
+
+async def remove_from_inbox(user_uuid: UUID, message_id: str) -> Dict[str, Any]:
+    """Async wrapper for removing Gmail message from inbox by moving to All Mail"""
+    app_settings = load_app_settings(user_uuid=user_uuid)
+    return await asyncio.to_thread(_remove_from_inbox_sync, message_id, app_settings)
 
 async def get_emails(user_uuid: UUID, folder_name: str, count: int = 10, filter_by_labels: Optional[List[str]] = None) -> List[EmailMessage]:
     """Asynchronous wrapper for getting emails from a folder with optional label filtering."""
