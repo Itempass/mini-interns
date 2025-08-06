@@ -10,6 +10,7 @@ import asyncio
 from mcp_servers.imap_mcpserver.src.imap_client.client import (
     get_all_labels,
     get_messages_from_folder,
+    get_messages_from_multiple_folders,
 )
 from mcp_servers.imap_mcpserver.src.imap_client.internals.connection_manager import IMAPConnectionError
 from mcp_servers.imap_mcpserver.src.imap_client.models import EmailMessage
@@ -521,15 +522,11 @@ def _build_llm_prompt(emails: List[EmailMessage], label_name: str) -> str:
     return prompt
 
 
-async def _process_single_label(user_uuid: UUID, label_name: str) -> tuple[str, str | None]:
+async def _process_single_label(label_name: str, sample_emails: List[EmailMessage]) -> tuple[str, str | None]:
     """
-    Fetches emails for a single label and generates a description.
+    Generates a description for a single label based on sample emails.
     Returns the label name and the new description, or None if it fails.
     """
-    logger.info(f"Processing label: {label_name}")
-    # Fetch up to 10 sample emails for the label
-    sample_emails = await get_messages_from_folder(user_uuid=user_uuid, folder_name=label_name, count=10)
-
     if not sample_emails:
         logger.info(f"No emails found for label '{label_name}'. Skipping.")
         return label_name, None
@@ -567,11 +564,21 @@ async def get_email_labels_with_descriptions() -> str:
 
         logger.info(f"Found {len(available_labels)} labels in inbox: {available_labels}")
 
-        # 2. Create and run description generation tasks in parallel
-        tasks = [_process_single_label(user_uuid=context.user_id, label_name=label_name) for label_name in available_labels]
+        # 2. Fetch sample emails for all labels in a single batch
+        email_samples_by_label = await get_messages_from_multiple_folders(
+            user_uuid=context.user_id,
+            folder_names=available_labels,
+            count=10
+        )
+
+        # 3. Create and run description generation tasks in parallel
+        tasks = [
+            _process_single_label(label_name, email_samples_by_label.get(label_name, []))
+            for label_name in available_labels
+        ]
         results = await asyncio.gather(*tasks)
 
-        # 3. Format results into markdown
+        # 4. Format results into markdown
         markdown_output = (
             "Here are your email labels and their generated descriptions:\n\n"
         )
