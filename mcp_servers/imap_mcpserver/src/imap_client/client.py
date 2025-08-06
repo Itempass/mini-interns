@@ -680,7 +680,7 @@ def _set_label_sync(message_id: str, label: str, app_settings: AppSettings) -> D
 def _remove_from_inbox_sync(message_id: str, app_settings: AppSettings) -> Dict[str, Any]:
     """
     Synchronous function to remove Gmail message from inbox by moving it to All Mail.
-    Uses IMAP COPY + DELETE + EXPUNGE pattern to move from current mailbox to [Gmail]/All Mail.
+    Uses IMAP COPY + DELETE + EXPUNGE pattern to move from current mailbox to All Mail.
     """
     try:
         with imap_connection(app_settings=app_settings) as (mail, resolver):
@@ -689,14 +689,19 @@ def _remove_from_inbox_sync(message_id: str, app_settings: AppSettings) -> Dict[
             if not uid:
                 return {"status": "error", "message": "Message not found"}
             
+            # Get the All Mail folder using resolver (language-agnostic)
+            try:
+                destination = resolver.get_folder_by_attribute('\\All')
+            except FolderNotFoundError:
+                return {"status": "error", "message": "All Mail folder not found - archiving not supported"}
+            
             # Select source mailbox for modification
             mail.select(f'"{mailbox}"', readonly=False)
             
-            # Copy to Gmail All Mail (hardcoded destination for inbox skipping)
-            destination = "[Gmail]/All Mail"
+            # Copy to All Mail folder (using resolver for language support)
             typ, data = mail.uid('COPY', uid, f'"{destination}"')
             if typ != 'OK':
-                return {"status": "error", "message": "Remove from inbox failed - copy to All Mail failed"}
+                return {"status": "error", "message": f"Remove from inbox failed - copy to {destination} failed"}
             
             # Mark original as deleted and expunge
             mail.uid('STORE', uid, '+FLAGS', r'(\Deleted)')
@@ -704,7 +709,7 @@ def _remove_from_inbox_sync(message_id: str, app_settings: AppSettings) -> Dict[
             
             return {
                 "status": "success", 
-                "message": f"Email removed from inbox: moved from {mailbox} to All Mail"
+                "message": f"Email removed from inbox: moved from {mailbox} to {destination}"
             }
             
     except Exception as e:
