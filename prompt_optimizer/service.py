@@ -1,5 +1,5 @@
 import logging
-from typing import Dict, Any, List, Protocol, Optional
+from typing import Dict, Any, List, Protocol, Optional, Tuple
 from uuid import UUID
 from datetime import datetime, timezone
 import asyncio
@@ -75,6 +75,9 @@ def _apply_ground_truth_transform(dataset: List[Dict[str, Any]], field_mapping: 
                 if isinstance(original_value, list) and original_value:
                     new_item[ground_truth_field] = original_value[0]
                 # If not a list or empty, do nothing.
+        
+        transformed_value = new_item.get(ground_truth_field)
+        #_log_to_debug_file(f"APPLY_TRANSFORM (AFTER) - transformed_value: {transformed_value!r}")
         
         transformed_dataset.append(new_item)
         
@@ -161,8 +164,8 @@ class IMAPDataSource:
         try:
             # In a real multi-tenant app, user_id would be used to select the correct IMAP credentials.
             labels, folders = await asyncio.gather(
-                get_all_labels(user_id=user_id),
-                get_all_special_use_folders(user_id=user_id)
+                get_all_labels(user_uuid=user_id),
+                get_all_special_use_folders(user_uuid=user_id)
             )
             logger.debug(f"Fetched {len(labels)} labels and {len(folders)} special-use folders for user {user_id}")
             
@@ -209,7 +212,7 @@ class IMAPDataSource:
         params = {**{k: v for k, v in config.items() if k != 'folder_names'}, 'count': 1, 'folder_name': folder_to_sample}
         
         try:
-            email_messages = await get_emails(user_id=user_id, **params)
+            email_messages = await get_emails(user_uuid=user_id, **params)
             if not email_messages:
                 return {} # No sample found is a valid result
             
@@ -217,7 +220,7 @@ class IMAPDataSource:
 
             # 2. Fetch the complete thread for that email
             logger.info(f"Fetching complete thread for sample email with Message-ID: {source_email.message_id}")
-            email_thread = await get_complete_thread(user_id=user_id, source_message=source_email)
+            email_thread = await get_complete_thread(user_uuid=user_id, source_message=source_email)
 
             if not email_thread:
                 logger.warning(f"Could not fetch thread for sample Message-ID: {source_email.message_id}. Returning empty sample.")
@@ -251,7 +254,7 @@ class IMAPDataSource:
             for folder in folder_names:
                 per_folder_count = config.get("count", 200) // len(folder_names)
                 fetch_params = {**params_without_folders, 'folder_name': folder, 'count': per_folder_count}
-                results = await get_emails(user_id=user_id, **fetch_params)
+                results = await get_emails(user_uuid=user_id, **fetch_params)
                 all_matching_emails.extend(results)
 
             # Deduplicate the initial list of emails
@@ -262,19 +265,20 @@ class IMAPDataSource:
             full_thread_dataset = []
             
             # Using asyncio.gather for concurrent thread fetching
-            tasks = [get_complete_thread(user_id=user_id, source_message=email) for email in unique_emails]
+            tasks = [get_complete_thread(user_uuid=user_id, source_message=email) for email in unique_emails]
             email_threads = await asyncio.gather(*tasks)
 
             # We no longer need to map back to the source email for labels.
             # The correct, filtered labels are now on the thread object itself.
             for thread in email_threads:
                 if thread:
-                    full_thread_dataset.append({
+                    thread_data = {
                         "thread_markdown": thread.markdown,
                         "thread_subject": thread.subject,
                         "thread_participants": thread.participants,
                         "most_recent_user_labels": thread.most_recent_user_labels
-                    })
+                    }
+                    full_thread_dataset.append(thread_data)
 
             logger.info(f"Successfully processed and flattened {len(full_thread_dataset)} email threads.")
             return full_thread_dataset
@@ -377,15 +381,15 @@ async def _evaluate_prompt(
     user_id: UUID
 ) -> List[TestCaseResult]:
     """Runs a prompt against a dataset using the self-contained LLM client."""
-    results = []
-    for i, item in enumerate(dataset):
+    
+    async def _evaluate_single_case(item: Dict[str, Any]) -> TestCaseResult:
         input_data = item.get(field_mapping['input_field'])
         ground_truth = item.get(field_mapping['ground_truth_field'])
 
         if input_data is None or ground_truth is None:
-            continue
-        
-        # Construct a simple prompt for the LLM call
+            # Create a result indicating skipped so it can be filtered out later if needed
+            return TestCaseResult(input_data="", ground_truth_data="", generated_output="SKIPPED", is_match=False)
+
         full_prompt = f"{prompt}\n\n--- DATA ---\n{input_data}"
 
         try:
@@ -404,26 +408,31 @@ async def _evaluate_prompt(
 
             is_correct = str(actual_value) == str(expected_value_parsed)
             
-            logger.info(f"--- Evaluating Test Case {i+1}/{len(dataset)} ---")
+            logger.info(f"--- Evaluating Test Case ---")
             logger.info(f"  - Expected Value (parsed): '{expected_value_parsed}' (type: {type(expected_value_parsed).__name__})")
             logger.info(f"  - Actual Value   (parsed): '{actual_value}' (type: {type(actual_value).__name__})")
             logger.info(f"  - Comparison (==): {is_correct}")
 
-            results.append(TestCaseResult(
+            return TestCaseResult(
                 input_data=input_data,
                 ground_truth_data=ground_truth,
                 generated_output=generated_output,
                 is_match=is_correct
-            ))
+            )
         except Exception as e:
             logger.error(f"Error running LLM call for evaluation: {e}", exc_info=True)
-            results.append(TestCaseResult(
+            return TestCaseResult(
                 input_data=input_data,
                 ground_truth_data=ground_truth,
                 generated_output=f"ERROR: {e}",
                 is_match=False
-            ))
-    return results
+            )
+
+    tasks = [_evaluate_single_case(item) for item in dataset]
+    results = await asyncio.gather(*tasks)
+    
+    # Filter out any skipped cases if necessary, though gather preserves order
+    return [res for res in results if res.generated_output != "SKIPPED"]
 
 
 async def _generate_feedback(
@@ -431,7 +440,7 @@ async def _generate_feedback(
     feedback_correct_template: Template,
     feedback_incorrect_template: Template,
     user_id: UUID
-) -> str:
+) -> Tuple[str, str]:
     """Generates a natural language feedback summary for a single test case."""
     if test_case.is_match:
         template = feedback_correct_template
@@ -449,7 +458,8 @@ async def _generate_feedback(
     
     # Use a more capable model for feedback generation
     feedback = await call_llm(prompt, model="google/gemini-2.5-flash", user_id=user_id)
-    return feedback
+    logger.info(f"Generated feedback for test case: {feedback}")
+    return feedback, prompt
 
 
 # --- New Evaluation and Refinement Service ---
@@ -515,7 +525,9 @@ async def run_evaluation_and_refinement(run_uuid: UUID, user_id: UUID):
         training_run_results = await _evaluate_prompt(original_prompt, original_model, training_set, template.field_mapping_config.model_dump(), user_id)
         
         feedback_tasks = [_generate_feedback(case, feedback_correct_template, feedback_incorrect_template, user_id) for case in training_run_results]
-        feedback_summaries = await asyncio.gather(*feedback_tasks)
+        feedback_results = await asyncio.gather(*feedback_tasks)
+
+        feedback_summaries = [feedback for feedback, prompt in feedback_results]
         feedback_str = "\n".join(f"- {summary}" for summary in feedback_summaries)
         logger.info(f"Generated {len(feedback_summaries)} feedback summaries.")
 
