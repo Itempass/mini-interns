@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from workflow.models import CustomAgent, CustomLLM, StopWorkflowChecker
 
 
@@ -28,7 +28,9 @@ class SetTriggerRequest(BaseModel):
 class UpdateTriggerRequest(BaseModel):
     """Request model for updating trigger settings."""
     
-    filter_rules: Dict[str, Any]
+    filter_rules: Optional[Dict[str, Any]] = None
+    trigger_prompt: Optional[str] = None
+    trigger_model: Optional[str] = None
 
 
 class AddStepRequest(BaseModel):
