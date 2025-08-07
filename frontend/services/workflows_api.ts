@@ -170,6 +170,54 @@ export const updateWorkflowDetails = async (
   }
 };
 
+export const exportWorkflow = async (workflowId: string): Promise<void> => {
+    try {
+        const response = await apiFetch(`${API_URL}/workflows/${workflowId}/export`);
+        const blob = await response.blob();
+
+        // Extract filename from Content-Disposition header
+        const contentDisposition = response.headers.get('content-disposition');
+        console.log('[exportWorkflow] Received Content-Disposition header:', contentDisposition);
+
+        let filename = 'workflow.json'; // default filename
+        if (contentDisposition) {
+            const filenameMatch = contentDisposition.match(/filename="([^"]+)"/);
+            if (filenameMatch && filenameMatch.length > 1) {
+                filename = filenameMatch[1];
+            }
+        }
+        console.log('[exportWorkflow] Parsed filename:', filename);
+
+        // Create a temporary link to trigger the download
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        window.URL.revokeObjectURL(url);
+    } catch (error) {
+        console.error('An error occurred while exporting the workflow:', error);
+        // Handle error appropriately in the UI
+    }
+};
+
+export const importWorkflow = async (file: File): Promise<Workflow | null> => {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+        return await jsonApiFetch(`${API_URL}/workflows/import`, {
+            method: 'POST',
+            body: formData,
+        });
+    } catch (error) {
+        console.error('An error occurred while importing the workflow:', error);
+        return null;
+    }
+};
+
 export interface TriggerType {
     id: string;
     name: string;
