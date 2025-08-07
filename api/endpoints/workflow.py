@@ -4,9 +4,11 @@ from typing import Any, Dict, List, Optional
 from uuid import UUID
 import json
 from datetime import datetime, timezone
+import re
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query, Body, Request
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Body, Request, UploadFile, File
 from pydantic import BaseModel
+from starlette.responses import JSONResponse
 
 import workflow.client as workflow_client
 import workflow.trigger_client as trigger_client
@@ -299,7 +301,6 @@ async def delete_workflow(
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Workflow not found"
             )
-
         # Delete the workflow and all its associated components
         await workflow_client.delete(uuid=workflow_uuid, user_id=user.uuid)
         logger.info(f"DELETE /workflows/{workflow_uuid} - Workflow deleted successfully")
@@ -309,6 +310,91 @@ async def delete_workflow(
     except Exception as e:
         logger.error(f"DELETE /workflows/{workflow_uuid} - Error deleting workflow: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Error deleting workflow.")
+
+
+@router.get(
+    "/{workflow_uuid}/export",
+    summary="Export a workflow as JSON",
+)
+async def export_workflow(
+    workflow_uuid: UUID, user: User = Depends(get_current_user)
+):
+    """
+    Exports a single workflow's complete definition as a JSON file.
+    """
+    logger.info(f"GET /workflows/{workflow_uuid}/export - Exporting workflow")
+    workflow = await workflow_client.get_with_details(
+        workflow_uuid=workflow_uuid, user_id=user.uuid
+    )
+    if not workflow:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Workflow not found"
+        )
+
+    # Sanitize the workflow name to create a valid filename
+    # Replace invalid characters with an underscore
+    sanitized_name = re.sub(r'[^\w\s-]', '_', workflow.name)
+    # Replace whitespace with underscores and remove any leading/trailing underscores
+    safe_filename = re.sub(r'\s+', '_', sanitized_name).strip('_')
+    
+    if not safe_filename:
+        safe_filename = f"workflow_{workflow_uuid}"
+    
+    # Use Pydantic's `model_dump_json` for proper serialization of complex types like UUID and datetime
+    workflow_json = workflow.model_dump_json(indent=2)
+    
+    return JSONResponse(
+        content=json.loads(workflow_json),  # Ensure the content is a JSON-serializable dict
+        headers={"Content-Disposition": f"attachment; filename=\"{safe_filename}.json\""}
+    )
+
+
+@router.post(
+    "/import",
+    response_model=WorkflowModel,
+    status_code=status.HTTP_201_CREATED,
+    summary="Import a workflow from a JSON file",
+)
+async def import_workflow_endpoint(
+    user: User = Depends(get_current_user),
+    file: UploadFile = File(...),
+):
+    """
+    Creates a new workflow by importing it from a JSON file.
+    """
+    logger.info(f"POST /workflows/import - Importing workflow from file '{file.filename}'")
+    if file.content_type != "application/json":
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail="Invalid file type. Please upload a JSON file.",
+        )
+    
+    try:
+        contents = await file.read()
+        data = json.loads(contents)
+    except json.JSONDecodeError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid JSON file. Could not decode content.",
+        )
+    except Exception as e:
+        logger.error(f"Error reading or parsing uploaded file: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Could not read or parse file: {e}",
+        )
+        
+    try:
+        new_workflow = await workflow_client.import_workflow(
+            workflow_data=data, user_id=user.uuid
+        )
+        return new_workflow
+    except Exception as e:
+        logger.error(f"Error importing workflow from data: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"An unexpected error occurred during the import process: {e}",
+        )
 
 
 @router.put(
