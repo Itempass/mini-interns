@@ -26,7 +26,7 @@ AVAILABLE_TRIGGER_TYPES = [
     {
         "id": "new_email",
         "name": "When I receive a new email",
-        "description": "Checks your inbox every minute for new emails, triggers a workflow when a new email is received.",
+        "description": "Checks your inbox every minute for new emails, triggers a workflow when a new email is received and the filters are met.",
         "initial_data_description": "The full content and metadata of the new email.",
     }
 ]
