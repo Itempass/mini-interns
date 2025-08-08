@@ -262,7 +262,7 @@ const WorkflowSettings: React.FC<WorkflowSettingsProps> = ({ workflow, onWorkflo
     };
   }, [showStepSelector]);
 
-  const handleAddStep = async (stepType: 'custom_llm' | 'custom_agent' | 'stop_checker') => {
+  const handleAddStep = async (stepType: 'custom_llm' | 'custom_agent' | 'stop_checker' | 'rag') => {
     if (!detailedWorkflow) return;
 
     setIsLoading(true);
@@ -694,6 +694,13 @@ const WorkflowSettings: React.FC<WorkflowSettingsProps> = ({ workflow, onWorkflo
                     >
                       add Stop Workflow Check
                     </button>
+                    <button
+                      onClick={() => handleAddStep('rag')}
+                      className="w-full px-4 py-2 text-left hover:bg-gray-100 text-sm"
+                      disabled={isLoading}
+                    >
+                      add RAG
+                    </button>
                     <div className="px-4 py-2 border-t border-gray-200">
                       <button 
                         onClick={() => setIsHelpPanelOpen(true)}
@@ -776,7 +783,7 @@ const WorkflowSettings: React.FC<WorkflowSettingsProps> = ({ workflow, onWorkflo
                 <div className="absolute bottom-2 right-2 flex items-center space-x-2">
                   {editingStep?.uuid !== step.uuid && (
                     <>
-                      {(step.type === 'custom_llm' || step.type === 'custom_agent') &&
+                      {(step.type === 'custom_llm' || step.type === 'custom_agent' || step.type === 'rag') &&
                         (hasTrigger || index > 0) &&
                         !step.system_prompt.includes('<<trigger_output>>') &&
                         !step.system_prompt.includes('<<step_output.') && (
@@ -856,6 +863,13 @@ const WorkflowSettings: React.FC<WorkflowSettingsProps> = ({ workflow, onWorkflo
                       disabled={isLoading}
                     >
                       add Stop Workflow Check
+                    </button>
+                    <button
+                      onClick={() => handleAddStep('rag')}
+                      className="w-full px-4 py-2 text-left hover:bg-gray-100 text-sm"
+                      disabled={isLoading}
+                    >
+                      add RAG
                     </button>
                     <div className="px-4 py-2 border-t border-gray-200">
                       <button 

@@ -16,5 +16,14 @@
     "max_batch_size": 2048,
     "max_batch_tokens": null,
     "default": true
+  },
+  "text-embedding-3-small": {
+    "provider": "openai",
+    "model_name": "text-embedding-3-small",
+    "vector_size": 1536,
+    "max_input_tokens": 8191,
+    "max_batch_size": 2048,
+    "max_batch_tokens": null,
+    "default": false
   }
 }

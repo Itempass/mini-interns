@@ -49,4 +49,10 @@ export const deleteVectorDatabase = async (uuid: string): Promise<void> => {
         method: 'DELETE',
     });
     return;
+};
+
+export const testVectorDatabase = async (uuid: string): Promise<{ ok: boolean; message: string }> => {
+  return jsonApiFetch(`${API_URL}/rag/vector-databases/${uuid}/test`, {
+    method: 'POST',
+  });
 }; 

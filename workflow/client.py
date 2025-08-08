@@ -150,6 +150,9 @@ async def delete(uuid: UUID, user_id: UUID) -> None:
             await agent_client.delete(uuid=step.uuid, user_id=user_id)
         elif step.type == "stop_checker":
             await checker_client.delete(uuid=step.uuid, user_id=user_id)
+        elif step.type == "rag":
+            # RAG definitions are stored in the generic table too; simply delete the row
+            await db._delete_step_in_db(uuid=step.uuid, user_id=user_id)
 
     # Delete the workflow itself
     await db._delete_workflow_in_db(uuid=uuid, user_id=user_id)
@@ -219,6 +222,18 @@ async def import_workflow(workflow_data: Dict[str, Any], user_id: UUID) -> Workf
                 match_values=step_data.get('match_values', []),
                 step_to_check_uuid=step_data.get('step_to_check_uuid')
             )
+        elif step_type == "rag":
+            # Import a RAG step as a generic row; details will be preserved via model structure
+            from workflow.models import RAGStep
+            new_step = RAGStep(
+                user_id=user_id,
+                name=step_data['name'],
+                system_prompt=step_data.get('system_prompt', ''),
+                vectordb_uuid=UUID(step_data['vectordb_uuid']) if isinstance(step_data.get('vectordb_uuid'), str) else step_data.get('vectordb_uuid'),
+                rerank=step_data.get('rerank', False),
+                top_k=step_data.get('top_k', 5),
+            )
+            await db._create_step_in_db(step=new_step, user_id=user_id)
 
         if new_step:
             uuid_map[step_data['uuid']] = new_step.uuid
@@ -268,7 +283,7 @@ async def import_workflow(workflow_data: Dict[str, Any], user_id: UUID) -> Workf
 
 async def add_new_step(
     workflow_uuid: UUID,
-    step_type: Literal["custom_llm", "custom_agent", "stop_checker"],
+    step_type: Literal["custom_llm", "custom_agent", "stop_checker", "rag"],
     name: str,
     user_id: UUID,
     position: int = -1,
@@ -295,6 +310,10 @@ async def add_new_step(
         new_step = await agent_client.create(name=name, user_id=user_id, model=model or default_model, system_prompt="")
     elif step_type == "stop_checker":
         new_step = await checker_client.create(name=name, user_id=user_id)
+    elif step_type == "rag":
+        from workflow.models import RAGStep
+        new_step = RAGStep(user_id=user_id, name=name, system_prompt="", vectordb_uuid=UUID(int=0), rerank=False, top_k=5)
+        await db._create_step_in_db(step=new_step, user_id=user_id)
     else:
         raise ValueError(f"Unknown step type: {step_type}")
 
@@ -319,6 +338,10 @@ async def update_step(step: WorkflowStep, user_id: UUID) -> Optional[WorkflowSte
         return await agent_client.update(step, user_id=user_id)
     elif step.type == "stop_checker":
         return await checker_client.update(step, user_id=user_id)
+    elif step.type == "rag":
+        # Generic update for RAG step in the workflow_steps table
+        await db._update_step_in_db(step=step, user_id=user_id)
+        return step
     else:
         logger.error(f"Attempted to update a step with an unknown type: {step.type}")
         return None
@@ -347,6 +370,8 @@ async def delete_step(workflow_uuid: UUID, step_uuid: UUID, user_id: UUID) -> No
         await agent_client.delete(uuid=step_uuid, user_id=user_id)
     elif step_to_delete.type == "stop_checker":
         await checker_client.delete(uuid=step_uuid, user_id=user_id)
+    elif step_to_delete.type == "rag":
+        await db._delete_step_in_db(uuid=step_uuid, user_id=user_id)
 
 
 async def reorder_steps(
@@ -486,6 +511,11 @@ async def list_available_step_types() -> List[Dict[str, Any]]:
             "type": "stop_checker",
             "name": "Stop Workflow",
             "description": "Stops the workflow if certain conditions are met.",
+        },
+        {
+            "type": "rag",
+            "name": "RAG",
+            "description": "Retrieve and optionally rerank results from a vector database, then return a grounded output.",
         },
     ]
 

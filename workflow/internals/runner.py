@@ -24,6 +24,8 @@ from workflow.models import (
     WorkflowInstanceModel,
     WorkflowStep,
     WorkflowStepInstance,
+    RAGStep,
+    RAGStepInstanceModel,
 )
 from jsonpath_ng import parse
 
@@ -32,6 +34,8 @@ from jsonpath_ng import parse
 from mcp_servers.tone_of_voice_mcpserver.src.services.openrouter_service import (
     openrouter_service,
 )
+
+from rag import client as rag_client
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +82,9 @@ def _prepare_input(
             elif hasattr(inst, 'checker_definition_uuid'):
                 # Checker steps don't produce output for other steps to consume
                 continue
+            elif hasattr(inst, 'rag_definition_uuid'):
+                def_uuid = inst.rag_definition_uuid
+                logger.info(f"RUNNER_DEBUG: Step instance {i} has rag_definition_uuid: {def_uuid}")
 
             if def_uuid:
                 logger.info(f"RUNNER_DEBUG: Found previous step instance of type {type(inst).__name__} with output. Storing output under key {str(def_uuid)}.")
@@ -233,7 +240,7 @@ async def run_workflow(instance_uuid: UUID, user_id: UUID):
                         if isinstance(inst, StopWorkflowCheckerInstanceModel):
                             continue
                         if inst.output:
-                            def_uuid = getattr(inst, 'llm_definition_uuid', None) or getattr(inst, 'agent_definition_uuid', None)
+                            def_uuid = getattr(inst, 'llm_definition_uuid', None) or getattr(inst, 'agent_definition_uuid', None) or getattr(inst, 'rag_definition_uuid', None)
                             if def_uuid:
                                 step_outputs[def_uuid] = inst.output
 
@@ -268,6 +275,32 @@ async def run_workflow(instance_uuid: UUID, user_id: UUID):
                         instance.status = "stopped"
                         await db._update_workflow_instance_in_db(instance, user_id)
                         break # Exit the while loop
+                elif step_def.type == "rag":
+                    # Create the instance model for RAG
+                    rag_instance = RAGStepInstanceModel(
+                        user_id=user_id,
+                        workflow_instance_uuid=instance_uuid,
+                        status="running",
+                        rag_definition_uuid=step_def.uuid,
+                    )
+                    instance.step_instances.append(rag_instance)
+                    await db._update_workflow_instance_in_db(instance, user_id)
+
+                    # Execute RAG step via rag client
+                    result = await rag_client.execute_step(
+                        user_id=user_id,
+                        workflow_instance_uuid=instance_uuid,
+                        rag_definition_uuid=step_def.uuid,
+                        prompt=prepared_config["system_prompt"],
+                        vectordb_uuid=step_def.vectordb_uuid,
+                        rerank=bool(step_def.rerank),
+                        top_k=int(step_def.top_k),
+                    )
+
+                    rag_instance.output = result["output"]
+                    rag_instance.status = "completed"
+                    rag_instance.finished_at = datetime.now(timezone.utc)
+                    await db._update_workflow_instance_in_db(instance, user_id)
 
                 logger.info(f"RUNNER_DEBUG: End of loop for step {step_uuid}. Total instances on workflow model: {len(instance.step_instances)}")
 

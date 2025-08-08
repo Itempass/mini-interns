@@ -1,6 +1,6 @@
 from pydantic import BaseModel
 from typing import Dict, Any
-from workflow.models import CustomAgent, CustomLLM, StopWorkflowChecker
+from workflow.models import CustomAgent, CustomLLM, StopWorkflowChecker, RAGStep
 
 
 class CreateWorkflowRequest(BaseModel):
@@ -36,7 +36,7 @@ class AddStepRequest(BaseModel):
     name: str
 
 
-UpdateStepRequest = CustomLLM | CustomAgent | StopWorkflowChecker 
+UpdateStepRequest = CustomLLM | CustomAgent | StopWorkflowChecker | RAGStep 
 
 
 class CreateFromTemplateRequest(BaseModel):

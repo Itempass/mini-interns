@@ -60,7 +60,23 @@ class CheckerResult(BaseModel):
     evaluated_input: str
 
 
-WorkflowStep = Union[CustomLLM, CustomAgent, StopWorkflowChecker]
+class RAGStep(BaseModel):
+    """A workflow step that performs retrieval-augmented generation over a vector database."""
+
+    uuid: UUID = Field(default_factory=uuid4)
+    user_id: UUID
+    name: str = Field(..., description="A unique, user-defined name for this step.")
+    description: str = Field(default="", description="A description of what this step does.")
+    type: Literal["rag"] = "rag"
+    system_prompt: str = Field(..., description="The query or prompt used to search and ground the response.")
+    vectordb_uuid: UUID = Field(..., description="The UUID of the configured vector database to use.")
+    rerank: bool = Field(default=False, description="Whether to apply reranking to retrieved documents.")
+    top_k: int = Field(default=5, description="The number of results to return (and optionally rerank).")
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+WorkflowStep = Union[CustomLLM, CustomAgent, StopWorkflowChecker, RAGStep]
 
 
 class WorkflowModel(BaseModel):
@@ -168,7 +184,25 @@ class StopWorkflowCheckerInstanceModel(BaseModel):
     # This step does not produce an output
 
 
-WorkflowStepInstance = Union[CustomLLMInstanceModel, CustomAgentInstanceModel, StopWorkflowCheckerInstanceModel]
+# --- New: RAG Step Instance ---
+class RAGStepInstanceModel(BaseModel):
+    """An instance of a RAG step execution."""
+
+    uuid: UUID = Field(default_factory=uuid4)
+    user_id: UUID
+    workflow_instance_uuid: UUID
+    status: Literal["pending", "running", "completed", "failed", "skipped", "cancelled"]
+    started_at: Optional[datetime] = Field(default_factory=lambda: datetime.now(timezone.utc))
+    finished_at: Optional[datetime] = None
+    error_message: Optional[str] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    rag_definition_uuid: UUID  # Link back to RAGStep definition
+    messages: List[MessageModel] = Field(default_factory=list)
+    input_data: Optional[Dict[str, Any]] = None
+    output: Optional[StepOutputData] = None
+
+
+WorkflowStepInstance = Union[CustomLLMInstanceModel, CustomAgentInstanceModel, StopWorkflowCheckerInstanceModel, RAGStepInstanceModel]
 
 
 class WorkflowInstanceModel(BaseModel):

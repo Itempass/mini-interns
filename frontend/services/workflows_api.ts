@@ -60,7 +60,19 @@ export interface StopWorkflowCheckerStep {
     match_values: string[];
 }
 
-export type WorkflowStep = CustomLLMStep | CustomAgentStep | StopWorkflowCheckerStep;
+export interface RAGStep {
+    uuid: string;
+    user_id: string;
+    name: string;
+    description: string;
+    type: 'rag';
+    system_prompt: string;
+    vectordb_uuid: string;
+    rerank: boolean;
+    top_k: number;
+}
+
+export type WorkflowStep = CustomLLMStep | CustomAgentStep | StopWorkflowCheckerStep | RAGStep;
 
 export interface WorkflowWithDetails {
     uuid: string;

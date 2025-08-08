@@ -1,8 +1,9 @@
 import React from 'react';
-import { WorkflowStep, CustomLLMStep, CustomAgentStep, StopWorkflowCheckerStep } from '../../services/workflows_api';
+import { WorkflowStep, CustomLLMStep, CustomAgentStep, StopWorkflowCheckerStep, RAGStep } from '../../services/workflows_api';
 import EditCustomLLMStep from './editors/EditCustomLLMStep';
 import EditCustomAgentStep from './editors/EditCustomAgentStep';
 import EditStopCheckerStep from './editors/EditStopCheckerStep';
+import EditRAGStep from './editors/EditRAGStep';
 
 interface StepEditorProps {
   step: WorkflowStep;
@@ -44,6 +45,17 @@ const StepEditor: React.FC<StepEditorProps> = ({ step, workflowSteps, onSave, ha
           precedingSteps={precedingSteps}
           onSave={onSave}
           onCancel={() => {}}
+        />
+      );
+    }
+    case 'rag': {
+      return (
+        <EditRAGStep
+          step={step as RAGStep}
+          precedingSteps={precedingSteps}
+          onSave={onSave}
+          onCancel={() => {}}
+          hasTrigger={hasTrigger}
         />
       );
     }

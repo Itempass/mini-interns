@@ -8,7 +8,8 @@ import {
     deleteVectorDatabase, 
     getAvailableProviders,
     VectorDatabase,
-    AvailableDbConfig
+    AvailableDbConfig,
+    testVectorDatabase
 } from '../../services/rag_api';
 
 const VectorDatabasesSettings = () => {
@@ -19,6 +20,8 @@ const VectorDatabasesSettings = () => {
     const [editingDb, setEditingDb] = useState<Partial<VectorDatabase> | null>(null);
     const [saveError, setSaveError] = useState<string | null>(null);
     const [isSaving, setIsSaving] = useState(false);
+    const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
+    const [isTesting, setIsTesting] = useState(false);
 
     useEffect(() => {
         const loadData = async () => {
@@ -50,12 +53,14 @@ const VectorDatabasesSettings = () => {
 
     const handleOpenModal = (db: Partial<VectorDatabase> | null = null) => {
         setEditingDb(db ? { ...db } : { name: '', provider: Object.keys(availableDbs)[0], settings: {} });
+        setTestResult(null);
         setIsModalOpen(true);
     };
 
     const handleCloseModal = () => {
         setIsModalOpen(false);
         setEditingDb(null);
+        setTestResult(null);
     };
 
     const handleSave = async () => {
@@ -105,6 +110,7 @@ const VectorDatabasesSettings = () => {
             // Provider cannot be changed after creation
             if (editingDb.uuid) return;
             setEditingDb({ ...editingDb, [name]: value, settings: {} });
+            setTestResult(null);
         } else {
             setEditingDb({ ...editingDb, [name]: value });
         }
@@ -120,11 +126,37 @@ const VectorDatabasesSettings = () => {
                 [name]: value,
             },
         });
+        setTestResult(null);
+    };
+
+    const handleTestConnection = async () => {
+        if (!editingDb?.uuid && editingDb) {
+            // Unsaved configuration: allow a quick, temporary test by creating a temp payload on server would be complex.
+            // For now, require saving first to test connection.
+            setTestResult({ ok: false, message: 'Please save this configuration before testing.' });
+            return;
+        }
+        if (!editingDb?.uuid) return;
+        setIsTesting(true);
+        setTestResult(null);
+        try {
+            const result = await testVectorDatabase(editingDb.uuid);
+            setTestResult(result);
+        } catch (e: any) {
+            setTestResult({ ok: false, message: e?.message || 'Test failed.' });
+        } finally {
+            setIsTesting(false);
+        }
     };
     
     if (isLoading) {
         return <div className="p-6">Loading...</div>;
     }
+
+    const isExternal = (providerKey: string | undefined) => {
+        if (!providerKey) return false;
+        return (availableDbs[providerKey]?.type === 'external');
+    };
 
     return (
         <div className="p-6">
@@ -165,6 +197,11 @@ const VectorDatabasesSettings = () => {
                                 {saveError}
                             </div>
                         )}
+                        {testResult && (
+                            <div className={`mb-3 p-2 text-sm rounded border ${testResult.ok ? 'text-green-800 bg-green-100 border-green-200' : 'text-red-800 bg-red-100 border-red-200'}`}>
+                                {testResult.message}
+                            </div>
+                        )}
                         <div className="space-y-4">
                             <div>
                                 <label className="block text-sm font-medium text-gray-700">Name</label>
@@ -197,9 +234,16 @@ const VectorDatabasesSettings = () => {
                             ))}
                         </div>
 
-                        <div className="mt-6 flex justify-end space-x-2">
-                            <button onClick={handleCloseModal} className="bg-gray-200 px-4 py-2 rounded hover:bg-gray-300">Cancel</button>
-                            <button onClick={handleSave} disabled={isSaving} className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 disabled:bg-gray-400">{isSaving ? 'Saving...' : 'Save'}</button>
+                        <div className="mt-6 flex justify-between items-center">
+                            {isExternal(editingDb.provider) && (
+                                <button onClick={handleTestConnection} disabled={isTesting} className="bg-white border px-4 py-2 rounded hover:bg-gray-50 disabled:bg-gray-100">
+                                    {isTesting ? 'Testing...' : 'Test Connection'}
+                                </button>
+                            )}
+                            <div className="flex gap-2 ml-auto">
+                                <button onClick={handleCloseModal} className="bg-gray-200 px-4 py-2 rounded hover:bg-gray-300">Cancel</button>
+                                <button onClick={handleSave} disabled={isSaving} className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 disabled:bg-gray-400">{isSaving ? 'Saving...' : 'Save'}</button>
+                            </div>
                         </div>
                     </div>
                 </div>

@@ -104,4 +104,13 @@ async def delete_vector_database_endpoint(uuid: UUID, user: User = Depends(get_c
     success = await rag_client.delete_vector_database(uuid, user.uuid)
     if not success:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vector database not found")
-    return 
+    return
+
+@router.post("/vector-databases/{uuid}/test", response_model=Dict[str, Any])
+async def test_vector_database_connection_endpoint(uuid: UUID, user: User = Depends(get_current_user)):
+    db_config = await rag_client.get_vector_database(uuid, user.uuid)
+    if not db_config:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vector database not found")
+    result = await rag_client.test_vector_database_connection(db_config)
+    # Normalize response
+    return {"ok": bool(result.get("ok")), "message": str(result.get("message", ""))} 

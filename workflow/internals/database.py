@@ -24,6 +24,8 @@ from workflow.models import (
     WorkflowModel,
     WorkflowStep,
     WorkflowStepInstance,
+    RAGStep,
+    RAGStepInstanceModel,
 )
 
 logger = logging.getLogger(__name__)
@@ -300,7 +302,7 @@ async def _create_step_in_db(step: WorkflowStep, user_id: UUID) -> WorkflowStep:
         async with conn.cursor(DictCursor) as cursor:
             # Exclude top-level fields that have their own columns
             details = step.model_dump(exclude={"uuid", "user_id", "name", "type", "created_at", "updated_at"})
-            details_json = json.dumps(details)
+            details_json = json.dumps(details, default=str)
             try:
                 await cursor.execute(
                     """
@@ -355,6 +357,8 @@ def _instantiate_step_from_row(row: dict, user_id: UUID) -> WorkflowStep | None:
         return CustomAgent(**data)
     elif step_type == "stop_checker":
         return StopWorkflowChecker(**data)
+    elif step_type == "rag":
+        return RAGStep(**data)
     else:
         logger.warning(f"Unknown step type '{step_type}' encountered.")
         return None
@@ -379,7 +383,7 @@ async def _update_step_in_db(step: WorkflowStep, user_id: UUID) -> WorkflowStep:
         async with conn.cursor(DictCursor) as cursor:
             # Exclude top-level fields that have their own columns
             details = step.model_dump(exclude={"uuid", "user_id", "name", "type", "created_at", "updated_at"})
-            details_json = json.dumps(details)
+            details_json = json.dumps(details, default=str)
             try:
                 await cursor.execute(
                     """
@@ -751,6 +755,8 @@ async def _create_step_instance_in_db(instance: WorkflowStepInstance, user_id: U
                     step_definition_uuid_attr = "agent_definition_uuid"
                 elif isinstance(instance, StopWorkflowCheckerInstanceModel):
                     step_definition_uuid_attr = "checker_definition_uuid"
+                elif isinstance(instance, RAGStepInstanceModel):
+                    step_definition_uuid_attr = "rag_definition_uuid"
                 else:
                     raise TypeError(f"Unknown step instance type: {type(instance)}")
 
@@ -772,9 +778,9 @@ async def _create_step_instance_in_db(instance: WorkflowStepInstance, user_id: U
                         instance.finished_at,
                         instance.output.model_dump_json() if instance.output else None,
                         json.dumps({
-                            "messages": [msg.model_dump() for msg in instance.messages],
-                            "error_message": instance.error_message,
-                            "input_data": instance.input_data,
+                            "messages": [msg.model_dump() for msg in instance.messages] if hasattr(instance, "messages") else [],
+                            "error_message": instance.error_message if hasattr(instance, "error_message") else None,
+                            "input_data": instance.input_data if hasattr(instance, "input_data") else None,
                         }),
                         instance.created_at,
                     ),
@@ -820,6 +826,8 @@ def _instantiate_step_instance_from_row(row: dict, step_definition_type: str, us
         base_fields.pop("output")
         base_fields.pop("messages")
         return StopWorkflowCheckerInstanceModel(checker_definition_uuid=UUID(bytes=row["step_definition_uuid"]), **base_fields)
+    elif step_definition_type == "rag":
+        return RAGStepInstanceModel(rag_definition_uuid=UUID(bytes=row["step_definition_uuid"]), **base_fields)
     else:
         logger.warning(f"Unknown step definition type '{step_definition_type}' encountered.")
         return None
