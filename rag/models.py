@@ -12,7 +12,7 @@ class VectorDatabase(BaseModel):
     user_id: UUID
     name: str = Field(..., description="A user-friendly name for the vector database configuration.")
     type: Literal["internal", "external"]
-    provider: str = Field(..., description="The specific provider, e.g., 'pinecone', 'imap_email_threads'.")
+    provider: str = Field(..., description="The specific provider, e.g., 'pinecone-serverless', 'imap_email_threads'.")
     settings: Dict[str, Any] = Field(default_factory=dict)
     status: Optional[str] = None
     error_message: Optional[str] = None

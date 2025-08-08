@@ -1,5 +1,5 @@
 {
-    "pinecone": {
+    "pinecone-serverless": {
         "settings": {
             "index_name": "str",
             "namespace": "str",

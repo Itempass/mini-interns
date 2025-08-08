@@ -217,21 +217,27 @@ const VectorDatabasesSettings = () => {
                                 )}
                             </div>
 
-                            {Object.entries(availableDbs[editingDb.provider!].settings).map(([key, schema]) => (
-                                <div key={key}>
-                                    <label className="block text-sm font-medium text-gray-700">{key}</label>
-                                    {Array.isArray(schema) ? (
-                                        <select name={key} value={editingDb.settings?.[key] || ''} onChange={handleSettingsChange} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3">
-                                            <option value="" disabled>Select an option</option>
-                                            {schema.map((opt: any) => (
-                                                <option key={String(opt)} value={String(opt)}>{String(opt)}</option>
-                                            ))}
-                                        </select>
-                                    ) : (
-                                        <input type="text" name={key} value={editingDb.settings?.[key] || ''} onChange={handleSettingsChange} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3"/>
-                                    )}
+                            {availableDbs[editingDb.provider!]?.settings ? (
+                                Object.entries(availableDbs[editingDb.provider!].settings).map(([key, schema]) => (
+                                    <div key={key}>
+                                        <label className="block text-sm font-medium text-gray-700">{key}</label>
+                                        {Array.isArray(schema) ? (
+                                            <select name={key} value={editingDb.settings?.[key] || ''} onChange={handleSettingsChange} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3">
+                                                <option value="" disabled>Select an option</option>
+                                                {schema.map((opt: any) => (
+                                                    <option key={String(opt)} value={String(opt)}>{String(opt)}</option>
+                                                ))}
+                                            </select>
+                                        ) : (
+                                            <input type="text" name={key} value={editingDb.settings?.[key] || ''} onChange={handleSettingsChange} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3"/>
+                                        )}
+                                    </div>
+                                ))
+                            ) : (
+                                <div className="p-2 text-sm text-red-800 bg-red-100 border border-red-200 rounded">
+                                    Provider '{editingDb.provider}' is not available. Create a new configuration using a supported provider (e.g., 'pinecone-serverless').
                                 </div>
-                            ))}
+                            )}
                         </div>
 
                         <div className="mt-6 flex justify-between items-center">
