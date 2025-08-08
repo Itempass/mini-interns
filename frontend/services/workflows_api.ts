@@ -21,6 +21,8 @@ export interface TriggerModel {
     user_id: string;
     workflow_uuid: string;
     filter_rules: any;
+    trigger_prompt?: string;
+    trigger_model?: string;
     initial_data_description: string;
     created_at: string;
     updated_at: string;
@@ -441,16 +443,19 @@ export const removeWorkflowTrigger = async (workflowId: string): Promise<Workflo
 
 export const updateWorkflowTrigger = async (
     workflowId: string, 
-    filterRules: any
+    triggerData: {
+      filter_rules?: any;
+      trigger_prompt?: string;
+      trigger_model?: string;
+    }
 ): Promise<WorkflowWithDetails | null> => {
     try {
         const url = `${API_URL}/workflows/${workflowId}/trigger`;
-        const body = { filter_rules: filterRules };
-        console.log('[workflows_api] Sending PUT request to:', url, 'with body:', JSON.stringify(body));
+        console.log('[workflows_api] Sending PUT request to:', url, 'with body:', JSON.stringify(triggerData));
 
         const data = await jsonApiFetch(url, {
             method: 'PUT',
-            body: JSON.stringify(body),
+            body: JSON.stringify(triggerData),
         });
 
         console.log('[workflows_api] Received response with status: 200');

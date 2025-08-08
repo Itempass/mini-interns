@@ -431,6 +431,8 @@ async def _create_trigger_in_db(trigger: TriggerModel, user_id: UUID) -> Trigger
             # The 'details' field will store the filter rules and description
             details = {
                 "filter_rules": trigger.filter_rules,
+                "trigger_prompt": trigger.trigger_prompt,
+                "trigger_model": trigger.trigger_model,
                 "initial_data_description": trigger.initial_data_description,
             }
             details_json = json.dumps(details)
@@ -478,6 +480,8 @@ async def _get_trigger_from_db(uuid: UUID, user_id: UUID) -> TriggerModel | None
                 user_id=user_id,
                 workflow_uuid=UUID(bytes=row["workflow_uuid"]),
                 filter_rules=details.get("filter_rules", {}),
+                trigger_prompt=details.get("trigger_prompt"),
+                trigger_model=details.get("trigger_model"),
                 initial_data_description=details.get("initial_data_description", ""),
                 created_at=row["created_at"],
                 updated_at=row["updated_at"],
@@ -503,6 +507,8 @@ async def _list_triggers_from_db(user_id: UUID) -> list[TriggerModel]:
                         user_id=user_id,
                         workflow_uuid=UUID(bytes=row["workflow_uuid"]),
                         filter_rules=details.get("filter_rules", {}),
+                        trigger_prompt=details.get("trigger_prompt"),
+                        trigger_model=details.get("trigger_model"),
                         initial_data_description=details.get(
                             "initial_data_description", ""
                         ),
@@ -535,6 +541,8 @@ async def _get_trigger_for_workflow_from_db(
                 user_id=user_id,
                 workflow_uuid=UUID(bytes=row["workflow_uuid"]),
                 filter_rules=details.get("filter_rules", {}),
+                trigger_prompt=details.get("trigger_prompt"),
+                trigger_model=details.get("trigger_model"),
                 initial_data_description=details.get("initial_data_description", ""),
                 created_at=row["created_at"],
                 updated_at=row["updated_at"],
@@ -546,6 +554,8 @@ async def _update_trigger_in_db(trigger: TriggerModel, user_id: UUID) -> Trigger
         async with conn.cursor(DictCursor) as cursor:
             details = {
                 "filter_rules": trigger.filter_rules,
+                "trigger_prompt": trigger.trigger_prompt,
+                "trigger_model": trigger.trigger_model,
                 "initial_data_description": trigger.initial_data_description,
             }
             details_json = json.dumps(details)

@@ -712,9 +712,18 @@ async def update_workflow_trigger(
             detail="No trigger found for this workflow"
         )
     
-    # Update the trigger's filter rules
-    logger.info(f"Updating trigger {trigger.uuid} with filter rules: {request.filter_rules}")
-    trigger.filter_rules = request.filter_rules
+    # Update the trigger's details
+    if request.filter_rules is not None:
+        logger.info(f"Updating trigger {trigger.uuid} with filter rules: {request.filter_rules}")
+        trigger.filter_rules = request.filter_rules
+    
+    if request.trigger_prompt is not None:
+        logger.info(f"Updating trigger {trigger.uuid} with trigger_prompt")
+        trigger.trigger_prompt = request.trigger_prompt
+
+    if request.trigger_model is not None:
+        logger.info(f"Updating trigger {trigger.uuid} with trigger_model")
+        trigger.trigger_model = request.trigger_model
     
     # Save the updated trigger
     await trigger_client.update(trigger_model=trigger, user_id=user.uuid)

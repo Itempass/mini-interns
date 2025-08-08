@@ -86,6 +86,8 @@ class TriggerModel(BaseModel):
     user_id: UUID
     workflow_uuid: UUID
     filter_rules: Dict[str, Any] = Field(default_factory=dict)
+    trigger_prompt: Optional[str] = None
+    trigger_model: str = "google/gemini-2.5-flash"
     initial_data_description: str = Field(..., description="Description of the initial data passed to the workflow.")
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

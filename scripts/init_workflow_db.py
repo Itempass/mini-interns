@@ -3,6 +3,7 @@ import time
 import os
 from shared.config import settings
 import logging
+import json
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -176,6 +177,28 @@ def init_workflow_db():
                 logger.info(f"{cursor.rowcount} user(s) updated to initial balance.")
             # --- End of User Balance Migration ---
             
+            # --- Start of Trigger Model Backfill Migration ---
+            logger.info("Starting trigger_model backfill migration...")
+            try:
+                cursor.execute("SELECT uuid, details FROM triggers")
+                triggers = cursor.fetchall()
+                logger.info(f"Found {len(triggers)} triggers to check.")
+                
+                for trigger_uuid_bytes, details_json in triggers:
+                    trigger_uuid = trigger_uuid_bytes.hex()
+                    details = json.loads(details_json) if details_json else {}
+                    
+                    if "trigger_model" not in details or not details["trigger_model"]:
+                        details["trigger_model"] = "google/gemini-2.5-flash"
+                        updated_details_json = json.dumps(details)
+                        
+                        update_query = "UPDATE triggers SET details = %s WHERE uuid = UUID_TO_BIN(%s)"
+                        cursor.execute(update_query, (updated_details_json, trigger_uuid))
+                        logger.info(f"Updated trigger {trigger_uuid} to include default trigger_model.")
+            except mysql.connector.Error as err:
+                logger.error(f"An error occurred during the trigger_model backfill migration: {err}")
+            # --- End of Trigger Model Backfill Migration ---
+
             conn.commit()
             cursor.close()
             conn.close()

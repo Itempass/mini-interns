@@ -7,7 +7,6 @@ import { JsonSchemaForm } from './JsonSchemaForm';
 import { StepSidebar } from './StepSidebar';
 import { isEqual } from 'lodash';
 
-
 interface CreateEvaluationTemplateModalProps {
   isOpen: boolean;
   onClose: () => void;

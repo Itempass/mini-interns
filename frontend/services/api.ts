@@ -555,38 +555,6 @@ export interface Template {
   description: string;
 }
 
-export const getAgents = async (): Promise<Agent[]> => {
-  try {
-    return await jsonApiFetch(`${API_URL}/agents`);
-  } catch (error) {
-    console.error('Error fetching agents:', error);
-    return [];
-  }
-};
-
-export const getAgent = async (uuid: string): Promise<Agent | null> => {
-  try {
-    const data = await jsonApiFetch(`${API_URL}/agents/${uuid}`);
-    console.log(`[getAgent] Fetched data for agent ${uuid}:`, data);
-    return data;
-  } catch (error) {
-    console.error(`Error fetching agent ${uuid}:`, error);
-    return null;
-  }
-};
-
-export const updateAgent = async (agent: Agent): Promise<Agent | null> => {
-  try {
-    return await jsonApiFetch(`${API_URL}/agents/${agent.uuid}`, {
-      method: 'PUT',
-      body: JSON.stringify(agent),
-    });
-  } catch (error) {
-    console.error(`Error updating agent ${agent.uuid}:`, error);
-    return null;
-  }
-};
-
 export const generateLabelDescriptions = async (agentUuid: string): Promise<Agent | null> => {
   try {
     return await jsonApiFetch(`${API_URL}/agents/${agentUuid}/generate-descriptions`, {
