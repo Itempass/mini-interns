@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { TriggerModel, getAvailableLLMModels, LLMModel } from '../../../services/workflows_api';
+import { Tooltip } from 'react-tooltip'
 
 interface EditNewEmailTriggerProps {
   trigger: TriggerModel;
@@ -28,6 +29,7 @@ const EditNewEmailTrigger: React.FC<EditNewEmailTriggerProps> = ({ trigger, onSa
   });
   
   const [isDirty, setIsDirty] = useState(false);
+  const [initialTriggerState, setInitialTriggerState] = useState<Partial<TriggerModel>>({});
 
   // Initialize from trigger
   useEffect(() => {
@@ -41,6 +43,10 @@ const EditNewEmailTrigger: React.FC<EditNewEmailTriggerProps> = ({ trigger, onSa
     setFilterRuleStrings(newFilterRuleStrings);
     setTriggerPrompt(trigger?.trigger_prompt || '');
     setSelectedModel(trigger?.trigger_model || '');
+    setInitialTriggerState({
+        filter_rules: trigger?.filter_rules || {},
+        trigger_prompt: trigger?.trigger_prompt || ''
+    });
     
     setFilterErrors({
       email_blacklist: '',
@@ -128,14 +134,82 @@ const EditNewEmailTrigger: React.FC<EditNewEmailTriggerProps> = ({ trigger, onSa
     console.log('[EditNewEmailTrigger] Saving with trigger data:', triggerData);
     onSave(triggerData);
     setIsDirty(false);
+    setInitialTriggerState({
+        filter_rules: triggerData.filter_rules,
+        trigger_prompt: triggerData.trigger_prompt
+    });
   };
+
+  const isSmartFilterActive = initialTriggerState.trigger_prompt && initialTriggerState.trigger_prompt.length > 0;
+  const isSimpleFilterActive = initialTriggerState.filter_rules && Object.values(initialTriggerState.filter_rules).some(arr => Array.isArray(arr) && arr.length > 0);
+
 
   return (
     <div className="p-6">
+        <Tooltip id="smart-filter-tooltip" />
+        <Tooltip id="simple-filter-tooltip" />
         <div className="space-y-6">
+            {/* LLM-based Filter Section */}
+            <div>
+                <div className="flex items-center mb-4">
+                    <h3 className="text-lg font-medium text-gray-900">Smart Filter</h3>
+                    <span 
+                        data-tooltip-id="smart-filter-tooltip"
+                        data-tooltip-content={isSmartFilterActive ? "This filter is active." : "Type something in the filter field and save to activate."}
+                        data-tooltip-delay-show={0}
+                        className={`ml-2 px-2 py-0.5 text-xs font-semibold rounded-full ${isSmartFilterActive ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}
+                    >
+                        {isSmartFilterActive ? 'active: the workflow will first be evaluated against this filter' : 'inactive: the workflow will skip this filter'}
+                    </span>
+                </div>
+                <div className="space-y-4">
+                     <div>
+                        <label className="block text-sm font-medium text-gray-700">Trigger Prompt</label>
+                        <textarea 
+                            name="trigger_prompt" 
+                            value={triggerPrompt} 
+                            onChange={handleInputChange} 
+                            rows={4} 
+                            className="mt-1 block w-full rounded-md border-gray-400 shadow-sm sm:text-sm p-2 border" 
+                            placeholder="e.g., Only trigger if the email is a customer inquiry and is written in English."
+                        />
+                        <p className="text-xs text-gray-600 mt-1">Use natural language to describe when the workflow should run. The full email content will be checked against this prompt.</p>
+                    </div>
+                    <div>
+                        <label htmlFor="trigger-model" className="block text-sm font-medium text-gray-700">Language Model</label>
+                        <select
+                            id="trigger-model"
+                            name="trigger_model"
+                            value={selectedModel}
+                            onChange={handleInputChange}
+                            className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                            disabled={isLoadingModels}
+                        >
+                            {isLoadingModels ? (
+                                <option>Loading models...</option>
+                            ) : (
+                                availableModels.map(model => (
+                                    <option key={model.id} value={model.id}>{model.name}</option>
+                                ))
+                            )}
+                        </select>
+                        <p className="text-xs text-gray-600 mt-1">The model that will evaluate the email against your prompt.</p>
+                    </div>
+                </div>
+            </div>
             {/* Filter Rules Section */}
             <div>
-                <h3 className="text-lg font-medium text-gray-900 mb-4">Simple Filters</h3>
+                <div className="flex items-center mb-4">
+                    <h3 className="text-lg font-medium text-gray-900">Simple Filters</h3>
+                    <span 
+                        data-tooltip-id="simple-filter-tooltip"
+                        data-tooltip-content={isSimpleFilterActive ? "This filter is active." : "Type something in the filter field and save to activate."}
+                        data-tooltip-delay-show={0}
+                        className={`ml-2 px-2 py-0.5 text-xs font-semibold rounded-full ${isSimpleFilterActive ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}
+                    >
+                        {isSimpleFilterActive ? 'active: the workflow will first be evaluated against this filter' : 'inactive: the workflow will skip this filter'}
+                    </span>
+                </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700">Email Blacklist</label>
@@ -195,44 +269,6 @@ const EditNewEmailTrigger: React.FC<EditNewEmailTriggerProps> = ({ trigger, onSa
                 </div>
             </div>
 
-            {/* LLM-based Filter Section */}
-            <div>
-                <h3 className="text-lg font-medium text-gray-900 mb-4">Smart Filter</h3>
-                <div className="space-y-4">
-                     <div>
-                        <label className="block text-sm font-medium text-gray-700">Trigger Prompt</label>
-                        <textarea 
-                            name="trigger_prompt" 
-                            value={triggerPrompt} 
-                            onChange={handleInputChange} 
-                            rows={4} 
-                            className="mt-1 block w-full rounded-md border-gray-400 shadow-sm sm:text-sm p-2 border" 
-                            placeholder="e.g., Only trigger if the email is a customer inquiry and is written in English."
-                        />
-                        <p className="text-xs text-gray-600 mt-1">Use natural language to describe when the workflow should run. The full email content will be checked against this prompt.</p>
-                    </div>
-                    <div>
-                        <label htmlFor="trigger-model" className="block text-sm font-medium text-gray-700">Language Model</label>
-                        <select
-                            id="trigger-model"
-                            name="trigger_model"
-                            value={selectedModel}
-                            onChange={handleInputChange}
-                            className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                            disabled={isLoadingModels}
-                        >
-                            {isLoadingModels ? (
-                                <option>Loading models...</option>
-                            ) : (
-                                availableModels.map(model => (
-                                    <option key={model.id} value={model.id}>{model.name}</option>
-                                ))
-                            )}
-                        </select>
-                        <p className="text-xs text-gray-600 mt-1">The model that will evaluate the email against your prompt.</p>
-                    </div>
-                </div>
-            </div>
         </div>
       
       <div className="flex justify-end space-x-3 mt-6">

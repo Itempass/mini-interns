@@ -229,7 +229,7 @@ If the email does not match:
                 logger.info(f"LLM decided to trigger workflow for email from '{msg.from_}'.")
             except Exception as e:
                 logger.error(f"Error processing LLM trigger prompt for workflow '{workflow.name}': {e}", exc_info=True)
-                continue
+            continue
 
         # If all checks pass, we have a match.
         logger.info(f"SUCCESS: Email matched trigger for workflow '{workflow.name}'. Kicking off instance.")
