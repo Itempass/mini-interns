@@ -102,6 +102,8 @@ const VectorDatabasesSettings = () => {
         const { name, value } = e.target;
 
         if (name === "provider") {
+            // Provider cannot be changed after creation
+            if (editingDb.uuid) return;
             setEditingDb({ ...editingDb, [name]: value, settings: {} });
         } else {
             setEditingDb({ ...editingDb, [name]: value });
@@ -170,9 +172,12 @@ const VectorDatabasesSettings = () => {
                             </div>
                             <div>
                                 <label className="block text-sm font-medium text-gray-700">Provider</label>
-                                <select name="provider" value={editingDb.provider || ''} onChange={handleInputChange} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3">
+                                <select name="provider" value={editingDb.provider || ''} onChange={handleInputChange} disabled={Boolean(editingDb.uuid)} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 disabled:bg-gray-100">
                                     {Object.keys(availableDbs).map(key => <option key={key} value={key}>{key}</option>)}
                                 </select>
+                                {editingDb.uuid && (
+                                    <p className="mt-1 text-xs text-gray-500">Provider cannot be changed after creation.</p>
+                                )}
                             </div>
 
                             {Object.entries(availableDbs[editingDb.provider!].settings).map(([key, schema]) => (
