@@ -51,27 +51,27 @@ def init_workflow_db():
             if os.path.exists(optimizer_schema_path):
                 logger.info(f"Reading schema from {optimizer_schema_path}")
                 with open(optimizer_schema_path, 'r') as f:
-                    optimizer_sql_script = f.read()
-                for statement in optimizer_sql_script.split(';'):
+                    sql_script = f.read()
+                for statement in sql_script.split(';'):
                     statement = statement.strip()
                     if statement:
                         try:
                             cursor.execute(statement)
                         except mysql.connector.Error as err:
-                            if err.errno == 1061:  # ER_DUP_KEYNAME for MySQL
-                                logger.info(f"Ignoring duplicate key/index error for optimizer schema: {err}")
+                            if err.errno == 1061: # ER_DUP_KEYNAME for MySQL
+                                logger.info(f"Ignoring duplicate key/index error for prompt_optimizer schema: {err}")
                             else:
                                 raise err
             else:
                 logger.warning(f"Schema file not found at {optimizer_schema_path}. Skipping.")
-
+            
             # Execute each statement from the user schema file
             user_schema_path = os.path.join('user', 'schema.sql')
             if os.path.exists(user_schema_path):
                 logger.info(f"Reading schema from {user_schema_path}")
                 with open(user_schema_path, 'r') as f:
-                    user_sql_script = f.read()
-                for statement in user_sql_script.split(';'):
+                    sql_script = f.read()
+                for statement in sql_script.split(';'):
                     statement = statement.strip()
                     if statement:
                         try:
@@ -84,8 +84,26 @@ def init_workflow_db():
             else:
                 logger.warning(f"Schema file not found at {user_schema_path}. Skipping.")
 
-            # --- Migrations ---
-            # Now that tables are created, run all migrations.
+            # Execute each statement from the rag schema file
+            rag_schema_path = os.path.join('rag', 'schema.sql')
+            if os.path.exists(rag_schema_path):
+                logger.info(f"Reading schema from {rag_schema_path}")
+                with open(rag_schema_path, 'r') as f:
+                    sql_script = f.read()
+                for statement in sql_script.split(';'):
+                    statement = statement.strip()
+                    if statement:
+                        try:
+                            cursor.execute(statement)
+                        except mysql.connector.Error as err:
+                            if err.errno == 1061: # ER_DUP_KEYNAME for MySQL
+                                logger.info(f"Ignoring duplicate key/index error for rag schema: {err}")
+                            else:
+                                raise err
+
+            # --- Migration Scripts ---
+            # Now that all tables are guaranteed to exist, run migration scripts.
+            logger.info("Running migration scripts...")
 
             # --- Start of Default System User Creation ---
             # As per our plan, we only create a default user if we are in password-auth mode.

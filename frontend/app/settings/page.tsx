@@ -8,6 +8,7 @@ import SettingsSidebar from '../../components/settings/SettingsSidebar';
 import ImapSettings from '../../components/settings/ImapSettings';
 import McpServersSettings from '../../components/settings/McpServersSettings';
 import BalanceSettings from '../../components/settings/BalanceSettings';
+import VectorDatabasesSettings from '../../components/settings/VectorDatabasesSettings';
 
 const SettingsPage = () => {
   const [version, setVersion] = useState<string>('');
@@ -45,6 +46,7 @@ const SettingsPage = () => {
             )}
             {selectedCategory === 'mcp' && <McpServersSettings />}
             {selectedCategory === 'balance' && <BalanceSettings />}
+            {selectedCategory === 'vector-databases' && <VectorDatabasesSettings />}
         </div>
 
         {isHelpPanelOpen && (

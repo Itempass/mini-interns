@@ -1,0 +1,17 @@
+{
+    "pinecone": {
+        "settings": {
+            "index_name": "str",
+            "namespace": "str",
+            "cloud": "str",
+            "region": "str",
+            "embedding_model": {"available_options":"shared/embedding_models.json"},
+            "api_key": "str"
+        },
+        "type":"external"
+    },
+    "imap_email_threads": {
+        "settings": {},
+        "type":"internal"
+    }
+}

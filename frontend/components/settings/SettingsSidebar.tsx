@@ -41,6 +41,12 @@ const SettingsSidebar: React.FC<SettingsSidebarProps> = ({ version, selectedCate
           >
             Balance
           </li>
+          <li
+            className={getListItemClasses('vector-databases')}
+            onClick={() => setSelectedCategory('vector-databases')}
+          >
+            Vector Databases
+          </li>
         </ul>
       </div>
       {version && (
