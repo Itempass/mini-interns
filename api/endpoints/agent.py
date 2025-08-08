@@ -17,6 +17,7 @@ from pathlib import Path
 
 #from agent import client as agent_client
 #from agent.models import AgentModel, TriggerModel
+from workflow import agent_client
 
 from user.models import User
 from api.endpoints.auth import get_current_user
