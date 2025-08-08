@@ -714,8 +714,8 @@ async def update_workflow_trigger(
     
     # Update the trigger's details
     if request.filter_rules is not None:
-    logger.info(f"Updating trigger {trigger.uuid} with filter rules: {request.filter_rules}")
-    trigger.filter_rules = request.filter_rules
+        logger.info(f"Updating trigger {trigger.uuid} with filter rules: {request.filter_rules}")
+        trigger.filter_rules = request.filter_rules
     
     if request.trigger_prompt is not None:
         logger.info(f"Updating trigger {trigger.uuid} with trigger_prompt")
