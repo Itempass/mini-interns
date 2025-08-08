@@ -1,9 +1,8 @@
-from uuid import UUID, uuid4
+from uuid import UUID
 from typing import List, Optional, Dict, Any
 import json
 import os
 from .models import VectorDatabase
-from api.types.api_models.rag import CreateVectorDatabaseRequest
 from .internals import database as db
 
 RAG_AVAILABLE_PATH = os.path.join(os.path.dirname(__file__), 'available.json')
@@ -16,13 +15,8 @@ async def get_available_providers() -> Dict[str, Any]:
     except (FileNotFoundError, json.JSONDecodeError):
         return {}
 
-async def create_vector_database(request: CreateVectorDatabaseRequest, user_id: UUID) -> VectorDatabase:
+async def create_vector_database(db_config: VectorDatabase) -> VectorDatabase:
     """Creates a new vector database configuration."""
-    db_config = VectorDatabase(
-        uuid=uuid4(),
-        user_id=user_id,
-        **request.model_dump()
-    )
     return await db._create_vector_database_in_db(db_config)
 
 async def get_vector_database(uuid: UUID, user_id: UUID) -> Optional[VectorDatabase]:

@@ -17,6 +17,8 @@ const VectorDatabasesSettings = () => {
     const [isLoading, setIsLoading] = useState(true);
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingDb, setEditingDb] = useState<Partial<VectorDatabase> | null>(null);
+    const [saveError, setSaveError] = useState<string | null>(null);
+    const [isSaving, setIsSaving] = useState(false);
 
     useEffect(() => {
         const loadData = async () => {
@@ -58,6 +60,8 @@ const VectorDatabasesSettings = () => {
 
     const handleSave = async () => {
         if (!editingDb || !editingDb.provider) return;
+        setSaveError(null);
+        setIsSaving(true);
 
         try {
             if (editingDb.uuid) {
@@ -74,8 +78,11 @@ const VectorDatabasesSettings = () => {
             }
             fetchDatabases();
             handleCloseModal();
-        } catch (error) {
+        } catch (error: any) {
             console.error("Failed to save vector database:", error);
+            setSaveError(error?.message || 'Failed to save.');
+        } finally {
+            setIsSaving(false);
         }
     };
 
@@ -101,7 +108,7 @@ const VectorDatabasesSettings = () => {
         }
     };
 
-    const handleSettingsChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const handleSettingsChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
         if (!editingDb) return;
         const { name, value } = e.target;
         setEditingDb({
@@ -151,7 +158,11 @@ const VectorDatabasesSettings = () => {
                 <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center">
                     <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-md">
                         <h3 className="text-xl font-bold mb-4">{editingDb.uuid ? 'Edit' : 'Add'} Vector Database</h3>
-                        
+                        {saveError && (
+                            <div className="mb-3 p-2 text-sm text-red-800 bg-red-100 border border-red-200 rounded">
+                                {saveError}
+                            </div>
+                        )}
                         <div className="space-y-4">
                             <div>
                                 <label className="block text-sm font-medium text-gray-700">Name</label>
@@ -164,17 +175,26 @@ const VectorDatabasesSettings = () => {
                                 </select>
                             </div>
 
-                            {Object.entries(availableDbs[editingDb.provider!].settings).map(([key, type]) => (
+                            {Object.entries(availableDbs[editingDb.provider!].settings).map(([key, schema]) => (
                                 <div key={key}>
                                     <label className="block text-sm font-medium text-gray-700">{key}</label>
-                                    <input type="text" name={key} value={editingDb.settings?.[key] || ''} onChange={handleSettingsChange} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3"/>
+                                    {Array.isArray(schema) ? (
+                                        <select name={key} value={editingDb.settings?.[key] || ''} onChange={handleSettingsChange} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3">
+                                            <option value="" disabled>Select an option</option>
+                                            {schema.map((opt: any) => (
+                                                <option key={String(opt)} value={String(opt)}>{String(opt)}</option>
+                                            ))}
+                                        </select>
+                                    ) : (
+                                        <input type="text" name={key} value={editingDb.settings?.[key] || ''} onChange={handleSettingsChange} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3"/>
+                                    )}
                                 </div>
                             ))}
                         </div>
 
                         <div className="mt-6 flex justify-end space-x-2">
                             <button onClick={handleCloseModal} className="bg-gray-200 px-4 py-2 rounded hover:bg-gray-300">Cancel</button>
-                            <button onClick={handleSave} className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">Save</button>
+                            <button onClick={handleSave} disabled={isSaving} className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 disabled:bg-gray-400">{isSaving ? 'Saving...' : 'Save'}</button>
                         </div>
                     </div>
                 </div>

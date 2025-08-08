@@ -184,6 +184,47 @@ class EmbeddingService:
 # A single instance to be used across the application
 embedding_service = EmbeddingService()
 
+# --- Simple helper functions for options ---
+@lru_cache(maxsize=1)
+def _load_all_embedding_models() -> Dict[str, Any]:
+    try:
+        with open("shared/embedding_models.json", "r") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        raise ValueError("embedding_models.json not found.")
+
+def list_embedding_model_keys() -> List[str]:
+    """Returns a simple list of available embedding model keys."""
+    models = _load_all_embedding_models()
+    return list(models.keys())
+
+def get_embedding_model_vector_size(model_key: str) -> int:
+    """Returns the vector size for a given embedding model key."""
+    info = EmbeddingService._get_model_info(model_key)
+    return int(info.get("vector_size"))
+
+# --- Validation helpers ---
+def get_provider_for_model(model_key: str) -> str:
+    info = EmbeddingService._get_model_info(model_key)
+    provider = info.get("provider")
+    if not provider:
+        raise ValueError(f"Provider not found for model '{model_key}'.")
+    return provider
+
+def has_api_key_for_provider(provider: str) -> bool:
+    if provider == "voyage":
+        return bool(settings.EMBEDDING_VOYAGE_API_KEY) and settings.EMBEDDING_VOYAGE_API_KEY != "EDIT-ME"
+    if provider == "openai":
+        return bool(settings.EMBEDDING_OPENAI_API_KEY) and settings.EMBEDDING_OPENAI_API_KEY != "EDIT-ME"
+    return False
+
+def validate_embedding_api_key_for_model(model_key: str) -> None:
+    provider = get_provider_for_model(model_key)
+    if not has_api_key_for_provider(provider):
+        env_name = "EMBEDDING_VOYAGE_API_KEY" if provider == "voyage" else "EMBEDDING_OPENAI_API_KEY"
+        raise ValueError(f"Missing API key for provider '{provider}'. Please set {env_name} in your environment.")
+
+
 def get_embedding(text: str, user_uuid: Optional[UUID] = None) -> List[float]:
     """Convenience function to get an embedding for a single text for a specific user."""
     return embedding_service.create_embedding(text, user_uuid=user_uuid)

@@ -5,7 +5,7 @@
             "namespace": "str",
             "cloud": "str",
             "region": "str",
-            "embedding_model": {"available_options":"shared/embedding_models.json"},
+            "embedding_model": {"select_embedding_model": true},
             "api_key": "str"
         },
         "type":"external"
