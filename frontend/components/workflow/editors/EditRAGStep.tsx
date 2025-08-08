@@ -25,6 +25,8 @@ const EditRAGStep: React.FC<EditRAGStepProps> = ({ step, onSave, onCancel, hasTr
   const [showNoReferencesHelp, setShowNoReferencesHelp] = useState(false);
   const { timezone } = useTimezone();
 
+  const isVectorDbSelected = currentStep.vectordb_uuid && currentStep.vectordb_uuid !== '00000000-0000-0000-0000-000000000000';
+
   const hasNoReferences =
     (hasTrigger || (precedingSteps && precedingSteps.length > 0)) &&
     !currentStep.system_prompt.includes('<<trigger_output>>') &&
@@ -36,11 +38,7 @@ const EditRAGStep: React.FC<EditRAGStepProps> = ({ step, onSave, onCancel, hasTr
       try {
         const dbs = await listVectorDatabases();
         setVectorDbs(dbs);
-        if (!currentStep.vectordb_uuid && dbs.length > 0) {
-          const updated = { ...currentStep, vectordb_uuid: dbs[0].uuid };
-          setCurrentStep(updated);
-          onSave(updated);
-        }
+        // Removed auto-select logic; keep selection empty until user chooses explicitly
       } finally {
         setIsLoadingDbs(false);
       }
@@ -119,6 +117,14 @@ const EditRAGStep: React.FC<EditRAGStepProps> = ({ step, onSave, onCancel, hasTr
             </span>
           </div>
         )}
+        {!isVectorDbSelected && vectorDbs.length > 0 && (
+            <div className="mt-2">
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium text-red-800 bg-red-100 rounded-full">
+                    <AlertCircle size={12} />
+                    Please select a vector database below.
+                </span>
+            </div>
+        )}
         <div className="relative">
           <PlaceholderTextEditor
             value={currentStep.system_prompt}
@@ -173,7 +179,7 @@ const EditRAGStep: React.FC<EditRAGStepProps> = ({ step, onSave, onCancel, hasTr
       <div>
         <label className="block text-sm font-medium text-gray-700">Vector Database</label>
         <select
-          value={currentStep.vectordb_uuid || ''}
+          value={isVectorDbSelected ? currentStep.vectordb_uuid! : ''}
           onChange={handleDbChange}
           className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
           disabled={isLoadingDbs}
@@ -181,11 +187,14 @@ const EditRAGStep: React.FC<EditRAGStepProps> = ({ step, onSave, onCancel, hasTr
           {isLoadingDbs ? (
             <option>Loading...</option>
           ) : vectorDbs.length > 0 ? (
-            vectorDbs.map((db) => (
-              <option key={db.uuid} value={db.uuid}>
-                {db.name} ({db.provider})
-              </option>
-            ))
+            <>
+              <option value="" disabled>Select a vector database...</option>
+              {vectorDbs.map((db) => (
+                <option key={db.uuid} value={db.uuid}>
+                  {db.name} ({db.provider})
+                </option>
+              ))}
+            </>
           ) : (
             <option value="">No vector databases configured</option>
           )}

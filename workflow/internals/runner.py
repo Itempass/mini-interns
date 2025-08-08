@@ -276,6 +276,9 @@ async def run_workflow(instance_uuid: UUID, user_id: UUID):
                         await db._update_workflow_instance_in_db(instance, user_id)
                         break # Exit the while loop
                 elif step_def.type == "rag":
+                    # Validate that a vector database has been selected
+                    if not step_def.vectordb_uuid:
+                        raise ValueError("RAG step is not configured. Please edit the step and select a vector database.")
                     # Create the instance model for RAG
                     rag_instance = RAGStepInstanceModel(
                         user_id=user_id,

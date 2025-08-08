@@ -1,4 +1,4 @@
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 import httpx
 import logging
 
@@ -163,3 +163,74 @@ async def test_pinecone_serverless_connection(db_config: VectorDatabase) -> Dict
 
         # If no index provided, API reachability is enough
         return {"ok": True, "message": "Successfully connected to Pinecone serverless API (index not validated)."}
+
+# --- Query Execution ---
+async def query_pinecone_serverless(
+    *,
+    db_config: VectorDatabase,
+    query_embedding: List[float],
+    top_k: int,
+    namespace_override: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """
+    Executes a similarity search on a Pinecone serverless index using the data-plane /query endpoint.
+    Returns a normalized list of matches: [{ id, score, metadata }]
+    """
+    settings = db_config.settings or {}
+    api_key = settings.get("api_key")
+    index_name = settings.get("index_name")
+    namespace = namespace_override if namespace_override is not None else settings.get("namespace")
+
+    if not api_key:
+        raise ValueError("Missing Pinecone API key in vector database settings.")
+    if not index_name:
+        raise ValueError("Missing Pinecone index_name in vector database settings.")
+
+    base = "https://api.pinecone.io"
+    headers = {"Api-Key": api_key}
+    timeout = httpx.Timeout(12.0, connect=5.0)
+
+    logger.info(
+        f"[RAG/Pinecone Query] index={index_name} namespace={namespace} top_k={top_k} embedding_len={len(query_embedding)} embed_head={[round(x,4) for x in (query_embedding[:3] or [])]}"
+    )
+
+    async with httpx.AsyncClient(timeout=timeout, headers=headers) as client:
+        # Describe index to obtain data-plane host
+        desc = await client.get(f"{base}/indexes/{index_name}")
+        logger.info(f"[RAG/Pinecone Query] describe index -> {desc.status_code}")
+        if desc.status_code != 200:
+            raise ValueError(f"Failed to describe index '{index_name}': {desc.status_code} {desc.text[:200]}")
+        info = desc.json() or {}
+        host = info.get('host') or (info.get('status') or {}).get('host') or (info.get('database') or {}).get('host')
+        if not host:
+            raise ValueError("Could not determine Pinecone data-plane host for index.")
+        if not str(host).startswith("http://") and not str(host).startswith("https://"):
+            host = f"https://{host}"
+        logger.info(f"[RAG/Pinecone Query] data-plane host={host}")
+
+        body: Dict[str, Any] = {"vector": query_embedding, "topK": int(top_k), "includeMetadata": True}
+        if namespace:
+            body["namespace"] = namespace
+
+        url = f"{host}/query"
+        logger.info(f"[RAG/Pinecone Query] POST {url} with topK={body['topK']} includeMetadata=True namespace={namespace}")
+        resp = await client.post(url, json=body)
+        logger.info(f"[RAG/Pinecone Query] response status={resp.status_code}")
+        if resp.status_code != 200:
+            raise ValueError(f"Pinecone query failed with {resp.status_code}: {resp.text[:200]}")
+
+        data = resp.json() or {}
+        matches = data.get("matches") or []
+        logger.info(
+            f"[RAG/Pinecone Query] matches={len(matches)} top_ids_scores={[(m.get('id'), round(m.get('score',0),4)) for m in (matches[:3] if isinstance(matches, list) else [])]}"
+        )
+        normalized: List[Dict[str, Any]] = []
+        for m in matches:
+            if not isinstance(m, dict):
+                continue
+            normalized.append({
+                "id": m.get("id"),
+                "score": m.get("score"),
+                "metadata": m.get("metadata") or {},
+            })
+        return normalized

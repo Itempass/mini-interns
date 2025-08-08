@@ -236,3 +236,66 @@ def get_embeddings(texts: List[str], user_uuid: Optional[UUID] = None) -> List[L
 def rerank_documents(query: str, documents: List[str], top_k: int = None, user_uuid: Optional[UUID] = None) -> List[Dict[str, Any]]:
     """Convenience function to rerank documents for a specific user."""
     return embedding_service.rerank(query, documents, top_k, user_uuid=user_uuid)
+
+# --- Model-explicit embedding helpers (do not rely on user's current model) ---
+
+def create_embedding_for_model(model_key: str, text: str) -> List[float]:
+    """
+    Creates a single embedding using the specified model key, independent of per-user settings.
+    """
+    if not text or not isinstance(text, str):
+        raise ValueError("Input text cannot be empty or non-string.")
+    info = EmbeddingService._get_model_info(model_key)
+    provider = info.get("provider")
+    model_name = info.get("model_name")
+    vector_size = int(info.get("vector_size"))
+
+    if provider == "voyage":
+        if not settings.EMBEDDING_VOYAGE_API_KEY or settings.EMBEDDING_VOYAGE_API_KEY == "EDIT-ME":
+            raise ValueError("Voyage API key is not configured.")
+        response = voyageai.Embedding.create(
+            input=[text], model=model_name, input_type="document",
+            output_dimension=vector_size, api_key=settings.EMBEDDING_VOYAGE_API_KEY
+        )
+        return response.data[0].embedding
+    elif provider == "openai":
+        if not settings.EMBEDDING_OPENAI_API_KEY or settings.EMBEDDING_OPENAI_API_KEY == "EDIT-ME":
+            raise ValueError("OpenAI API key is not configured.")
+        client = openai.OpenAI(api_key=settings.EMBEDDING_OPENAI_API_KEY)
+        response = client.embeddings.create(
+            input=[text], model=model_name, dimensions=vector_size
+        )
+        return response.data[0].embedding
+    else:
+        raise ValueError(f"Unsupported embedding provider: {provider}")
+
+
+def create_embeddings_for_model(model_key: str, texts: List[str]) -> List[List[float]]:
+    """
+    Creates embeddings for multiple texts using the specified model key, independent of per-user settings.
+    """
+    if not texts or not isinstance(texts, list) or not all(isinstance(t, str) for t in texts):
+        raise ValueError("Input must be a list of non-empty strings.")
+    info = EmbeddingService._get_model_info(model_key)
+    provider = info.get("provider")
+    model_name = info.get("model_name")
+    vector_size = int(info.get("vector_size"))
+
+    if provider == "voyage":
+        if not settings.EMBEDDING_VOYAGE_API_KEY or settings.EMBEDDING_VOYAGE_API_KEY == "EDIT-ME":
+            raise ValueError("Voyage API key is not configured.")
+        response = voyageai.Embedding.create(
+            input=texts, model=model_name, input_type="document",
+            output_dimension=vector_size, api_key=settings.EMBEDDING_VOYAGE_API_KEY
+        )
+        return [data.embedding for data in response.data]
+    elif provider == "openai":
+        if not settings.EMBEDDING_OPENAI_API_KEY or settings.EMBEDDING_OPENAI_API_KEY == "EDIT-ME":
+            raise ValueError("OpenAI API key is not configured.")
+        client = openai.OpenAI(api_key=settings.EMBEDDING_OPENAI_API_KEY)
+        response = client.embeddings.create(
+            input=texts, model=model_name, dimensions=vector_size
+        )
+        return [d.embedding for d in response.data]
+    else:
+        raise ValueError(f"Unsupported embedding provider: {provider}")

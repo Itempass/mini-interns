@@ -67,7 +67,7 @@ export interface RAGStep {
     description: string;
     type: 'rag';
     system_prompt: string;
-    vectordb_uuid: string;
+    vectordb_uuid: string | null;
     rerank: boolean;
     top_k: number;
 }

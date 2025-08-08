@@ -68,8 +68,8 @@ class RAGStep(BaseModel):
     name: str = Field(..., description="A unique, user-defined name for this step.")
     description: str = Field(default="", description="A description of what this step does.")
     type: Literal["rag"] = "rag"
-    system_prompt: str = Field(..., description="The query or prompt used to search and ground the response.")
-    vectordb_uuid: UUID = Field(..., description="The UUID of the configured vector database to use.")
+    system_prompt: str = Field(default="", description="The query or prompt used to search and ground the response.")
+    vectordb_uuid: Optional[UUID] = Field(default=None, description="The UUID of the configured vector database to use.")
     rerank: bool = Field(default=False, description="Whether to apply reranking to retrieved documents.")
     top_k: int = Field(default=5, description="The number of results to return (and optionally rerank).")
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

@@ -312,7 +312,7 @@ async def add_new_step(
         new_step = await checker_client.create(name=name, user_id=user_id)
     elif step_type == "rag":
         from workflow.models import RAGStep
-        new_step = RAGStep(user_id=user_id, name=name, system_prompt="", vectordb_uuid=UUID(int=0), rerank=False, top_k=5)
+        new_step = RAGStep(user_id=user_id, name=name)
         await db._create_step_in_db(step=new_step, user_id=user_id)
     else:
         raise ValueError(f"Unknown step type: {step_type}")
