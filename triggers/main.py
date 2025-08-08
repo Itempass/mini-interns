@@ -226,10 +226,10 @@ If the email does not match:
                 if not response_json.get("continue_processing"):
                     logger.info(f"LLM decided not to trigger workflow for email from '{msg.from_}'. Reason: {response_json.get('reason', 'No reason provided.')}")
                     continue
-                logger.info(f"LLM decided to trigger workflow for email from '{msg.from_}'.")
+                logger.info(f"LLM decided to trigger workflow for email from '{msg.from_}'. Reason: {response_json.get('reason', 'No reason provided.')}")
             except Exception as e:
                 logger.error(f"Error processing LLM trigger prompt for workflow '{workflow.name}': {e}", exc_info=True)
-            continue
+                continue
 
         # If all checks pass, we have a match.
         logger.info(f"SUCCESS: Email matched trigger for workflow '{workflow.name}'. Kicking off instance.")
