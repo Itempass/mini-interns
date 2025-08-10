@@ -198,11 +198,11 @@ export const collectThreadIds = async (
 
 export const startExportJob = async (
   sourceId: string,
-  selectedUids: string[]
+  selectedIds: string[]
 ): Promise<{ job_id: string; status: string }> => {
   return await jsonApiFetch(`${API_URL}/evaluation/data-sources/${sourceId}/export/jobs`, {
     method: 'POST',
-    body: JSON.stringify({ selected_uids: selectedUids }),
+    body: JSON.stringify({ selected_ids: selectedIds }),
   });
 };
 

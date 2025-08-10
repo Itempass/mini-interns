@@ -29,6 +29,8 @@ const CreateEvaluationTemplateModal: React.FC<CreateEvaluationTemplateModalProps
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
   const [selectedUids, setSelectedUids] = useState<Set<string>>(new Set());
+  // Switch selection to message IDs to avoid duplicates across folders
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [selectAllOnPage, setSelectAllOnPage] = useState(false);
   const [isTableLoading, setIsTableLoading] = useState(false);
   const [isSelectingAll, setIsSelectingAll] = useState(false);
@@ -90,7 +92,7 @@ const CreateEvaluationTemplateModal: React.FC<CreateEvaluationTemplateModalProps
       setThreads(res.items);
       setTotal(res.total);
       // maintain selectAllOnPage flag based on page contents
-      const pageAllSelected = res.items.length > 0 && res.items.every(i => selectedUids.has((i as any).uid || ''));
+      const pageAllSelected = res.items.length > 0 && res.items.every(i => selectedIds.has(i.id || ''));
       setSelectAllOnPage(pageAllSelected);
     } catch (err: any) {
       setErrorMessage(err.message || 'Failed to load threads.');
@@ -114,30 +116,30 @@ const CreateEvaluationTemplateModal: React.FC<CreateEvaluationTemplateModalProps
     setStep(prev => prev - 1);
   };
 
-  const toggleSelect = (uid: string) => {
-    setSelectedUids(prev => {
+  const toggleSelect = (messageId: string) => {
+    setSelectedIds(prev => {
       const next = new Set(prev);
-      if (next.has(uid)) next.delete(uid); else next.add(uid);
+      if (next.has(messageId)) next.delete(messageId); else next.add(messageId);
       return next;
     });
   };
 
   const toggleSelectAllOnThisPage = () => {
-    const uidsOnPage = threads.map((t: any) => t.uid || '');
-    setSelectedUids(prev => {
+    const idsOnPage = threads.map((t: any) => t.id || '');
+    setSelectedIds(prev => {
       const next = new Set(prev);
-      const allSelected = uidsOnPage.length > 0 && uidsOnPage.every(uid => next.has(uid));
+      const allSelected = idsOnPage.length > 0 && idsOnPage.every(id => next.has(id));
       if (allSelected) {
-        uidsOnPage.forEach(uid => next.delete(uid));
+        idsOnPage.forEach(id => next.delete(id));
       } else {
-        uidsOnPage.forEach(uid => next.add(uid));
+        idsOnPage.forEach(id => next.add(id));
       }
       return next;
     });
     setSelectAllOnPage(!selectAllOnPage);
   };
 
-  const clearSelections = () => setSelectedUids(new Set());
+  const clearSelections = () => setSelectedIds(new Set());
 
   const handleFilterChange = (key: 'folder_names' | 'filter_by_labels', values: string[]) => {
     const newFilters = { ...filters, [key]: values };
@@ -161,13 +163,13 @@ const CreateEvaluationTemplateModal: React.FC<CreateEvaluationTemplateModalProps
   };
 
   const downloadDataset = async () => {
-    if (selectedUids.size === 0) return;
+    if (selectedIds.size === 0) return;
     setIsLoading(true);
     setErrorMessage('');
     try {
       // Start export job and poll
       setIsExporting(true);
-      const job = await startExportJob(selectedDataSource, Array.from(selectedUids));
+      const job = await startExportJob(selectedDataSource, Array.from(selectedIds));
       setExportJobId(job.job_id);
       // Poll every 2s up to a max duration (e.g., 2 minutes)
       const start = Date.now();
@@ -304,7 +306,7 @@ const CreateEvaluationTemplateModal: React.FC<CreateEvaluationTemplateModalProps
                     <tr key={item.id} className="hover:bg-gray-50">
                       <td className="px-4 py-2">
                         <button onClick={() => toggleSelect(item.id)} className="text-gray-700">
-                          {selectedUids.has(item.id) ? <CheckSquare size={18}/> : <Square size={18}/>}
+                          {selectedIds.has(item.id) ? <CheckSquare size={18}/> : <Square size={18}/>}
                         </button>
                       </td>
                       <td className="px-4 py-2 text-sm text-gray-900 break-words">{item.subject}</td>
@@ -341,8 +343,8 @@ const CreateEvaluationTemplateModal: React.FC<CreateEvaluationTemplateModalProps
         return (
           <div>
             <h3 className="text-lg font-medium text-gray-900">Step 3: Review & Export</h3>
-            <p className="mt-2 text-sm text-gray-600">You have selected <span className="font-semibold">{selectedUids.size}</span> thread(s) for your dataset.</p>
-            {selectedUids.size > 500 && (
+            <p className="mt-2 text-sm text-gray-600">You have selected <span className="font-semibold">{selectedIds.size}</span> thread(s) for your dataset.</p>
+            {selectedIds.size > 500 && (
               <div className="mt-4 p-3 bg-yellow-50 border border-yellow-300 rounded-md flex items-start">
                 <AlertTriangle className="h-5 w-5 text-yellow-600 mr-3" />
                 <p className="text-sm text-yellow-800">Large datasets may take longer to prepare. Consider narrowing your selection if you encounter delays.</p>
@@ -360,7 +362,7 @@ const CreateEvaluationTemplateModal: React.FC<CreateEvaluationTemplateModalProps
               {!exportJobId || exportProgress.completed < exportProgress.total ? (
                 <button
                   onClick={downloadDataset}
-                  disabled={selectedUids.size === 0 || isLoading || isExporting}
+                  disabled={selectedIds.size === 0 || isLoading || isExporting}
                   className="w-full md:w-auto flex items-center justify-center px-4 py-3 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md hover:bg-blue-700 disabled:bg-blue-300"
                 >
                   {(isLoading || isExporting) ? <Loader2 className="animate-spin h-5 w-5 mr-2" /> : <Download className="mr-2 h-4 w-4" />}
@@ -424,7 +426,7 @@ const CreateEvaluationTemplateModal: React.FC<CreateEvaluationTemplateModalProps
                       <p className="mt-1 text-sm text-gray-600">Your selections persist across pages and filters.</p>
                     </div>
                     <div className="flex items-center gap-3">
-                      <span className="inline-flex items-center px-3 py-2 text-sm font-medium text-purple-800 bg-purple-100 border border-purple-200 rounded-md">Selected entries for dataset: {selectedUids.size}</span>
+                      <span className="inline-flex items-center px-3 py-2 text-sm font-medium text-purple-800 bg-purple-100 border border-purple-200 rounded-md">Selected entries for dataset: {selectedIds.size}</span>
                       <button onClick={clearSelections} className="px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50">Clear Selections</button>
                     </div>
                   </div>
@@ -454,10 +456,10 @@ const CreateEvaluationTemplateModal: React.FC<CreateEvaluationTemplateModalProps
                             </thead>
                             <tbody className="bg-white divide-y divide-gray-200">
                               {threads.map((item: any) => (
-                                <tr key={item.uid || item.id} className="hover:bg-gray-50">
+                                <tr key={item.id} className="hover:bg-gray-50">
                                   <td className="px-4 py-2">
-                                    <button onClick={() => toggleSelect(item.uid || '')} className="text-gray-700">
-                                      {selectedUids.has(item.uid || '') ? <CheckSquare size={18}/> : <Square size={18}/>}
+                                    <button onClick={() => toggleSelect(item.id)} className="text-gray-700">
+                                      {selectedIds.has(item.id) ? <CheckSquare size={18}/> : <Square size={18}/>}
                                     </button>
                                   </td>
                                   <td className="px-4 py-2 text-sm text-gray-900 truncate">{item.subject}</td>
@@ -488,9 +490,9 @@ const CreateEvaluationTemplateModal: React.FC<CreateEvaluationTemplateModalProps
                                 setIsSelectingAll(true);
                                 try {
                                   const ids = await collectThreadIds(selectedDataSource, filters, Math.min(total, 500));
-                                  setSelectedUids(prev => {
+                                  setSelectedIds(prev => {
                                     const next = new Set(prev);
-                                    ids.forEach(uid => next.add(uid));
+                                    ids.forEach(id => next.add(id));
                                     return next;
                                   });
                                   setSelectAllOnPage(true);

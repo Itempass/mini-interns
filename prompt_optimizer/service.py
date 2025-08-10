@@ -13,7 +13,7 @@ from uuid import uuid4
 from shared.redis.redis_client import get_redis_client
 from shared.redis.keys import RedisKeys
 
-from mcp_servers.imap_mcpserver.src.imap_client.client import get_emails, get_all_labels, get_all_special_use_folders, get_complete_thread, EmailMessage, get_message_by_id, list_headers, count_uids, get_message_by_contextual_uid, list_recent_uids, export_threads_dataset_bulk
+from mcp_servers.imap_mcpserver.src.imap_client.client import get_emails, get_all_labels, get_all_special_use_folders, get_complete_thread, EmailMessage, get_message_by_id, list_headers, count_uids, get_message_by_contextual_uid, list_recent_uids, export_threads_dataset_bulk, list_headers_multi_with_counts
 from . import database
 from shared.app_settings import load_app_settings
 
@@ -591,8 +591,7 @@ async def list_threads(
 ) -> Dict[str, Any]:
     """Lists lightweight thread anchors for selection, with basic pagination and filters.
 
-    For IMAP, fetches recent messages per selected folder using get_emails with an upper bound,
-    deduplicates by message_id, sorts by date desc, and slices for the requested page.
+    For IMAP, compute exact page slice per folder using batched header FETCH and single IMAP connection per request.
     """
     if source_id != "imap_emails":
         raise ValueError(f"Unknown data source: {source_id}")
@@ -600,54 +599,29 @@ async def list_threads(
     folder_names: List[str] = filters.get("folder_names") or ["INBOX"]
     filter_by_labels: List[str] | None = filters.get("filter_by_labels") or None
 
-    # Upper bound the total messages fetched to keep it reasonable
-    # We fetch up to page*page_size per folder (split evenly), then slice the combined list.
-    # Further cap the first-page fetch to improve initial responsiveness.
-    target_total = max(page, 1) * max(page_size, 1)
-    per_folder_target = max(target_total // max(len(folder_names), 1), 1)
-    per_folder_target = min(per_folder_target, 500)
+    # We fetch up to page_size per folder (bounded), not page*page_size, then slice overall
+    total_needed = max(page, 1) * max(page_size, 1)
+    folders_count = max(len(folder_names), 1)
+    per_folder_fetch = max(1, min(total_needed // folders_count, 500))
 
-    all_messages: List[EmailMessage] = []
     try:
-        # Fetch sequentially across folders to avoid concurrent IMAP operations
-        for folder in folder_names:
-            try:
-                # Use headers-only listing to avoid downloading bodies when listing
-                header_dicts = await list_headers(
-                    user_uuid=user_id,
-                    folder_name=folder,
-                    count=per_folder_target,
-                    filter_by_labels=filter_by_labels,
-                )
-                # Map to a minimal EmailMessage-like shape for downstream usage
-                for h in header_dicts:
-                    # Create a light struct with only required fields for listing
-                    em = EmailMessage(
-                        uid=h.get('uid', ''),
-                        message_id=h.get('message_id', ''),
-                        from_=h.get('from', ''),
-                        to=h.get('to', ''),
-                        subject=h.get('subject', ''),
-                        date=h.get('date', ''),
-                        body_raw="",
-                        body_markdown="",
-                        body_cleaned="",
-                        gmail_labels=h.get('gmail_labels', []),
-                        references="",
-                        in_reply_to="",
-                        type="received",
-                    )
-                    all_messages.append(em)
-            except Exception as e:
-                logger.error(f"Failed to fetch emails for folder '{folder}': {e}")
+        # Use single-connection, multi-folder batched listing
+        from mcp_servers.imap_mcpserver.src.imap_client.client import list_headers_multi_with_counts
+        multi = await list_headers_multi_with_counts(
+            user_uuid=user_id,
+            folder_names=folder_names,
+            count=per_folder_fetch,
+            filter_by_labels=filter_by_labels,
+        )
+        all_items = multi.get('items', [])
 
         # Deduplicate by message_id
-        dedup: Dict[str, EmailMessage] = {}
-        for msg in all_messages:
-            if msg.message_id and msg.message_id not in dedup:
-                dedup[msg.message_id] = msg
-
-        unique_messages = list(dedup.values())
+        dedup: Dict[str, Dict[str, Any]] = {}
+        for h in all_items:
+            mid = h.get('message_id')
+            if mid and mid not in dedup:
+                dedup[mid] = h
+        unique_items = list(dedup.values())
 
         # Sort by parsed date desc
         def _parse_date_safe(d: str):
@@ -655,35 +629,27 @@ async def list_threads(
                 return parsedate_to_datetime(d)
             except Exception:
                 return None
-        unique_messages.sort(key=lambda m: (_parse_date_safe(m.date) or 0), reverse=True)
+        unique_items.sort(key=lambda m: (_parse_date_safe(m.get('date', '')) or 0), reverse=True)
 
-        # Slice for the requested page
+        # Global page slice across combined list
         start = (max(page, 1) - 1) * max(page_size, 1)
         end = start + max(page_size, 1)
-        page_items = unique_messages[start:end]
+        page_items = unique_items[start:end]
 
-        # Prepare lightweight items
         items = []
-        for m in page_items:
+        for h in page_items:
             items.append({
-                "uid": m.uid,
-                "id": m.message_id,
-                "subject": m.subject,
-                "from": m.from_,
-                "to": m.to,
-                "date": m.date,
-                "folders": m.gmail_labels,
-                "labels": m.gmail_labels,
+                "uid": h.get('uid', ''),
+                "id": h.get('message_id', ''),
+                "subject": h.get('subject', ''),
+                "from": h.get('from', ''),
+                "to": h.get('to', ''),
+                "date": h.get('date', ''),
+                "folders": h.get('gmail_labels', []),
+                "labels": h.get('gmail_labels', []),
             })
 
-        # Compute total by summing counts across folders without fetching bodies/headers
-        total = 0
-        for folder in folder_names:
-            try:
-                total += await count_uids(user_uuid=user_id, folder_name=folder, filter_by_labels=filter_by_labels)
-            except Exception as e:
-                logger.error(f"Failed to count UIDs for folder '{folder}': {e}")
- 
+        total = int(multi.get('total', 0))
         return {"items": items, "total": total}
     except Exception as e:
         logger.error(f"Error listing threads for source {source_id}: {e}", exc_info=True)
@@ -716,7 +682,10 @@ async def collect_thread_ids(
     limit: int,
     user_id: UUID
 ) -> List[str]:
-    """Collect up to `limit` contextual UIDs using UID SEARCH only (no headers)."""
+    """Collect up to `limit` unique Message-IDs across selected folders using a single IMAP connection.
+
+    Returns a de-duplicated list of Message-IDs (not contextual UIDs).
+    """
     if source_id != "imap_emails":
         raise ValueError(f"Unknown data source: {source_id}")
 
@@ -724,25 +693,34 @@ async def collect_thread_ids(
     filter_by_labels: List[str] | None = filters.get("filter_by_labels") or None
 
     remaining = max(0, min(limit, 500))
-    collected_uids: List[str] = []
+    if remaining == 0:
+        return []
 
-    for folder in folder_names:
-        if remaining <= 0:
-            break
-        try:
-            # Ask for up to remaining from this folder; UID order approximates recency
-            uids = await list_recent_uids(user_uuid=user_id, folder_name=folder, count=remaining, filter_by_labels=filter_by_labels)
-            for uid in uids:
-                if uid not in collected_uids:
-                    collected_uids.append(uid)
-                    remaining -= 1
-                    if remaining <= 0:
-                        break
-        except Exception as e:
-            logger.error(f"Failed to collect UIDs for folder '{folder}': {e}")
-            continue
+    # Distribute the target across folders
+    per_folder = max(1, remaining // max(len(folder_names), 1))
 
-    return collected_uids
+    try:
+        from mcp_servers.imap_mcpserver.src.imap_client.client import list_headers_multi_with_counts
+        result = await list_headers_multi_with_counts(
+            user_uuid=user_id,
+            folder_names=folder_names,
+            count=min(per_folder * 2, 500),
+            filter_by_labels=filter_by_labels,
+        )
+        items = result.get('items', [])
+        unique_ids: List[str] = []
+        seen: set[str] = set()
+        for it in items:
+            mid = it.get('message_id')
+            if mid and mid not in seen:
+                seen.add(mid)
+                unique_ids.append(mid)
+                if len(unique_ids) >= remaining:
+                    break
+        return unique_ids
+    except Exception as e:
+        logger.error(f"Failed to collect Message-IDs: {e}", exc_info=True)
+        return []
 
 # --- Export Job Helpers ---
 

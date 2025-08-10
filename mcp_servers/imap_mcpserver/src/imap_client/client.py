@@ -1021,64 +1021,80 @@ def _list_headers_sync(folder_name: str, count: int, app_settings: AppSettings, 
             if not recent_uids:
                 return []
 
-            for uid in recent_uids:
-                typ, fetch_data = mail.uid('fetch', uid, '(BODY.PEEK[HEADER.FIELDS (MESSAGE-ID SUBJECT FROM TO DATE)] X-GM-LABELS)')
-                if typ != 'OK' or not fetch_data:
-                    continue
-                # fetch_data is a list; find the tuple with header content
-                headers_text = ''
-                labels_list: List[str] = []
-                for part in fetch_data:
-                    if isinstance(part, tuple) and isinstance(part[1], (bytes, bytearray)):
-                        try:
-                            headers_text += part[1].decode('utf-8', errors='replace')
-                        except Exception:
-                            headers_text += str(part[1])
-                    elif isinstance(part, (list,)):
-                        continue
-                    else:
-                        # Extract X-GM-LABELS from part[0] if present as bytes
-                        try:
-                            meta = part[0] if isinstance(part, tuple) else part
-                            if isinstance(meta, (bytes, bytearray)) and b'X-GM-LABELS' in meta:
-                                # Very simple parse of label list within parentheses
-                                meta_str = meta.decode('utf-8', errors='ignore')
-                                start = meta_str.find('X-GM-LABELS (')
-                                if start != -1:
-                                    end = meta_str.find(')', start)
-                                    if end != -1:
-                                        raw = meta_str[start + len('X-GM-LABELS ('):end]
-                                        labels_list = [l.strip('"') for l in raw.split(' ') if l]
-                        except Exception:
-                            pass
+            # Batch FETCH headers for all requested UIDs in a single round trip
+            uid_list_str = ','.join(uid.decode() if isinstance(uid, (bytes, bytearray)) else str(uid) for uid in recent_uids)
+            typ, fetch_data = mail.uid('fetch', uid_list_str, '(BODY.PEEK[HEADER.FIELDS (MESSAGE-ID SUBJECT FROM TO DATE)] X-GM-LABELS)')
+            if typ != 'OK' or not fetch_data:
+                return []
 
-                message_id = ''
-                subject = ''
-                from_ = ''
-                to = ''
-                date = ''
-                for line in headers_text.splitlines():
-                    if line.lower().startswith('message-id:'):
-                        message_id = line.split(':', 1)[1].strip().strip('<>')
-                    elif line.lower().startswith('subject:'):
-                        subject = _decode_header_value(line.split(':', 1)[1].strip())
-                    elif line.lower().startswith('from:'):
-                        from_ = _decode_header_value(line.split(':', 1)[1].strip())
-                    elif line.lower().startswith('to:'):
-                        to = _decode_header_value(line.split(':', 1)[1].strip())
-                    elif line.lower().startswith('date:'):
-                        date = line.split(':', 1)[1].strip()
+            i = 0
+            while i < len(fetch_data):
+                part = fetch_data[i]
+                if isinstance(part, tuple) and len(part) >= 2:
+                    meta = part[0]
+                    body = part[1]
+                    headers_text = ''
+                    labels_list: List[str] = []
 
-                if message_id:
-                    results.append({
-                        'uid': create_contextual_id(folder_name, uid.decode() if isinstance(uid, (bytes, bytearray)) else str(uid)),
-                        'message_id': message_id,
-                        'subject': subject,
-                        'from': from_,
-                        'to': to,
-                        'date': date,
-                        'gmail_labels': labels_list,
-                    })
+                    try:
+                        headers_text = body.decode('utf-8', errors='replace')
+                    except Exception:
+                        headers_text = str(body)
+
+                    # Extract X-GM-LABELS from meta if present
+                    try:
+                        meta_bytes = meta if isinstance(meta, (bytes, bytearray)) else str(meta).encode('utf-8')
+                        meta_str = meta_bytes.decode('utf-8', errors='ignore')
+                        start = meta_str.find('X-GM-LABELS (')
+                        if start != -1:
+                            end = meta_str.find(')', start)
+                            if end != -1:
+                                raw = meta_str[start + len('X-GM-LABELS ('):end]
+                                labels_list = [l.strip('"') for l in raw.split(' ') if l]
+                    except Exception:
+                        pass
+
+                    # Parse fields from headers
+                    message_id = ''
+                    subject = ''
+                    from_ = ''
+                    to = ''
+                    date = ''
+                    for line in headers_text.splitlines():
+                        if line.lower().startswith('message-id:'):
+                            message_id = line.split(':', 1)[1].strip().strip('<>')
+                        elif line.lower().startswith('subject:'):
+                            subject = _decode_header_value(line.split(':', 1)[1].strip())
+                        elif line.lower().startswith('from:'):
+                            from_ = _decode_header_value(line.split(':', 1)[1].strip())
+                        elif line.lower().startswith('to:'):
+                            to = _decode_header_value(line.split(':', 1)[1].strip())
+                        elif line.lower().startswith('date:'):
+                            date = line.split(':', 1)[1].strip()
+
+                    # Extract UID from meta
+                    uid_val = None
+                    try:
+                        if isinstance(meta, (bytes, bytearray)):
+                            uid_match = re.search(rb'\b(\d+) \(', meta)
+                            uid_val = uid_match.group(1).decode() if uid_match else None
+                        else:
+                            uid_match_txt = re.search(r'\b(\d+) \(', str(meta))
+                            uid_val = uid_match_txt.group(1) if uid_match_txt else None
+                    except Exception:
+                        uid_val = None
+
+                    if message_id and uid_val:
+                        results.append({
+                            'uid': create_contextual_id(folder_name, uid_val),
+                            'message_id': message_id,
+                            'subject': subject,
+                            'from': from_,
+                            'to': to,
+                            'date': date,
+                            'gmail_labels': labels_list,
+                        })
+                i += 1
 
         return results
     except Exception as e:
@@ -1090,6 +1106,121 @@ async def list_headers(user_uuid: UUID, folder_name: str, count: int = 50, filte
     app_settings = load_app_settings(user_uuid=user_uuid)
     loop = asyncio.get_running_loop()
     return await loop.run_in_executor(None, _list_headers_sync, folder_name, count, app_settings, filter_by_labels)
+
+
+def _list_headers_multi_with_counts_sync(folder_names: List[str], count: int, app_settings: AppSettings, filter_by_labels: Optional[List[str]] = None) -> Dict[str, Any]:
+    """
+    Single-connection, multi-folder headers-only listing with totals.
+    Returns {'items': List[header_dict], 'total': int} where total is the sum of SEARCH counts across folders.
+    """
+    items: List[Dict[str, Any]] = []
+    total = 0
+    try:
+        with imap_connection(app_settings=app_settings) as (mail, resolver):
+            search_criteria_parts = ['ALL']
+            if filter_by_labels:
+                labels_query = "{" + " ".join([f"label:{label}" for label in filter_by_labels]) + "}"
+                search_criteria_parts.append(f'(X-GM-RAW "{labels_query}")')
+            search_query_str = ' '.join(search_criteria_parts)
+
+            for folder in folder_names:
+                try:
+                    mail.select(f'"{folder}"', readonly=True)
+                    typ, data = mail.uid('search', None, search_query_str)
+                    if typ != 'OK' or not data or not data[0]:
+                        continue
+                    uids = data[0].split()
+                    total += len(uids)
+                    if not uids:
+                        continue
+                    # Take only the most recent `count` UIDs for this folder
+                    recent_uids = uids[-count:]
+                    if not recent_uids:
+                        continue
+                    uid_list_str = ','.join(uid.decode() if isinstance(uid, (bytes, bytearray)) else str(uid) for uid in recent_uids)
+                    typ_f, fetch_data = mail.uid('fetch', uid_list_str, '(BODY.PEEK[HEADER.FIELDS (MESSAGE-ID SUBJECT FROM TO DATE)] X-GM-LABELS)')
+                    if typ_f != 'OK' or not fetch_data:
+                        continue
+                    i = 0
+                    while i < len(fetch_data):
+                        part = fetch_data[i]
+                        if isinstance(part, tuple) and len(part) >= 2:
+                            meta = part[0]
+                            body = part[1]
+                            headers_text = ''
+                            labels_list: List[str] = []
+
+                            try:
+                                headers_text = body.decode('utf-8', errors='replace')
+                            except Exception:
+                                headers_text = str(body)
+
+                            # Extract labels from meta
+                            try:
+                                meta_bytes = meta if isinstance(meta, (bytes, bytearray)) else str(meta).encode('utf-8')
+                                meta_str = meta_bytes.decode('utf-8', errors='ignore')
+                                start = meta_str.find('X-GM-LABELS (')
+                                if start != -1:
+                                    end = meta_str.find(')', start)
+                                    if end != -1:
+                                        raw = meta_str[start + len('X-GM-LABELS ('):end]
+                                        labels_list = [l.strip('"') for l in raw.split(' ') if l]
+                            except Exception:
+                                pass
+
+                            # Extract UID from meta
+                            uid_val = None
+                            try:
+                                if isinstance(meta, (bytes, bytearray)):
+                                    uid_match = re.search(rb'\b(\d+) \(', meta)
+                                    uid_val = uid_match.group(1).decode() if uid_match else None
+                                else:
+                                    uid_match_txt = re.search(r'\b(\d+) \(', str(meta))
+                                    uid_val = uid_match_txt.group(1) if uid_match_txt else None
+                            except Exception:
+                                uid_val = None
+
+                            # Parse header fields
+                            message_id = ''
+                            subject = ''
+                            from_ = ''
+                            to = ''
+                            date = ''
+                            for line in headers_text.splitlines():
+                                if line.lower().startswith('message-id:'):
+                                    message_id = line.split(':', 1)[1].strip().strip('<>')
+                                elif line.lower().startswith('subject:'):
+                                    subject = _decode_header_value(line.split(':', 1)[1].strip())
+                                elif line.lower().startswith('from:'):
+                                    from_ = _decode_header_value(line.split(':', 1)[1].strip())
+                                elif line.lower().startswith('to:'):
+                                    to = _decode_header_value(line.split(':', 1)[1].strip())
+                                elif line.lower().startswith('date:'):
+                                    date = line.split(':', 1)[1].strip()
+
+                            if message_id and uid_val:
+                                items.append({
+                                    'uid': create_contextual_id(folder, uid_val),
+                                    'message_id': message_id,
+                                    'subject': subject,
+                                    'from': from_,
+                                    'to': to,
+                                    'date': date,
+                                    'gmail_labels': labels_list,
+                                })
+                        i += 1
+                except Exception:
+                    continue
+        return {'items': items, 'total': total}
+    except Exception as e:
+        logger.error(f"Error listing headers across folders: {e}", exc_info=True)
+        return {'items': [], 'total': 0}
+
+
+async def list_headers_multi_with_counts(user_uuid: UUID, folder_names: List[str], count: int = 50, filter_by_labels: Optional[List[str]] = None) -> Dict[str, Any]:
+    app_settings = load_app_settings(user_uuid=user_uuid)
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, _list_headers_multi_with_counts_sync, folder_names, count, app_settings, filter_by_labels)
 
 
 def _get_message_by_contextual_uid_sync(contextual_uid: str, app_settings: AppSettings) -> Optional[EmailMessage]:
@@ -1336,26 +1467,47 @@ def _resolve_thread_ids_single_connection(
                 mail.select(f'"{folder}"', readonly=True)
                 unresolved = []
                 resolved_here = 0
+                batch_thrids: List[str] = []
                 for message_id in message_ids:
                     try:
                         typ, data = mail.uid('search', None, f'(HEADER Message-ID "{message_id}")')
                         if typ == 'OK' and data and data[0]:
                             uid = data[0].split()[0].decode()
                             typ2, data2 = mail.uid('fetch', uid, '(X-GM-THRID)')
+                            meta = None
                             if typ2 == 'OK' and data2 and isinstance(data2[0], tuple):
                                 meta = data2[0][0] if isinstance(data2[0][0], (bytes, bytearray)) else None
-                                if meta:
-                                    thrid = _parse_thrid_from_meta(meta)
-                                    if thrid:
-                                        thrids.add(thrid)
-                                        thrid_to_identifiers[thrid].append(message_id)
-                                        resolved_here += 1
-                                        continue
+                            if meta:
+                                thrid = _parse_thrid_from_meta(meta)
+                                if thrid and thrid not in seen_thrids:
+                                    seen_thrids.add(thrid)
+                                    batch_thrids.append(thrid)
+                                    thrid_to_identifiers[thrid].append(message_id)
+                                    resolved_here += 1
+                                    # Flush batches to update progress incrementally
+                                    if len(batch_thrids) >= BATCH_SIZE:
+                                        current_folder = folder
+                                        _flush_batch(batch_thrids)
+                                        batch_thrids = []
+                                        # re-select folder after fetch switches mailboxes
+                                        try:
+                                            mail.select(f'"{current_folder}"', readonly=True)
+                                        except Exception:
+                                            pass
+                                    continue
                         unresolved.append(message_id)
                     except Exception:
                         unresolved.append(message_id)
+                # Flush remaining
+                if batch_thrids:
+                    current_folder = folder
+                    _flush_batch(batch_thrids)
+                    try:
+                        mail.select(f'"{current_folder}"', readonly=True)
+                    except Exception:
+                        pass
                 message_ids = unresolved
-                logger.info(f"[bulk] Folder {folder}: resolved {resolved_here} Message-IDs, remaining unresolved={len(message_ids)}; cumulative thrids={len(thrids)}")
+                logger.info(f"[bulk] Folder {folder}: resolved {resolved_here} Message-IDs, remaining unresolved={len(message_ids)}; cumulative thrids={len(seen_thrids)}")
                 if not message_ids:
                     break
             except Exception:
