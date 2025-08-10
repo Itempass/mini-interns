@@ -25,6 +25,8 @@ from mcp_servers.imap_mcpserver.src.imap_client.helpers.contextual_id import cre
 from mcp_servers.imap_mcpserver.src.imap_client.internals.connection_manager import imap_connection, IMAPConnectionError, FolderResolver, FolderNotFoundError
 from mcp_servers.imap_mcpserver.src.imap_client.helpers.body_parser import extract_body_formats
 from uuid import UUID
+from typing import Callable, DefaultDict, Set
+from collections import defaultdict
 
 from shared.app_settings import AppSettings, load_app_settings
 
@@ -1156,3 +1158,561 @@ async def count_uids(user_uuid: UUID, folder_name: str, filter_by_labels: Option
     app_settings = load_app_settings(user_uuid=user_uuid)
     loop = asyncio.get_running_loop()
     return await loop.run_in_executor(None, _count_uids_sync, folder_name, app_settings, filter_by_labels)
+
+
+# --- Bulk Export (Single Connection, Deduplicate by Thread) ---
+
+def _parse_thrid_from_meta(meta_bytes: bytes) -> Optional[str]:
+    try:
+        match = re.search(rb'X-GM-THRID (\d+)', meta_bytes)
+        if match:
+            return match.group(1).decode()
+    except Exception:
+        pass
+    return None
+
+def _decode_contextual_uid(contextual_uid: str) -> Tuple[Optional[str], Optional[str]]:
+    try:
+        encoded_mailbox, uid = contextual_uid.split(':', 1)
+        mailbox = base64.b64decode(encoded_mailbox.encode('utf-8')).decode('utf-8')
+        return mailbox, uid
+    except Exception:
+        return None, None
+
+def _resolve_thread_ids_single_connection(
+    mail: imaplib.IMAP4_SSL,
+    resolver: FolderResolver,
+    identifiers: List[str]
+) -> Tuple[Set[str], Dict[str, List[str]]]:
+    """
+    Resolve a mixed list of Message-IDs and contextual UIDs to Gmail thread IDs (X-GM-THRID)
+    using a single IMAP connection. Returns a set of unique thread ids and a mapping
+    thrid -> list of identifiers that map to that thread.
+    """
+    logger.info(f"[bulk] Resolving thread IDs for {len(identifiers)} identifiers")
+    thrids: Set[str] = set()
+    thrid_to_identifiers: DefaultDict[str, List[str]] = defaultdict(list)
+
+    # 1) Partition identifiers
+    contextual_uids: DefaultDict[str, List[str]] = defaultdict(list)  # mailbox -> [uid]
+    message_ids: List[str] = []
+    for ident in identifiers:
+        if ':' in ident and len(ident.split(':', 1)[0]) > 0:
+            mailbox, uid = _decode_contextual_uid(ident)
+            if mailbox and uid:
+                contextual_uids[mailbox].append(uid)
+            else:
+                # fallback to treating as message-id if malformed
+                message_ids.append(ident)
+        else:
+            message_ids.append(ident)
+    logger.info(f"[bulk] Partitioned identifiers: {sum(len(v) for v in contextual_uids.values())} contextual UIDs across {len(contextual_uids)} mailbox(es), {len(message_ids)} Message-IDs")
+
+    # 2) Resolve thrids for contextual uids in batches per mailbox
+    for mailbox, uids in contextual_uids.items():
+        try:
+            mail.select(f'"{mailbox}"', readonly=True)
+            # Batch fetch X-GM-THRID for all uids in this mailbox
+            uid_list = ','.join(uids)
+            typ, data = mail.uid('fetch', uid_list, '(X-GM-THRID)')
+            logger.debug(f"[bulk] Batch FETCH X-GM-THRID typ={typ}, parts={len(data) if data else 0} in mailbox {mailbox}")
+            parsed_any = False
+            resolved_uids: Set[str] = set()
+            if typ == 'OK' and data:
+                # Parse results; map each UID to its thrid
+                for part in data:
+                    meta: Optional[bytes] = None
+                    if isinstance(part, tuple) and isinstance(part[0], (bytes, bytearray)):
+                        meta = part[0]
+                    elif isinstance(part, (bytes, bytearray)):
+                        meta = part
+                    if not meta:
+                        continue
+                    # Extract UID and THRID
+                    uid_match = re.search(rb'\b(\d+) \(', meta)
+                    uid_str = uid_match.group(1).decode() if uid_match else None
+                    thrid = _parse_thrid_from_meta(meta)
+                    if uid_str and thrid:
+                        parsed_any = True
+                        thrids.add(thrid)
+                        contextual_identifier = create_contextual_id(mailbox, uid_str)
+                        thrid_to_identifiers[thrid].append(contextual_identifier)
+                        resolved_uids.add(uid_str)
+            logger.debug(f"[bulk] Mailbox {mailbox}: batch parsed_any={parsed_any}, current thrids={len(thrids)}")
+            # Fallback to per-UID fetch if batch failed or parsed nothing
+            if not parsed_any:
+                for uid in uids:
+                    try:
+                        typ_one, data_one = mail.uid('fetch', uid, '(X-GM-THRID)')
+                        logger.debug(f"[bulk] Per-UID FETCH X-GM-THRID typ={typ_one} parts={len(data_one) if data_one else 0} for uid={uid} in {mailbox}")
+                        if typ_one != 'OK' or not data_one:
+                            continue
+                        meta_one: Optional[bytes] = None
+                        first = data_one[0]
+                        if isinstance(first, tuple) and isinstance(first[0], (bytes, bytearray)):
+                            meta_one = first[0]
+                        elif isinstance(first, (bytes, bytearray)):
+                            meta_one = first
+                        if not meta_one:
+                            continue
+                        thrid = _parse_thrid_from_meta(meta_one)
+                        if not thrid:
+                            continue
+                        thrids.add(thrid)
+                        contextual_identifier = create_contextual_id(mailbox, uid)
+                        thrid_to_identifiers[thrid].append(contextual_identifier)
+                        resolved_uids.add(uid)
+                    except Exception:
+                        continue
+            logger.info(f"[bulk] Mailbox {mailbox}: resolved {len(resolved_uids)}/{len(uids)} UIDs -> cumulative unique thrids={len(thrids)}")
+
+            # Derive Message-IDs for unresolved UIDs to allow Message-ID-based resolution later
+            unresolved = [uid for uid in uids if uid not in resolved_uids]
+            if unresolved:
+                logger.info(f"[bulk] Mailbox {mailbox}: attempting to derive Message-IDs for {len(unresolved)} unresolved UIDs")
+                for uid in unresolved:
+                    try:
+                        typ_mid, data_mid = mail.uid('fetch', uid, '(BODY.PEEK[HEADER.FIELDS (MESSAGE-ID)])')
+                        if typ_mid != 'OK' or not data_mid:
+                            continue
+                        header_blob: Optional[bytes] = None
+                        for part in data_mid:
+                            if isinstance(part, tuple) and isinstance(part[1], (bytes, bytearray)):
+                                header_blob = part[1]
+                                break
+                        if not header_blob:
+                            continue
+                        headers_text = header_blob.decode('utf-8', errors='replace')
+                        msgid_match = re.search(r'Message-ID:\s*<([^>]+)>', headers_text, re.IGNORECASE)
+                        if msgid_match:
+                            mid = msgid_match.group(1)
+                            message_ids.append(mid)
+                    except Exception:
+                        continue
+        except Exception as e:
+            logger.error(f"Failed to resolve thread IDs in mailbox '{mailbox}': {e}")
+            continue
+
+    # 3) Resolve thrids for Message-IDs in All Mail preferably
+    all_mailbox = None
+    try:
+        all_mailbox = resolver.get_folder_by_attribute('\\All')
+    except FolderNotFoundError:
+        # Fall back to Inbox and Sent search
+        all_mailbox = None
+
+    if all_mailbox and message_ids:
+        try:
+            mail.select(f'"{all_mailbox}"', readonly=True)
+            resolved_in_all = 0
+            for message_id in message_ids:
+                try:
+                    typ, data = mail.uid('search', None, f'(HEADER Message-ID "{message_id}")')
+                    if typ == 'OK' and data and data[0]:
+                        uid = data[0].split()[0].decode()
+                        # Fetch X-GM-THRID for this uid
+                        typ2, data2 = mail.uid('fetch', uid, '(X-GM-THRID)')
+                        if typ2 == 'OK' and data2 and isinstance(data2[0], tuple):
+                            meta = data2[0][0] if isinstance(data2[0][0], (bytes, bytearray)) else None
+                            if meta:
+                                thrid = _parse_thrid_from_meta(meta)
+                                if thrid:
+                                    thrids.add(thrid)
+                                    thrid_to_identifiers[thrid].append(message_id)
+                                    resolved_in_all += 1
+                except Exception as e:
+                    logger.warning(f"Search by Message-ID failed in All Mail for {message_id}: {e}")
+                    continue
+            logger.info(f"[bulk] Resolved {resolved_in_all} Message-IDs in All Mail -> cumulative unique thrids={len(thrids)}")
+        except Exception as e:
+            logger.warning(f"Could not select All Mail '{all_mailbox}': {e}")
+
+    # If some message_ids remain unresolved and All Mail was not available or failed,
+    # do a best-effort search in Inbox then Sent
+    if (not all_mailbox) and message_ids:
+        for attr in ['\\Inbox', '\\Sent']:
+            try:
+                folder = resolver.get_folder_by_attribute(attr)
+                mail.select(f'"{folder}"', readonly=True)
+                unresolved = []
+                resolved_here = 0
+                for message_id in message_ids:
+                    try:
+                        typ, data = mail.uid('search', None, f'(HEADER Message-ID "{message_id}")')
+                        if typ == 'OK' and data and data[0]:
+                            uid = data[0].split()[0].decode()
+                            typ2, data2 = mail.uid('fetch', uid, '(X-GM-THRID)')
+                            if typ2 == 'OK' and data2 and isinstance(data2[0], tuple):
+                                meta = data2[0][0] if isinstance(data2[0][0], (bytes, bytearray)) else None
+                                if meta:
+                                    thrid = _parse_thrid_from_meta(meta)
+                                    if thrid:
+                                        thrids.add(thrid)
+                                        thrid_to_identifiers[thrid].append(message_id)
+                                        resolved_here += 1
+                                        continue
+                        unresolved.append(message_id)
+                    except Exception:
+                        unresolved.append(message_id)
+                message_ids = unresolved
+                logger.info(f"[bulk] Folder {folder}: resolved {resolved_here} Message-IDs, remaining unresolved={len(message_ids)}; cumulative thrids={len(thrids)}")
+                if not message_ids:
+                    break
+            except Exception:
+                continue
+
+    if not thrids:
+        logger.warning("[bulk] No thread IDs were resolved from provided identifiers.")
+    return thrids, thrid_to_identifiers
+
+def _fetch_threads_by_thrids_single_connection(
+    mail: imaplib.IMAP4_SSL,
+    resolver: FolderResolver,
+    thrids: Set[str],
+    thrid_to_identifiers: Optional[Dict[str, List[str]]] = None,
+    total_identifiers: Optional[int] = None,
+    progress_callback: Optional[Callable[[int, int], None]] = None,
+    progress_completed_ref: Optional[Dict[str, int]] = None,
+) -> List[EmailThread]:
+    logger.info(f"[bulk] Fetching {len(thrids)} unique thread(s)")
+    threads: List[EmailThread] = []
+
+    # Prefer All Mail for thread-wide operations
+    target_mailbox = None
+    try:
+        target_mailbox = resolver.get_folder_by_attribute('\\All')
+    except FolderNotFoundError:
+        # Fallback: use Inbox
+        try:
+            target_mailbox = resolver.get_folder_by_attribute('\\Inbox')
+        except FolderNotFoundError:
+            target_mailbox = 'INBOX'
+
+    try:
+        mail.select(f'"{target_mailbox}"', readonly=True)
+    except Exception as e:
+        logger.warning(f"Could not select target mailbox '{target_mailbox}': {e}")
+        return threads
+
+    for thrid in thrids:
+        try:
+            typ, data = mail.uid('search', None, f'(X-GM-THRID {thrid})')
+            if typ != 'OK' or not data or not data[0]:
+                logger.debug(f"[bulk] No UIDs found for thrid={thrid} in {target_mailbox}")
+                continue
+            thread_uids = [uid.decode() for uid in data[0].split()]
+            if not thread_uids:
+                continue
+
+            uid_list = ','.join(thread_uids)
+            typ2, fetch_data = mail.uid('fetch', uid_list, '(RFC822 X-GM-LABELS)')
+            if typ2 != 'OK' or not fetch_data:
+                logger.debug(f"[bulk] FETCH returned no data for thrid={thrid}")
+                continue
+
+            messages: List[EmailMessage] = []
+            i = 0
+            while i < len(fetch_data):
+                part = fetch_data[i]
+                if isinstance(part, tuple) and len(part) >= 2:
+                    header_info = part[0].decode() if isinstance(part[0], bytes) else str(part[0])
+                    msg = email.message_from_bytes(part[1])
+                    message_id_header = msg.get('Message-ID', '').strip('<>')
+
+                    # Extract labels
+                    labels: List[str] = []
+                    labels_match = re.search(r'X-GM-LABELS \(([^)]+)\)', header_info)
+                    if labels_match:
+                        labels_str = labels_match.group(1)
+                        matches = re.findall(r'"([^"\\]*(?:\\.[^"\\]*)*)"|(\S+)', labels_str)
+                        raw_labels = [g1 or g2 for g1, g2 in matches]
+                        labels = [label.replace('\\\\', '\\') for label in raw_labels]
+
+                    # Skip drafts or missing message-id
+                    if not message_id_header or '\\Draft' in labels:
+                        i += 1
+                        continue
+
+                    # Determine message type
+                    message_type = 'sent' if '\\Sent' in labels else 'received'
+
+                    # Extract UID from header info
+                    uid_match = re.search(r'(\d+) \(', header_info)
+                    uid_val = uid_match.group(1) if uid_match else thread_uids[len(messages)]
+
+                    # Build contextual ID from target_mailbox for consistency
+                    contextual_id = create_contextual_id(target_mailbox, uid_val)
+
+                    body_formats = extract_body_formats(msg)
+
+                    messages.append(EmailMessage(
+                        uid=contextual_id,
+                        message_id=message_id_header,
+                        **{'from': msg.get('From', '')},
+                        to=msg.get('To', ''),
+                        cc=msg.get('Cc', ''),
+                        bcc=msg.get('Bcc', ''),
+                        subject=msg.get('Subject', ''),
+                        date=msg.get('Date', ''),
+                        body_raw=body_formats['raw'],
+                        body_markdown=body_formats['markdown'],
+                        body_cleaned=body_formats['cleaned'],
+                        gmail_labels=labels,
+                        references=msg.get('References', ''),
+                        in_reply_to=msg.get('In-Reply-To', '').strip('<>'),
+                        type=message_type
+                    ))
+                i += 1
+
+            if messages:
+                thread = EmailThread.from_messages(messages, thrid)
+                # Compute user-defined labels across thread (filter out system folders)
+                all_special_use_attributes = list(resolver.SPECIAL_USE_ATTRIBUTES) + list(resolver.FALLBACK_MAP.keys())
+                resolved_special_folders = set()
+                for attr in all_special_use_attributes:
+                    try:
+                        resolved_special_folders.add(attr)
+                        resolved_special_folders.add(resolver.get_folder_by_attribute(attr))
+                    except FolderNotFoundError:
+                        continue
+
+                all_labels_in_thread = set()
+                for message in thread.messages:
+                    all_labels_in_thread.update(message.gmail_labels)
+                user_labels = [
+                    label for label in all_labels_in_thread
+                    if label not in resolved_special_folders
+                ]
+                thread.most_recent_user_labels = sorted(list(set(user_labels)))
+
+                threads.append(thread)
+                logger.info(f"[bulk] Built thread thrid={thrid} with {len(thread.messages)} messages")
+
+                # Per-thread progress update if mapping and callback provided
+                if progress_callback is not None and thrid_to_identifiers is not None and progress_completed_ref is not None and total_identifiers is not None:
+                    try:
+                        inc = len(thrid_to_identifiers.get(thrid, []))
+                        progress_completed_ref['completed'] = min(
+                            total_identifiers,
+                            progress_completed_ref.get('completed', 0) + (inc if inc > 0 else 1)
+                        )
+                        progress_callback(total_identifiers, progress_completed_ref['completed'])
+                    except Exception:
+                        pass
+        except Exception as e:
+            logger.error(f"Failed to fetch thread {thrid}: {e}")
+            continue
+
+    return threads
+
+def _build_export_dataset_from_threads(threads: List[EmailThread]) -> List[Dict[str, Any]]:
+    dataset: List[Dict[str, Any]] = []
+    for thread in threads:
+        dataset.append({
+            "thread_markdown": thread.markdown,
+            "thread_subject": thread.subject,
+            "thread_participants": thread.participants,
+            "most_recent_user_labels": thread.most_recent_user_labels,
+        })
+    logger.info(f"[bulk] Built dataset with {len(dataset)} thread item(s)")
+    return dataset
+
+def _export_threads_dataset_bulk_sync(
+    identifiers: List[str],
+    app_settings: AppSettings,
+    progress_callback: Optional[Callable[[int, int], None]] = None
+) -> List[Dict[str, Any]]:
+    """
+    Single-connection bulk export. Deduplicates by Gmail thread id. Accepts Message-IDs
+    and contextual UIDs. Reports progress in terms of identifiers processed, grouped per thread.
+    """
+    try:
+        with imap_connection(app_settings=app_settings) as (mail, resolver):
+            total = len(identifiers)
+            logger.info(f"[bulk] Starting export for {total} identifiers")
+            if progress_callback:
+                try:
+                    progress_callback(total, 0)
+                except Exception:
+                    pass
+
+            # Interleaved resolve+fetch in batches of N
+            BATCH_SIZE = 20
+            dataset: List[Dict[str, Any]] = []
+            seen_thrids: Set[str] = set()
+            thrid_to_identifiers: DefaultDict[str, List[str]] = defaultdict(list)
+            progress_state = {'completed': 0}
+
+            # Partition identifiers
+            contextual_uids: DefaultDict[str, List[str]] = defaultdict(list)
+            message_ids: List[str] = []
+            for ident in identifiers:
+                if ':' in ident and len(ident.split(':', 1)[0]) > 0:
+                    mailbox, uid = _decode_contextual_uid(ident)
+                    if mailbox and uid:
+                        contextual_uids[mailbox].append(uid)
+                    else:
+                        message_ids.append(ident)
+                else:
+                    message_ids.append(ident)
+            logger.info(f"[bulk] Partitioned identifiers: {sum(len(v) for v in contextual_uids.values())} contextual UIDs across {len(contextual_uids)} mailbox(es), {len(message_ids)} Message-IDs")
+
+            # Helper to fetch a batch of thrids and append to dataset with progress
+            def _flush_batch(thrid_batch: List[str]) -> None:
+                nonlocal dataset
+                if not thrid_batch:
+                    return
+                threads = _fetch_threads_by_thrids_single_connection(
+                    mail,
+                    resolver,
+                    set(thrid_batch),
+                    thrid_to_identifiers=thrid_to_identifiers,
+                    total_identifiers=total,
+                    progress_callback=progress_callback,
+                    progress_completed_ref=progress_state,
+                )
+                if threads:
+                    dataset.extend(_build_export_dataset_from_threads(threads))
+
+            # 1) Resolve contextual UIDs mailbox-by-mailbox, flushing every BATCH_SIZE new thrids
+            for mailbox, uids in contextual_uids.items():
+                try:
+                    mail.select(f'"{mailbox}"', readonly=True)
+                    batch_thrids: List[str] = []
+                    # process in chunks to keep FETCH manageable
+                    CHUNK = 100
+                    for i in range(0, len(uids), CHUNK):
+                        uid_slice = uids[i:i+CHUNK]
+                        uid_list = ','.join(uid_slice)
+                        typ, data = mail.uid('fetch', uid_list, '(X-GM-THRID)')
+                        logger.debug(f"[bulk] Batch FETCH X-GM-THRID typ={typ}, parts={len(data) if data else 0} in mailbox {mailbox}")
+                        # Parse batch results
+                        resolved_in_batch: Set[str] = set()
+                        if typ == 'OK' and data:
+                            for part in data:
+                                meta: Optional[bytes] = None
+                                if isinstance(part, tuple) and isinstance(part[0], (bytes, bytearray)):
+                                    meta = part[0]
+                                elif isinstance(part, (bytes, bytearray)):
+                                    meta = part
+                                if not meta:
+                                    continue
+                                uid_match = re.search(rb'\b(\d+) \(', meta)
+                                uid_str = uid_match.group(1).decode() if uid_match else None
+                                thrid = _parse_thrid_from_meta(meta)
+                                if uid_str and thrid and thrid not in seen_thrids:
+                                    seen_thrids.add(thrid)
+                                    batch_thrids.append(thrid)
+                                    thrid_to_identifiers[thrid].append(create_contextual_id(mailbox, uid_str))
+                                    resolved_in_batch.add(uid_str)
+                        # per-UID fallback for unresolved in slice
+                        unresolved = [uid for uid in uid_slice if uid not in resolved_in_batch]
+                        if unresolved:
+                            for uid in unresolved:
+                                try:
+                                    typ_one, data_one = mail.uid('fetch', uid, '(X-GM-THRID)')
+                                    if typ_one != 'OK' or not data_one:
+                                        continue
+                                    meta_one: Optional[bytes] = None
+                                    first = data_one[0]
+                                    if isinstance(first, tuple) and isinstance(first[0], (bytes, bytearray)):
+                                        meta_one = first[0]
+                                    elif isinstance(first, (bytes, bytearray)):
+                                        meta_one = first
+                                    if not meta_one:
+                                        continue
+                                    thrid = _parse_thrid_from_meta(meta_one)
+                                    if thrid and thrid not in seen_thrids:
+                                        seen_thrids.add(thrid)
+                                        batch_thrids.append(thrid)
+                                        thrid_to_identifiers[thrid].append(create_contextual_id(mailbox, uid))
+                                except Exception:
+                                    continue
+
+                        logger.info(f"[bulk] Mailbox {mailbox}: resolved {len(resolved_in_batch) + (len(unresolved) if unresolved else 0)} items in chunk; total unique thrids so far={len(seen_thrids)}")
+
+                        # Flush when batch reaches BATCH_SIZE
+                        if len(batch_thrids) >= BATCH_SIZE:
+                            current_mailbox = mailbox
+                            _flush_batch(batch_thrids[:BATCH_SIZE])
+                            batch_thrids = batch_thrids[BATCH_SIZE:]
+                            # Re-select the mailbox after fetching threads (fetch switches to All Mail)
+                            try:
+                                mail.select(f'"{current_mailbox}"', readonly=True)
+                            except Exception:
+                                pass
+
+                    # Flush any remaining thrids for this mailbox
+                    if batch_thrids:
+                        current_mailbox = mailbox
+                        _flush_batch(batch_thrids)
+                        try:
+                            mail.select(f'"{current_mailbox}"', readonly=True)
+                        except Exception:
+                            pass
+                except Exception as e:
+                    logger.error(f"[bulk] Error processing mailbox {mailbox}: {e}")
+                    continue
+
+            # 2) If there are Message-IDs (or derived from unresolved), resolve in All Mail and flush every BATCH_SIZE
+            if message_ids:
+                try:
+                    all_mailbox = resolver.get_folder_by_attribute('\\All')
+                except FolderNotFoundError:
+                    all_mailbox = None
+                if all_mailbox:
+                    try:
+                        mail.select(f'"{all_mailbox}"', readonly=True)
+                        batch_thrids: List[str] = []
+                        for mid in message_ids:
+                            try:
+                                typ, data = mail.uid('search', None, f'(HEADER Message-ID "{mid}")')
+                                if typ == 'OK' and data and data[0]:
+                                    uid = data[0].split()[0].decode()
+                                    typ2, data2 = mail.uid('fetch', uid, '(X-GM-THRID)')
+                                    meta = None
+                                    if typ2 == 'OK' and data2 and isinstance(data2[0], tuple):
+                                        meta = data2[0][0] if isinstance(data2[0][0], (bytes, bytearray)) else None
+                                    if meta:
+                                        thrid = _parse_thrid_from_meta(meta)
+                                        if thrid and thrid not in seen_thrids:
+                                            seen_thrids.add(thrid)
+                                            batch_thrids.append(thrid)
+                                            thrid_to_identifiers[thrid].append(mid)
+                                # Flush on size
+                                if len(batch_thrids) >= BATCH_SIZE:
+                                    _flush_batch(batch_thrids)
+                                    batch_thrids = []
+                            except Exception:
+                                continue
+                        if batch_thrids:
+                            _flush_batch(batch_thrids)
+                    except Exception as e:
+                        logger.warning(f"[bulk] Could not select All Mail for Message-ID resolution: {e}")
+
+            # Final ensure progress shows completed
+            if progress_callback:
+                try:
+                    progress_callback(total, total)
+                except Exception:
+                    pass
+
+            if not dataset:
+                logger.warning("[bulk] Export produced an empty dataset")
+            return dataset
+    except Exception as e:
+        logger.error(f"Bulk export failed: {e}", exc_info=True)
+        return []
+
+async def export_threads_dataset_bulk(
+    user_uuid: UUID,
+    identifiers: List[str],
+    progress_callback: Optional[Callable[[int, int], None]] = None
+) -> List[Dict[str, Any]]:
+    """
+    Async wrapper for single-connection bulk export. The progress_callback, if provided,
+    will be invoked from the worker thread.
+    """
+    app_settings = load_app_settings(user_uuid=user_uuid)
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, _export_threads_dataset_bulk_sync, identifiers, app_settings, progress_callback)

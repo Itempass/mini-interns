@@ -13,7 +13,7 @@ from uuid import uuid4
 from shared.redis.redis_client import get_redis_client
 from shared.redis.keys import RedisKeys
 
-from mcp_servers.imap_mcpserver.src.imap_client.client import get_emails, get_all_labels, get_all_special_use_folders, get_complete_thread, EmailMessage, get_message_by_id, list_headers, count_uids, get_message_by_contextual_uid, list_recent_uids
+from mcp_servers.imap_mcpserver.src.imap_client.client import get_emails, get_all_labels, get_all_special_use_folders, get_complete_thread, EmailMessage, get_message_by_id, list_headers, count_uids, get_message_by_contextual_uid, list_recent_uids, export_threads_dataset_bulk
 from . import database
 from shared.app_settings import load_app_settings
 
@@ -695,42 +695,19 @@ async def export_threads_dataset(
     selected_ids: List[str],
     user_id: UUID
 ) -> List[Dict[str, Any]]:
-    """Builds the export dataset for selected message IDs, fetching full threads.
+    """Builds the export dataset for selected identifiers using a single-connection bulk routine.
 
-    Processes sequentially to avoid concurrent IMAP operations.
+    Accepts Message-IDs or contextual UIDs; deduplicates by Gmail thread id.
     """
     if source_id != "imap_emails":
         raise ValueError(f"Unknown data source: {source_id}")
 
-    results: List[Dict[str, Any]] = []
-    for message_id in selected_ids:
-        try:
-            # If the selection is a contextual UID, fetch by UID; otherwise by Message-ID
-            source_email = None
-            if ':' in message_id and len(message_id.split(':', 1)[0]) > 0:
-                # Looks like contextual uid
-                source_email = await get_message_by_contextual_uid(user_uuid=user_id, contextual_uid=message_id)
-                # If it fails, fall back to message-id
-                if not source_email:
-                    source_email = await get_message_by_id(user_uuid=user_id, message_id=message_id)
-            else:
-                source_email = await get_message_by_id(user_uuid=user_id, message_id=message_id) 
-            if not source_email:
-                continue
-            thread = await get_complete_thread(user_uuid=user_id, source_message=source_email)
-            if not thread:
-                continue
-            results.append({
-                "thread_markdown": thread.markdown,
-                "thread_subject": thread.subject,
-                "thread_participants": thread.participants,
-                "most_recent_user_labels": thread.most_recent_user_labels,
-            })
-        except Exception as e:
-            logger.error(f"Failed to export thread for message_id {message_id}: {e}")
-            continue
-
-    return results
+    try:
+        dataset = await export_threads_dataset_bulk(user_uuid=user_id, identifiers=selected_ids)
+        return dataset
+    except Exception as e:
+        logger.error(f"Bulk export failed: {e}", exc_info=True)
+        return []
 
 
 async def collect_thread_ids(
@@ -874,42 +851,27 @@ def get_export_job_result(user_id: UUID, job_id: str) -> Optional[List[Dict[str,
 
 
 async def build_export_job(job_id: str, user_id: UUID, source_id: str, selected_ids: List[str]) -> None:
-    """Background task to build the dataset and store it in Redis."""
+    """Background task to build the dataset and store it in Redis using a single IMAP connection with deduplication."""
     try:
+        if source_id != "imap_emails":
+            raise ValueError(f"Unknown data source: {source_id}")
+
         total = len(selected_ids)
         set_export_job_progress(user_id, job_id, total=total, completed=0)
-        results: List[Dict[str, Any]] = []
-        completed = 0
-        for message_id in selected_ids:
+
+        def _progress_cb(total_in: int, completed_in: int) -> None:
             try:
-                source_email = None
-                if ':' in message_id and len(message_id.split(':', 1)[0]) > 0:
-                    source_email = await get_message_by_contextual_uid(user_uuid=user_id, contextual_uid=message_id)
-                    if not source_email:
-                        source_email = await get_message_by_id(user_uuid=user_id, message_id=message_id)
-                else:
-                    source_email = await get_message_by_id(user_uuid=user_id, message_id=message_id)
-                if not source_email:
-                    completed += 1
-                    set_export_job_progress(user_id, job_id, total=total, completed=completed)
-                    continue
-                thread = await get_complete_thread(user_uuid=user_id, source_message=source_email)
-                if not thread:
-                    completed += 1
-                    set_export_job_progress(user_id, job_id, total=total, completed=completed)
-                    continue
-                results.append({
-                    "thread_markdown": thread.markdown,
-                    "thread_subject": thread.subject,
-                    "thread_participants": thread.participants,
-                    "most_recent_user_labels": thread.most_recent_user_labels,
-                })
-            except Exception as e:
-                logger.error(f"Export job {job_id} failed to process id {message_id}: {e}")
-            finally:
-                completed += 1
-                set_export_job_progress(user_id, job_id, total=total, completed=completed)
-        set_export_job_completed(user_id, job_id, results)
+                set_export_job_progress(user_id, job_id, total=total_in, completed=completed_in)
+            except Exception:
+                pass
+
+        dataset = await export_threads_dataset_bulk(user_uuid=user_id, identifiers=selected_ids, progress_callback=_progress_cb)
+        # Ensure progress shows as complete for UI gating
+        try:
+            set_export_job_progress(user_id, job_id, total=total, completed=total)
+        except Exception:
+            pass
+        set_export_job_completed(user_id, job_id, dataset)
     except Exception as e:
         logger.error(f"Export job {job_id} failed: {e}", exc_info=True)
         set_export_job_failed(user_id, job_id, str(e))
