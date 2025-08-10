@@ -8,8 +8,12 @@ from jinja2 import Template
 import re
 import json
 import ast
+from email.utils import parsedate_to_datetime
+from uuid import uuid4
+from shared.redis.redis_client import get_redis_client
+from shared.redis.keys import RedisKeys
 
-from mcp_servers.imap_mcpserver.src.imap_client.client import get_emails, get_all_labels, get_all_special_use_folders, get_complete_thread, EmailMessage
+from mcp_servers.imap_mcpserver.src.imap_client.client import get_emails, get_all_labels, get_all_special_use_folders, get_complete_thread, EmailMessage, get_message_by_id, list_headers, count_uids, get_message_by_contextual_uid, list_recent_uids
 from . import database
 from shared.app_settings import load_app_settings
 
@@ -576,3 +580,336 @@ async def run_evaluation_and_refinement(run_uuid: UUID, user_id: UUID):
             database.update_evaluation_run(run)
         # The exception will be handled by the background task runner
         raise
+
+
+async def list_threads(
+    source_id: str,
+    filters: Dict[str, Any],
+    page: int,
+    page_size: int,
+    user_id: UUID
+) -> Dict[str, Any]:
+    """Lists lightweight thread anchors for selection, with basic pagination and filters.
+
+    For IMAP, fetches recent messages per selected folder using get_emails with an upper bound,
+    deduplicates by message_id, sorts by date desc, and slices for the requested page.
+    """
+    if source_id != "imap_emails":
+        raise ValueError(f"Unknown data source: {source_id}")
+
+    folder_names: List[str] = filters.get("folder_names") or ["INBOX"]
+    filter_by_labels: List[str] | None = filters.get("filter_by_labels") or None
+
+    # Upper bound the total messages fetched to keep it reasonable
+    # We fetch up to page*page_size per folder (split evenly), then slice the combined list.
+    # Further cap the first-page fetch to improve initial responsiveness.
+    target_total = max(page, 1) * max(page_size, 1)
+    per_folder_target = max(target_total // max(len(folder_names), 1), 1)
+    per_folder_target = min(per_folder_target, 500)
+
+    all_messages: List[EmailMessage] = []
+    try:
+        # Fetch sequentially across folders to avoid concurrent IMAP operations
+        for folder in folder_names:
+            try:
+                # Use headers-only listing to avoid downloading bodies when listing
+                header_dicts = await list_headers(
+                    user_uuid=user_id,
+                    folder_name=folder,
+                    count=per_folder_target,
+                    filter_by_labels=filter_by_labels,
+                )
+                # Map to a minimal EmailMessage-like shape for downstream usage
+                for h in header_dicts:
+                    # Create a light struct with only required fields for listing
+                    em = EmailMessage(
+                        uid=h.get('uid', ''),
+                        message_id=h.get('message_id', ''),
+                        from_=h.get('from', ''),
+                        to=h.get('to', ''),
+                        subject=h.get('subject', ''),
+                        date=h.get('date', ''),
+                        body_raw="",
+                        body_markdown="",
+                        body_cleaned="",
+                        gmail_labels=h.get('gmail_labels', []),
+                        references="",
+                        in_reply_to="",
+                        type="received",
+                    )
+                    all_messages.append(em)
+            except Exception as e:
+                logger.error(f"Failed to fetch emails for folder '{folder}': {e}")
+
+        # Deduplicate by message_id
+        dedup: Dict[str, EmailMessage] = {}
+        for msg in all_messages:
+            if msg.message_id and msg.message_id not in dedup:
+                dedup[msg.message_id] = msg
+
+        unique_messages = list(dedup.values())
+
+        # Sort by parsed date desc
+        def _parse_date_safe(d: str):
+            try:
+                return parsedate_to_datetime(d)
+            except Exception:
+                return None
+        unique_messages.sort(key=lambda m: (_parse_date_safe(m.date) or 0), reverse=True)
+
+        # Slice for the requested page
+        start = (max(page, 1) - 1) * max(page_size, 1)
+        end = start + max(page_size, 1)
+        page_items = unique_messages[start:end]
+
+        # Prepare lightweight items
+        items = []
+        for m in page_items:
+            items.append({
+                "uid": m.uid,
+                "id": m.message_id,
+                "subject": m.subject,
+                "from": m.from_,
+                "to": m.to,
+                "date": m.date,
+                "folders": m.gmail_labels,
+                "labels": m.gmail_labels,
+            })
+
+        # Compute total by summing counts across folders without fetching bodies/headers
+        total = 0
+        for folder in folder_names:
+            try:
+                total += await count_uids(user_uuid=user_id, folder_name=folder, filter_by_labels=filter_by_labels)
+            except Exception as e:
+                logger.error(f"Failed to count UIDs for folder '{folder}': {e}")
+ 
+        return {"items": items, "total": total}
+    except Exception as e:
+        logger.error(f"Error listing threads for source {source_id}: {e}", exc_info=True)
+        raise
+
+
+async def export_threads_dataset(
+    source_id: str,
+    selected_ids: List[str],
+    user_id: UUID
+) -> List[Dict[str, Any]]:
+    """Builds the export dataset for selected message IDs, fetching full threads.
+
+    Processes sequentially to avoid concurrent IMAP operations.
+    """
+    if source_id != "imap_emails":
+        raise ValueError(f"Unknown data source: {source_id}")
+
+    results: List[Dict[str, Any]] = []
+    for message_id in selected_ids:
+        try:
+            # If the selection is a contextual UID, fetch by UID; otherwise by Message-ID
+            source_email = None
+            if ':' in message_id and len(message_id.split(':', 1)[0]) > 0:
+                # Looks like contextual uid
+                source_email = await get_message_by_contextual_uid(user_uuid=user_id, contextual_uid=message_id)
+                # If it fails, fall back to message-id
+                if not source_email:
+                    source_email = await get_message_by_id(user_uuid=user_id, message_id=message_id)
+            else:
+                source_email = await get_message_by_id(user_uuid=user_id, message_id=message_id) 
+            if not source_email:
+                continue
+            thread = await get_complete_thread(user_uuid=user_id, source_message=source_email)
+            if not thread:
+                continue
+            results.append({
+                "thread_markdown": thread.markdown,
+                "thread_subject": thread.subject,
+                "thread_participants": thread.participants,
+                "most_recent_user_labels": thread.most_recent_user_labels,
+            })
+        except Exception as e:
+            logger.error(f"Failed to export thread for message_id {message_id}: {e}")
+            continue
+
+    return results
+
+
+async def collect_thread_ids(
+    source_id: str,
+    filters: Dict[str, Any],
+    limit: int,
+    user_id: UUID
+) -> List[str]:
+    """Collect up to `limit` contextual UIDs using UID SEARCH only (no headers)."""
+    if source_id != "imap_emails":
+        raise ValueError(f"Unknown data source: {source_id}")
+
+    folder_names: List[str] = filters.get("folder_names") or ["INBOX"]
+    filter_by_labels: List[str] | None = filters.get("filter_by_labels") or None
+
+    remaining = max(0, min(limit, 500))
+    collected_uids: List[str] = []
+
+    for folder in folder_names:
+        if remaining <= 0:
+            break
+        try:
+            # Ask for up to remaining from this folder; UID order approximates recency
+            uids = await list_recent_uids(user_uuid=user_id, folder_name=folder, count=remaining, filter_by_labels=filter_by_labels)
+            for uid in uids:
+                if uid not in collected_uids:
+                    collected_uids.append(uid)
+                    remaining -= 1
+                    if remaining <= 0:
+                        break
+        except Exception as e:
+            logger.error(f"Failed to collect UIDs for folder '{folder}': {e}")
+            continue
+
+    return collected_uids
+
+# --- Export Job Helpers ---
+
+def _export_status_key(user_id: UUID, job_id: str) -> str:
+    return RedisKeys.get_export_status_key(user_id, job_id)
+
+def _export_data_key(user_id: UUID, job_id: str) -> str:
+    return RedisKeys.get_export_data_key(user_id, job_id)
+
+def _export_error_key(user_id: UUID, job_id: str) -> str:
+    return RedisKeys.get_export_error_key(user_id, job_id)
+
+def _export_progress_key(user_id: UUID, job_id: str) -> str:
+    return RedisKeys.get_export_progress_key(user_id, job_id)
+
+
+def create_export_job(user_id: UUID, source_id: str, selected_ids: List[str]) -> str:
+    """Initialize an export job in Redis and return its job_id."""
+    job_id = str(uuid4())
+    rc = get_redis_client()
+    rc.set(_export_status_key(user_id, job_id), "processing")
+    # Store the request payload in data key temporarily to pass to background if needed
+    rc.set(_export_data_key(user_id, job_id), json.dumps({
+        "user_id": str(user_id),
+        "source_id": source_id,
+        "selected_ids": selected_ids,
+    }))
+    return job_id
+
+
+def set_export_job_failed(user_id: UUID, job_id: str, error_message: str) -> None:
+    rc = get_redis_client()
+    rc.set(_export_status_key(user_id, job_id), "failed")
+    rc.set(_export_error_key(user_id, job_id), error_message)
+
+
+def set_export_job_completed(user_id: UUID, job_id: str, dataset: List[Dict[str, Any]]) -> None:
+    rc = get_redis_client()
+    rc.set(_export_status_key(user_id, job_id), "completed")
+    rc.set(_export_data_key(user_id, job_id), json.dumps(dataset))
+
+
+def get_export_job_status(user_id: UUID, job_id: str) -> str:
+    rc = get_redis_client()
+    status = rc.get(_export_status_key(user_id, job_id))
+    if not status:
+        return "not_found"
+    if isinstance(status, bytes):
+        try:
+            return status.decode("utf-8")
+        except Exception:
+            return str(status)
+    return status
+
+
+def set_export_job_progress(user_id: UUID, job_id: str, total: int, completed: int) -> None:
+    rc = get_redis_client()
+    rc.set(_export_progress_key(user_id, job_id), json.dumps({"total": total, "completed": completed}))
+
+def get_export_job_progress(user_id: UUID, job_id: str) -> Dict[str, int]:
+    rc = get_redis_client()
+    raw = rc.get(_export_progress_key(user_id, job_id))
+    if not raw:
+        return {"total": 0, "completed": 0}
+    try:
+        if isinstance(raw, bytes):
+            raw = raw.decode("utf-8")
+        data = json.loads(raw)
+        total = int(data.get("total", 0))
+        completed = int(data.get("completed", 0))
+        return {"total": total, "completed": completed}
+    except Exception:
+        return {"total": 0, "completed": 0}
+
+
+def get_export_job_payload(user_id: UUID, job_id: str) -> Optional[Dict[str, Any]]:
+    rc = get_redis_client()
+    raw = rc.get(_export_data_key(user_id, job_id))
+    if not raw:
+        return None
+    try:
+        if isinstance(raw, bytes):
+            raw = raw.decode("utf-8")
+        return json.loads(raw)
+    except Exception:
+        return None
+
+
+def get_export_job_result(user_id: UUID, job_id: str) -> Optional[List[Dict[str, Any]]]:
+    rc = get_redis_client()
+    raw = rc.get(_export_data_key(user_id, job_id))
+    if not raw:
+        return None
+    try:
+        if isinstance(raw, bytes):
+            raw = raw.decode("utf-8")
+        data = json.loads(raw)
+        # If it's the initial payload, not the final dataset, return None
+        if isinstance(data, dict) and "selected_ids" in data:
+            return None
+        if isinstance(data, list):
+            return data
+        return None
+    except Exception:
+        return None
+
+
+async def build_export_job(job_id: str, user_id: UUID, source_id: str, selected_ids: List[str]) -> None:
+    """Background task to build the dataset and store it in Redis."""
+    try:
+        total = len(selected_ids)
+        set_export_job_progress(user_id, job_id, total=total, completed=0)
+        results: List[Dict[str, Any]] = []
+        completed = 0
+        for message_id in selected_ids:
+            try:
+                source_email = None
+                if ':' in message_id and len(message_id.split(':', 1)[0]) > 0:
+                    source_email = await get_message_by_contextual_uid(user_uuid=user_id, contextual_uid=message_id)
+                    if not source_email:
+                        source_email = await get_message_by_id(user_uuid=user_id, message_id=message_id)
+                else:
+                    source_email = await get_message_by_id(user_uuid=user_id, message_id=message_id)
+                if not source_email:
+                    completed += 1
+                    set_export_job_progress(user_id, job_id, total=total, completed=completed)
+                    continue
+                thread = await get_complete_thread(user_uuid=user_id, source_message=source_email)
+                if not thread:
+                    completed += 1
+                    set_export_job_progress(user_id, job_id, total=total, completed=completed)
+                    continue
+                results.append({
+                    "thread_markdown": thread.markdown,
+                    "thread_subject": thread.subject,
+                    "thread_participants": thread.participants,
+                    "most_recent_user_labels": thread.most_recent_user_labels,
+                })
+            except Exception as e:
+                logger.error(f"Export job {job_id} failed to process id {message_id}: {e}")
+            finally:
+                completed += 1
+                set_export_job_progress(user_id, job_id, total=total, completed=completed)
+        set_export_job_completed(user_id, job_id, results)
+    except Exception as e:
+        logger.error(f"Export job {job_id} failed: {e}", exc_info=True)
+        set_export_job_failed(user_id, job_id, str(e))
