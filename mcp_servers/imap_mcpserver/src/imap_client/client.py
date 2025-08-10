@@ -1704,10 +1704,12 @@ def _export_threads_dataset_bulk_sync(
                     if mailbox and uid:
                         contextual_uids[mailbox].append(uid)
                     else:
+                        # fallback to treating as message-id if malformed
                         message_ids.append(ident)
                 else:
                     message_ids.append(ident)
             logger.info(f"[bulk] Partitioned identifiers: {sum(len(v) for v in contextual_uids.values())} contextual UIDs across {len(contextual_uids)} mailbox(es), {len(message_ids)} Message-IDs")
+            logger.info(f"[export_debug] Received {len(message_ids)} message IDs to process. Sample: {message_ids[:5]}")
 
             # Helper to fetch a batch of thrids and append to dataset with progress
             def _flush_batch(thrid_batch: List[str]) -> None:
@@ -1808,39 +1810,68 @@ def _export_threads_dataset_bulk_sync(
 
             # 2) If there are Message-IDs (or derived from unresolved), resolve in All Mail and flush every BATCH_SIZE
             if message_ids:
-                try:
-                    all_mailbox = resolver.get_folder_by_attribute('\\All')
-                except FolderNotFoundError:
-                    all_mailbox = None
-                if all_mailbox:
+                # Define folders to search for Message-IDs, in order of preference
+                mailboxes_to_search = []
+                for attr in ['\\All', '\\Inbox', '\\Sent']:
                     try:
-                        mail.select(f'"{all_mailbox}"', readonly=True)
+                        folder = resolver.get_folder_by_attribute(attr)
+                        mailboxes_to_search.append(folder)
+                    except FolderNotFoundError:
+                        logger.warning(f"[export_debug] Could not resolve folder for attribute '{attr}', skipping.")
+                
+                # Keep track of which message IDs have been found
+                resolved_mids = set()
+
+                for mailbox in mailboxes_to_search:
+                    remaining_mids = [mid for mid in message_ids if mid not in resolved_mids]
+                    if not remaining_mids:
+                        break
+                    
+                    try:
+                        mail.select(f'"{mailbox}"', readonly=True)
                         batch_thrids: List[str] = []
-                        for mid in message_ids:
+
+                        for mid in remaining_mids:
                             try:
                                 typ, data = mail.uid('search', None, f'(HEADER Message-ID "{mid}")')
+                                
                                 if typ == 'OK' and data and data[0]:
                                     uid = data[0].split()[0].decode()
+                                    
                                     typ2, data2 = mail.uid('fetch', uid, '(X-GM-THRID)')
                                     meta = None
-                                    if typ2 == 'OK' and data2 and isinstance(data2[0], tuple):
-                                        meta = data2[0][0] if isinstance(data2[0][0], (bytes, bytearray)) else None
+                                    
+                                    # Handle different IMAP response formats for the FETCH command
+                                    if typ2 == 'OK' and data2:
+                                        first_part = data2[0]
+                                        if isinstance(first_part, tuple) and isinstance(first_part[0], (bytes, bytearray)):
+                                            # Expected format: [(b'meta', b'data')]
+                                            meta = first_part[0]
+                                        elif isinstance(first_part, (bytes, bytearray)):
+                                            # Alternative format seen in logs: [b'meta']
+                                            meta = first_part
+
                                     if meta:
                                         thrid = _parse_thrid_from_meta(meta)
                                         if thrid and thrid not in seen_thrids:
                                             seen_thrids.add(thrid)
                                             batch_thrids.append(thrid)
                                             thrid_to_identifiers[thrid].append(mid)
+                                            resolved_mids.add(mid) # Mark this Message-ID as resolved
+                                
                                 # Flush on size
                                 if len(batch_thrids) >= BATCH_SIZE:
                                     _flush_batch(batch_thrids)
                                     batch_thrids = []
-                            except Exception:
+                                    # After fetching, re-select the search mailbox
+                                    mail.select(f'"{mailbox}"', readonly=True)
+                            except Exception as e:
                                 continue
+                        
                         if batch_thrids:
                             _flush_batch(batch_thrids)
                     except Exception as e:
-                        logger.warning(f"[bulk] Could not select All Mail for Message-ID resolution: {e}")
+                        logger.warning(f"[bulk] Could not select or search mailbox '{mailbox}': {e}", exc_info=True)
 
             # Final ensure progress shows completed
             if progress_callback:
@@ -1851,6 +1882,7 @@ def _export_threads_dataset_bulk_sync(
 
             if not dataset:
                 logger.warning("[bulk] Export produced an empty dataset")
+            
             return dataset
     except Exception as e:
         logger.error(f"Bulk export failed: {e}", exc_info=True)

@@ -49,6 +49,10 @@ const CreateEvaluationTemplateModal: React.FC<CreateEvaluationTemplateModalProps
       setStep(1);
     setIsLoading(true);
       setErrorMessage('');
+      // Reset export state every time the modal is opened
+      setExportJobId(null);
+      setIsExporting(false);
+      setExportProgress({ total: 0, completed: 0 });
       Promise.all([
       listDataSources()
     ]).then(([sources]) => {
@@ -113,6 +117,12 @@ const CreateEvaluationTemplateModal: React.FC<CreateEvaluationTemplateModalProps
   };
   
   const handlePrevious = () => {
+    if (step === 3) {
+      // Also reset when navigating away from the export step
+      setExportJobId(null);
+      setIsExporting(false);
+      setExportProgress({ total: 0, completed: 0 });
+    }
     setStep(prev => prev - 1);
   };
 
