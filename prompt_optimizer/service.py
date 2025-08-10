@@ -600,9 +600,9 @@ async def list_threads(
     filter_by_labels: List[str] | None = filters.get("filter_by_labels") or None
 
     # We fetch up to page_size per folder (bounded), not page*page_size, then slice overall
-    total_needed = max(page, 1) * max(page_size, 1)
+    total_needed = (max(page, 1)) * max(page_size, 1)
     folders_count = max(len(folder_names), 1)
-    per_folder_fetch = max(1, min(total_needed // folders_count, 500))
+    per_folder_fetch = -(-total_needed // folders_count) # Ceiling division
 
     try:
         # Use single-connection, multi-folder batched listing
@@ -626,10 +626,16 @@ async def list_threads(
         # Sort by parsed date desc
         def _parse_date_safe(d: str):
             try:
-                return parsedate_to_datetime(d)
+                dt = parsedate_to_datetime(d)
+                # If the datetime is naive, make it offset-aware by assuming UTC.
+                if dt.tzinfo is None:
+                    return dt.replace(tzinfo=timezone.utc)
+                return dt
             except Exception:
                 return None
-        unique_items.sort(key=lambda m: (_parse_date_safe(m.get('date', '')) or 0), reverse=True)
+        
+        fallback_date = datetime.min.replace(tzinfo=timezone.utc)
+        unique_items.sort(key=lambda m: (_parse_date_safe(m.get('date', '')) or fallback_date), reverse=True)
 
         # Global page slice across combined list
         start = (max(page, 1) - 1) * max(page_size, 1)
