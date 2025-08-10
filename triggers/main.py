@@ -19,6 +19,7 @@ from api.endpoints.auth import get_current_user
 from mcp_servers.imap_mcpserver.src.imap_client.internals.connection_manager import imap_connection, FolderNotFoundError
 import user.client as user_client
 from shared.security.encryption import decrypt_value
+from shared.services.openrouter_service import openrouter_service
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -196,6 +197,39 @@ async def process_message(user: User, msg, message_id: str):
         if not passes_filter(msg.from_, trigger.filter_rules):
             logger.info(f"Email from '{msg.from_}' did not pass filter rules for trigger '{trigger.uuid}' of workflow '{workflow.name}'.")
             continue
+
+        if trigger.trigger_prompt and trigger.trigger_model:
+            logger.info(f"Email from '{msg.from_}' passed filter rules, now checking LLM trigger prompt for trigger '{trigger.uuid}' of workflow '{workflow.name}'.")
+            
+            system_prompt = f"""You are an intelligent email routing assistant. Your task is to decide if a workflow should be triggered based on the content of an email. The user has provided the following instruction:
+
+'{trigger.trigger_prompt}'
+
+Based on this instruction and the email thread below, should the workflow be triggered? Respond with a JSON object containing two keys:
+1. "continue_processing": a boolean value (true or false).
+2. "reason": a brief string explaining your decision.
+
+For example, if the email matches the instruction:
+{{"continue_processing": true, "reason": "The email is a customer inquiry as it contains pricing questions."}}
+
+If the email does not match:
+{{"continue_processing": false, "reason": "The email is personal and not related to business operations."}}
+"""
+            user_prompt = f"EMAIL THREAD:\n\n{thread_context}"
+
+            try:
+                response_json = await openrouter_service.get_json_response(
+                    system_prompt=system_prompt,
+                    user_prompt=user_prompt,
+                    model=trigger.trigger_model
+                )
+                if not response_json.get("continue_processing"):
+                    logger.info(f"LLM decided not to trigger workflow for email from '{msg.from_}'. Reason: {response_json.get('reason', 'No reason provided.')}")
+                    continue
+                logger.info(f"LLM decided to trigger workflow for email from '{msg.from_}'. Reason: {response_json.get('reason', 'No reason provided.')}")
+            except Exception as e:
+                logger.error(f"Error processing LLM trigger prompt for workflow '{workflow.name}': {e}", exc_info=True)
+                continue
 
         # If all checks pass, we have a match.
         logger.info(f"SUCCESS: Email matched trigger for workflow '{workflow.name}'. Kicking off instance.")
