@@ -59,3 +59,20 @@ class RedisKeys:
     @staticmethod
     def get_tone_of_voice_status_key(user_uuid: UUID) -> str:
         return f"user:{user_uuid}:tone_of_voice_status"
+
+    # --- Export Jobs (User-Specific) ---
+    @staticmethod
+    def get_export_status_key(user_uuid: UUID, job_id: str) -> str:
+        return f"user:{user_uuid}:export:{job_id}:status"
+
+    @staticmethod
+    def get_export_data_key(user_uuid: UUID, job_id: str) -> str:
+        return f"user:{user_uuid}:export:{job_id}:data"
+
+    @staticmethod
+    def get_export_error_key(user_uuid: UUID, job_id: str) -> str:
+        return f"user:{user_uuid}:export:{job_id}:error"
+
+    @staticmethod
+    def get_export_progress_key(user_uuid: UUID, job_id: str) -> str:
+        return f"user:{user_uuid}:export:{job_id}:progress"
