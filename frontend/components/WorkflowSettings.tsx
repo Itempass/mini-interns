@@ -16,6 +16,7 @@ import {
   updateWorkflowStatus,
   updateWorkflowDetails,
   addWorkflowStep,
+  exportWorkflow,
 } from '../services/workflows_api';
 import StepEditor from './workflow/StepEditor';
 import TriggerSettings from './workflow/TriggerSettings';
@@ -476,6 +477,12 @@ const WorkflowSettings: React.FC<WorkflowSettingsProps> = ({ workflow, onWorkflo
         )}
 
         <div className="flex items-center space-x-3">
+          <button
+              onClick={() => exportWorkflow(detailedWorkflow.uuid)}
+              className="px-3 py-1 text-sm border border-gray-300 rounded-md hover:bg-gray-100 transition-colors"
+          >
+              Export
+          </button>
           <span className={`text-sm font-medium ${detailedWorkflow.is_active ? 'text-green-600' : 'text-gray-500'}`}>
             {detailedWorkflow.is_active ? 'Active' : 'Paused'}
           </span>

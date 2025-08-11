@@ -1,481 +1,228 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { X, Loader2, Download, Edit, Plus, AlertTriangle, Play, Copy } from 'lucide-react';
-import { listDataSources, getDataSourceConfigSchema, fetchDataSourceSample, createEvaluationTemplate, DataSource, EvaluationTemplate, EvaluationTemplateCreate, listEvaluationTemplates, getEvaluationTemplate, EvaluationTemplateLight, updateEvaluationTemplate, runEvaluation, getEvaluationRun, EvaluationRun } from '../../services/promptoptimizer_api';
-import { JsonSchemaForm } from './JsonSchemaForm';
-import { StepSidebar } from './StepSidebar';
-import { isEqual } from 'lodash';
+import { X, Loader2, Download, AlertTriangle, CheckSquare, Square } from 'lucide-react';
+import { listDataSources, getDataSourceConfigSchema, listThreads, exportThreadsDataset, collectThreadIds, startExportJob, getExportJobStatus, getExportJobProgress, downloadExportJob, DataSource, ThreadListFilters, ThreadListItem, ThreadListResponse } from '../../services/promptoptimizer_api';
+
 
 
 interface CreateEvaluationTemplateModalProps {
   isOpen: boolean;
   onClose: () => void;
-  prompt: string;
-  model: string;
 }
 
-const CreateEvaluationTemplateModal: React.FC<CreateEvaluationTemplateModalProps> = ({ isOpen, onClose, prompt, model }) => {
+const CreateEvaluationTemplateModal: React.FC<CreateEvaluationTemplateModalProps> = ({ isOpen, onClose }) => {
   const [step, setStep] = useState(1);
   const [isLoading, setIsLoading] = useState(false);
-  const [isDownloading, setIsDownloading] = useState<string | null>(null); // Store UUID of downloading template
   const [errorMessage, setErrorMessage] = useState('');
 
-  // Mode state
-  const [mode, setMode] = useState<'new' | 'edit'>('new');
-  const [editingTemplate, setEditingTemplate] = useState<EvaluationTemplate | null>(null);
-  const [isDirty, setIsDirty] = useState(false);
-  const [dataSourceConfigDirty, setDataSourceConfigDirty] = useState(false);
-
-  // Step 1 state
+  // Step 1
   const [dataSources, setDataSources] = useState<DataSource[]>([]);
   const [selectedDataSource, setSelectedDataSource] = useState<string>('');
-  const [existingTemplates, setExistingTemplates] = useState<EvaluationTemplateLight[]>([]);
 
-  // We define the steps here for the sidebar
+  // Step 2: Filters and list
+  const [configSchema, setConfigSchema] = useState<Record<string, any> | null>(null);
+  const [filters, setFilters] = useState<ThreadListFilters>({ folder_names: [], filter_by_labels: [] });
+  const [threads, setThreads] = useState<ThreadListItem[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
+  const [selectedUids, setSelectedUids] = useState<Set<string>>(new Set());
+  // Switch selection to message IDs to avoid duplicates across folders
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [selectAllOnPage, setSelectAllOnPage] = useState(false);
+  const [isTableLoading, setIsTableLoading] = useState(false);
+  const [isSelectingAll, setIsSelectingAll] = useState(false);
+  const [exportJobId, setExportJobId] = useState<string | null>(null);
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportProgress, setExportProgress] = useState<{total: number, completed: number}>({ total: 0, completed: 0 });
+
   const steps = [
     { name: 'Select Source' },
-    { name: 'Configure' },
-    { name: 'Map Fields' },
-    { name: 'Name & Save' },
-    { name: 'Run Evaluation' },
-    { name: 'Finish' },
+    { name: 'Select Threads' },
+    { name: 'Review & Export' },
   ];
 
-  // Step 2 state
-  const [configSchema, setConfigSchema] = useState<Record<string, any> | null>(null);
-  const [configValues, setConfigValues] = useState<Record<string, any>>({});
-
-  // Step 3 state
-  const [sampleData, setSampleData] = useState<Record<string, any> | null>(null);
-  const [sampleDataKeys, setSampleDataKeys] = useState<string[]>([]);
-  const [inputField, setInputField] = useState<string>('');
-  const [groundTruthField, setGroundTruthField] = useState<string>('');
-  const [groundTruthTransform, setGroundTruthTransform] = useState<string>('none');
-  
-  // Step 4 state
-  const [templateName, setTemplateName] = useState('');
-  const [templateDescription, setTemplateDescription] = useState('');
-
-  // New state for evaluation runs
-  const [runningTemplate, setRunningTemplate] = useState<EvaluationTemplateLight | null>(null);
-  const [currentRun, setCurrentRun] = useState<EvaluationRun | null>(null);
-  const [isPolling, setIsPolling] = useState(false);
-
-  // New state for data snapshot polling
-  const [pollingTemplateUuid, setPollingTemplateUuid] = useState<string | null>(null);
-  const [isPollingData, setIsPollingData] = useState(false);
-
-
-  // Step 5 state (Success)
-  const [createdTemplate, setCreatedTemplate] = useState<EvaluationTemplate | null>(null);
-
-  const transformations = [
-    { id: 'none', name: 'None' },
-    { id: 'join_comma', name: 'Join array with comma' },
-    { id: 'first_element', name: 'Extract first element from array' },
-  ];
-
-  const applyTransform = (value: any, transform: string): any => {
-    if (value === undefined || value === null) return value;
-
-    switch (transform) {
-        case 'join_comma':
-            if (Array.isArray(value)) {
-                return value.join(', ');
-            }
-            return value;
-        case 'first_element':
-            if (Array.isArray(value) && value.length > 0) {
-                return value[0];
-            }
-            return value;
-        case 'none':
-        default:
-            return value;
-    }
-  };
-
-  // Function to check for changes
-  const checkForChanges = useCallback(() => {
-    if (mode !== 'edit' || !editingTemplate) return;
-
-    // Check if data source config (tool or params) has changed
-    const originalDataSourceConfig = editingTemplate.data_source_config;
-    const currentDataSourceConfig = { tool: selectedDataSource, params: configValues };
-    const dataSourceChanged = !isEqual(originalDataSourceConfig, currentDataSourceConfig);
-    setDataSourceConfigDirty(dataSourceChanged);
-
-    const currentConfig = {
-      name: templateName,
-      description: templateDescription,
-      data_source_config: {
-        tool: selectedDataSource,
-        params: configValues
-      },
-      field_mapping_config: {
-        input_field: inputField,
-        ground_truth_field: groundTruthField,
-        ground_truth_transform: groundTruthTransform === 'none' ? undefined : groundTruthTransform
-      }
-    };
-
-    const originalConfig = {
-        name: editingTemplate.name,
-        description: editingTemplate.description || '',
-        data_source_config: editingTemplate.data_source_config,
-        field_mapping_config: editingTemplate.field_mapping_config
-    };
-
-    // Use a deep comparison to check if anything has changed.
-    if (!isEqual(currentConfig, originalConfig)) {
-        setIsDirty(true);
-    } else {
-        setIsDirty(false);
-    }
-  }, [mode, editingTemplate, templateName, templateDescription, selectedDataSource, configValues, inputField, groundTruthField, groundTruthTransform]);
-
-  // Effect to run the check whenever a dependency changes
   useEffect(() => {
-    checkForChanges();
-  }, [checkForChanges]);
-
-
-  useEffect(() => {
-    if (isOpen) {
-      // Reset state when modal is opened
+    if (!isOpen) return;
       setStep(1);
-      setMode('new');
-      setIsDirty(false);
-      setDataSourceConfigDirty(false);
-      setIsLoading(false);
+    setIsLoading(true);
       setErrorMessage('');
-      setConfigSchema(null);
-      setSampleData(null);
-      setCreatedTemplate(null);
-      setGroundTruthTransform('none');
-
-      setIsLoading(true);
+      // Reset export state every time the modal is opened
+      setExportJobId(null);
+      setIsExporting(false);
+      setExportProgress({ total: 0, completed: 0 });
       Promise.all([
-        listDataSources(),
-        listEvaluationTemplates()
-      ]).then(([sources, templates]) => {
+      listDataSources()
+    ]).then(([sources]) => {
         setDataSources(sources);
         if (sources.length > 0) {
           setSelectedDataSource(sources[0].id);
         }
-        setExistingTemplates(templates);
       }).catch(err => {
-        setErrorMessage('Failed to load initial data. Please try again.');
+      setErrorMessage('Failed to load data sources.');
         console.error(err);
-      }).finally(() => {
-        setIsLoading(false);
-      });
-    }
+    }).finally(() => setIsLoading(false));
   }, [isOpen]);
 
-  const handleStepClick = (stepIndex: number) => {
-    // Allow jumping back to any previously completed step
-    if (stepIndex < step) {
-      setStep(stepIndex);
-    }
-  };
-
-  // When opening in edit mode, we need to fetch the full template and populate state
-  const handleEditClick = async (templateToEdit: EvaluationTemplateLight) => {
+  const loadSchemaAndFirstPage = async () => {
+    if (!selectedDataSource) return;
     setIsLoading(true);
     setErrorMessage('');
     try {
-      const fullTemplate = await getEvaluationTemplate(templateToEdit.uuid);
-      setMode('edit');
-      setEditingTemplate(fullTemplate);
-
-      // Pre-populate all the state needed for the steps
-      setSelectedDataSource(fullTemplate.data_source_config.tool);
-      setConfigValues(fullTemplate.data_source_config.params);
-      setTemplateName(fullTemplate.name);
-      setTemplateDescription(fullTemplate.description || '');
-      setInputField(fullTemplate.field_mapping_config.input_field);
-      setGroundTruthField(fullTemplate.field_mapping_config.ground_truth_field);
-      setGroundTruthTransform(fullTemplate.field_mapping_config.ground_truth_transform || 'none');
-      
-      // Need to fetch the config schema to be able to render the config step
-      const schema = await getDataSourceConfigSchema(fullTemplate.data_source_config.tool);
+      const schema = await getDataSourceConfigSchema(selectedDataSource);
       setConfigSchema(schema);
-
-      // Use the first record from the existing cached_data as the sample.
-      // This avoids refetching and ensures consistency.
-      if (fullTemplate.cached_data && fullTemplate.cached_data.length > 0) {
-        const sample = fullTemplate.cached_data[0];
-        setSampleData(sample);
-        setSampleDataKeys(Object.keys(sample));
-      } else {
-        // If there's no cached data for some reason, fetch a sample as a fallback.
-        const sample = await fetchDataSourceSample(fullTemplate.data_source_config.tool, fullTemplate.data_source_config.params);
-        setSampleData(sample);
-        setSampleDataKeys(Object.keys(sample));
-      }
-
-      setIsDirty(false); // Reset dirty flag when loading an item to edit
-      setDataSourceConfigDirty(false);
-      // Jump to the second step (Configure)
-      setStep(2);
-
-    } catch(err) {
-      setErrorMessage("Failed to load template data for editing.");
+      // Initialize filters with defaults if present
+      const initialFolders = Array.isArray(schema?.properties?.folder_names?.options) ? [] : [];
+      setFilters({ folder_names: initialFolders, filter_by_labels: [] });
+      setPage(1);
+      await fetchThreads(1, pageSize, { folder_names: initialFolders, filter_by_labels: [] });
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Failed to load configuration schema.');
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleRunEvaluation = async (template: EvaluationTemplateLight) => {
+  const fetchThreads = async (p: number, ps: number, f?: ThreadListFilters) => {
+    // Clear current rows and show loading before fetching new page
+    setIsTableLoading(true);
+    setThreads([]);
+    setSelectAllOnPage(false);
     setIsLoading(true);
-    setErrorMessage('');
-    setRunningTemplate(template);
-    
     try {
-      // The API now returns the created run object immediately
-      const newRun = await runEvaluation(template.uuid, prompt, model);
-      setCurrentRun(newRun);
-      setIsPolling(true);
-      setStep(6); // Move to the "Running" step
-    } catch (err) {
-      setErrorMessage(err.message || 'Failed to start evaluation.');
+      const res: ThreadListResponse = await listThreads(selectedDataSource, f ?? filters, p, ps);
+      setThreads(res.items);
+      setTotal(res.total);
+      // maintain selectAllOnPage flag based on page contents
+      const pageAllSelected = res.items.length > 0 && res.items.every(i => selectedIds.has(i.id || ''));
+      setSelectAllOnPage(pageAllSelected);
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Failed to load threads.');
+    } finally {
       setIsLoading(false);
+      setIsTableLoading(false);
     }
   };
-
-
-  useEffect(() => {
-    if (!isPolling || !currentRun) return;
-
-    const interval = setInterval(async () => {
-      try {
-        const run = await getEvaluationRun(currentRun.uuid);
-        if (run.status === 'completed' || run.status === 'failed') {
-          setIsPolling(false);
-          setIsLoading(false);
-          setCurrentRun(run);
-          setStep(7); // Move to results step
-          clearInterval(interval);
-        } else {
-          // Keep polling, maybe update some state to show progress
-          setCurrentRun(run);
-        }
-      } catch (error) {
-        console.error("Polling failed", error);
-        setErrorMessage('Failed to get evaluation status.');
-        setIsPolling(false);
-        clearInterval(interval);
-        setStep(1);
-      }
-    }, 3000); // Poll every 3 seconds
-
-    return () => clearInterval(interval);
-  }, [isPolling, currentRun, getEvaluationRun]);
-
-
-  // Effect for polling template creation status
-  useEffect(() => {
-    if (!isPollingData || !pollingTemplateUuid) return;
-
-    const interval = setInterval(async () => {
-      try {
-        const template = await getEvaluationTemplate(pollingTemplateUuid);
-        if (template.status === 'completed') {
-          setIsPollingData(false);
-          setCreatedTemplate(template);
-          setIsLoading(false);
-          setStep(5); // Move to success step
-          clearInterval(interval);
-        } else if (template.status === 'failed') {
-          setIsPollingData(false);
-          setIsLoading(false);
-          setErrorMessage(template.processing_error || 'Data processing failed. Please check the logs.');
-          setStep(4); // Go back to the save step to show the error
-          clearInterval(interval);
-        }
-        // If status is "processing", we just continue polling.
-      } catch (error) {
-        console.error("Template status polling failed", error);
-        setErrorMessage('Failed to get template creation status.');
-        setIsPollingData(false);
-        setIsLoading(false);
-        clearInterval(interval);
-        setStep(4);
-      }
-    }, 3000); // Poll every 3 seconds
-
-    return () => clearInterval(interval);
-  }, [isPollingData, pollingTemplateUuid, getEvaluationTemplate]);
-
-
-  const handleCreateNewClick = async () => {
-    setMode('new');
-    setStep(1); // Ensure we are on the correct step before proceeding
-    await handleNext();
-  };
-
 
   const handleNext = async () => {
     setErrorMessage('');
-    setIsLoading(true);
-
     if (step === 1) {
-      // Step 1 -> 2: Fetch config schema for selected data source
-      try {
-        const schema = await getDataSourceConfigSchema(selectedDataSource);
-        setConfigSchema(schema);
-        // Set default values from the schema, including for the multi-select arrays
-        const defaultValues: Record<string, any> = {};
-        for (const key in schema.properties) {
-            defaultValues[key] = schema.properties[key].default ?? (schema.properties[key].type === 'array' ? [] : undefined);
-        }
-        setConfigValues(defaultValues);
+      await loadSchemaAndFirstPage();
         setStep(2);
-      } catch (err) {
-        setErrorMessage(err.message || 'An unknown error occurred');
-      }
     } else if (step === 2) {
-      // Step 2 -> 3: In edit mode, check for changes. If dirty, warn user. Otherwise, proceed.
-      if (mode === 'edit' && dataSourceConfigDirty) {
-        // The user is now warned in Step 4, so no confirmation is needed here.
-        // We just proceed with fetching the new sample.
-      }
-
-      // Only fetch a new sample if the config is dirty in edit mode, or if we're in new mode.
-      if (mode === 'new' || dataSourceConfigDirty) {
-        try {
-          const sample = await fetchDataSourceSample(selectedDataSource, configValues);
-          setSampleData(sample);
-          const keys = Object.keys(sample);
-          setSampleDataKeys(keys);
-          if (mode === 'new' || !inputField || !groundTruthField) {
-              setInputField(keys[0] || '');
-              setGroundTruthField(keys[0] || '');
-          }
-        } catch (err) {
-          setErrorMessage(err.message || 'An unknown error occurred');
-          setIsLoading(false);
-          return;
-        }
-      }
-      
       setStep(3);
-
-    } else if (step === 3) {
-      // Step 3 -> 4: Simple transition, no async logic
-      setStep(4);
     }
-    
-    setIsLoading(false);
   };
   
   const handlePrevious = () => {
+    if (step === 3) {
+      // Also reset when navigating away from the export step
+      setExportJobId(null);
+      setIsExporting(false);
+      setExportProgress({ total: 0, completed: 0 });
+    }
     setStep(prev => prev - 1);
-    setErrorMessage('');
   };
 
-  const handleSave = async () => {
-    if (!templateName.trim()) {
-        setErrorMessage("Template name is required.");
-        return;
-    }
+  const toggleSelect = (messageId: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(messageId)) next.delete(messageId); else next.add(messageId);
+      return next;
+    });
+  };
+
+  const toggleSelectAllOnThisPage = () => {
+    const idsOnPage = threads.map((t: any) => t.id || '');
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      const allSelected = idsOnPage.length > 0 && idsOnPage.every(id => next.has(id));
+      if (allSelected) {
+        idsOnPage.forEach(id => next.delete(id));
+      } else {
+        idsOnPage.forEach(id => next.add(id));
+      }
+      return next;
+    });
+    setSelectAllOnPage(!selectAllOnPage);
+  };
+
+  const clearSelections = () => setSelectedIds(new Set());
+
+  const handleFilterChange = (key: 'folder_names' | 'filter_by_labels', values: string[]) => {
+    const newFilters = { ...filters, [key]: values };
+    setFilters(newFilters);
+  };
+
+  const applyFilters = async () => {
+    setPage(1);
+    await fetchThreads(1, pageSize, filters);
+  };
+
+  const handlePageChange = async (newPage: number) => {
+    setPage(newPage);
+    await fetchThreads(newPage, pageSize);
+  };
+
+  const handlePageSizeChange = async (newSize: number) => {
+    setPageSize(newSize);
+    setPage(1);
+    await fetchThreads(1, newSize);
+  };
+
+  const downloadDataset = async () => {
+    if (selectedIds.size === 0) return;
     setIsLoading(true);
     setErrorMessage('');
-
-    const templateData: EvaluationTemplateCreate = {
-        name: templateName,
-        description: templateDescription,
-        data_source_config: {
-            tool: selectedDataSource,
-            params: configValues
-        },
-        field_mapping_config: {
-            input_field: inputField,
-            ground_truth_field: groundTruthField,
-            ground_truth_transform: groundTruthTransform === 'none' ? undefined : groundTruthTransform,
-        }
-    };
-
-    // Only include the data_source_config if we are creating new, or if it has changed in edit mode.
-    // This prevents the backend from refetching data unnecessarily.
-    if (mode === 'new' || (mode === 'edit' && dataSourceConfigDirty)) {
-        templateData.data_source_config = {
-            tool: selectedDataSource,
-            params: configValues
-        };
-    }
-
     try {
-        let savedTemplate;
-        if (mode === 'edit' && editingTemplate) {
-            if (isDirty) {
-                 savedTemplate = await updateEvaluationTemplate(editingTemplate.uuid, templateData);
-            } else {
-                 savedTemplate = editingTemplate; // No changes, so no-op
-            }
-        } else {
-            savedTemplate = await createEvaluationTemplate(templateData as EvaluationTemplateCreate);
+      // Start export job and poll
+      setIsExporting(true);
+      const job = await startExportJob(selectedDataSource, Array.from(selectedIds));
+      setExportJobId(job.job_id);
+      // Poll every 2s up to a max duration (e.g., 2 minutes)
+      const start = Date.now();
+      const timeoutMs = 15 * 60 * 1000; // 15 minutes
+      while (true) {
+        const prog = await getExportJobProgress(job.job_id);
+        setExportProgress({ total: prog.total || 0, completed: prog.completed || 0 });
+        if (prog.status === 'completed') {
+          break; // show Download button instead of auto-downloading
+        } else if (prog.status === 'failed') {
+          setErrorMessage('Export failed. Please try again.');
+          break;
         }
-
-        // When creating a new template, always go to the processing step to await the background job.
-        // For edits, the status determines the next step.
-        if (mode === 'new' || savedTemplate.status === 'processing') {
-            setPollingTemplateUuid(savedTemplate.uuid);
-            setIsPollingData(true);
-            setStep(8); // Move to the new "processing" step
-        } else if (savedTemplate.status === 'completed') {
-            setCreatedTemplate(savedTemplate);
-            setStep(5); // This handles edits where data wasn't refetched
-        } else { // status === 'failed' or something unexpected
-            setErrorMessage(savedTemplate.processing_error || "An unknown error occurred during template creation.");
+        if (Date.now() - start > timeoutMs) {
+          setErrorMessage('Export is taking longer than expected. Please try again later.');
+          break;
         }
-    } catch (err) {
-        console.error("DEBUG: Error in handleSave:", err);
-        setErrorMessage(err.message || 'An unknown error occurred');
+        await new Promise(res => setTimeout(res, 2000));
+      }
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Failed to download dataset.');
     } finally {
-        setIsLoading(false);
+      setIsExporting(false);
+      setIsLoading(false);
     }
   };
-
-  const handleDownloadSnapshot = async (template: EvaluationTemplateLight) => {
-    setIsDownloading(template.uuid);
+  const handleDownloadReady = async () => {
+    if (!exportJobId) return;
     try {
-      // Fetch the full template data on-demand
-      const fullTemplate = await getEvaluationTemplate(template.uuid);
-      const snapshotJson = JSON.stringify(fullTemplate.cached_data, null, 2);
-      const blob = new Blob([snapshotJson], { type: 'application/json' });
+      const blob = await downloadExportJob(exportJobId);
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `${fullTemplate.name.replace(/\s+/g, '_').toLowerCase()}_snapshot.json`;
+      a.download = `dataset_${selectedDataSource}.json`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-    } catch (error) {
-        console.error("Download failed", error);
-        setErrorMessage("Failed to download snapshot.");
-    } finally {
-        setIsDownloading(null);
+    } catch (e) {
+      setErrorMessage('Failed to download dataset.');
     }
   };
 
-  const handleDownloadSuccessSnapshot = () => {
-    if (!createdTemplate) return;
-
-    const snapshotJson = JSON.stringify(createdTemplate.cached_data, null, 2);
-    const blob = new Blob([snapshotJson], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${createdTemplate.name.replace(/\s+/g, '_').toLowerCase()}_snapshot.json`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  };
+  if (!isOpen) return null;
 
   const renderStepContent = () => {
     if (isLoading && step === 1) {
@@ -483,222 +230,163 @@ const CreateEvaluationTemplateModal: React.FC<CreateEvaluationTemplateModalProps
     }
     
     switch (step) {
-      case 1: // Select Path: Create New or Edit Existing
+      case 1:
         return (
           <div>
-            <div className="p-4 border border-gray-200 rounded-lg hover:bg-gray-50">
-                <button onClick={handleCreateNewClick} className="w-full text-left">
-                    <div className="flex items-center">
-                        <span className="p-2 bg-blue-100 text-blue-600 rounded-lg"><Plus size={20}/></span>
-                        <div className="ml-4">
-                            <h3 className="text-lg font-medium text-gray-900">Create New Template</h3>
-                            <p className="mt-1 text-sm text-gray-600">Start from scratch by choosing a data source.</p>
-                        </div>
-                    </div>
-                </button>
-            </div>
-
             <div className="mt-6">
-                <h4 className="text-lg font-medium text-gray-800">Or, Edit an Existing Template</h4>
-                <div className="mt-2 border border-gray-200 rounded-md max-h-60 overflow-y-auto">
-                    {existingTemplates.length > 0 ? (
-                        <ul className="divide-y divide-gray-200">
-                            {existingTemplates.map(template => (
-                                <li key={template.uuid} className="px-3 py-2 flex justify-between items-center text-sm">
-                                    <div>
-                                        <p className="font-medium text-gray-700">{template.name}</p>
-                                        <p className="text-gray-500 text-xs">Last updated: {new Date(template.updated_at).toLocaleDateString()}</p>
-                                    </div>
-                                    <div>
-                                        <button
-                                            onClick={() => handleDownloadSnapshot(template)}
-                                            className="p-1 text-gray-500 rounded-md hover:bg-gray-100 hover:text-gray-800 disabled:opacity-50"
-                                            title={`Download snapshot for ${template.name}`}
-                                            disabled={isDownloading === template.uuid}
-                                        >
-                                            {isDownloading === template.uuid ? <Loader2 size={18} className="animate-spin" /> : <Download size={18} />}
-                                        </button>
-                                        <button
-                                            onClick={() => handleEditClick(template)}
-                                            className="p-1 ml-2 text-gray-500 rounded-md hover:bg-gray-100 hover:text-gray-800"
-                                            title={`Edit ${template.name}`}
-                                        >
-                                            <Edit size={18} />
-                                        </button>
-                                        <button
-                                            onClick={() => handleRunEvaluation(template)}
-                                            className="p-1 ml-2 text-green-600 rounded-md hover:bg-green-100"
-                                            title={`Run evaluation with ${template.name}`}
-                                        >
-                                            <Play size={18} />
-                                        </button>
-                                    </div>
-                                </li>
-                            ))}
-                        </ul>
-                    ) : (
-                        <p className="p-4 text-sm text-gray-500">{isLoading ? "Loading templates..." : "No existing templates found."}</p>
-                    )}
-                </div>
+              <h3 className="text-lg font-medium text-gray-900">Select Source</h3>
+              <p className="mt-1 text-sm text-gray-600">Choose the data source to build your dataset.</p>
+              <div className="mt-3" />
+              <label className="block text-sm font-medium">Data Source</label>
+              <select
+                value={selectedDataSource}
+                onChange={e => setSelectedDataSource(e.target.value)}
+                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md"
+              >
+                {dataSources.map(ds => <option key={ds.id} value={ds.id}>{ds.name}</option>)}
+              </select>
             </div>
           </div>
         );
-      case 2: // Configure Data Source
-        return (
-            <div>
-                <h3 className="text-lg font-medium text-gray-900">Step 2: Configure Data Source</h3>
-                <p className="mt-2 text-sm text-gray-600">Set the parameters for fetching your data.</p>
-                {isLoading ? <div className="flex justify-center items-center p-8"><Loader2 className="animate-spin" /></div> : 
-                    (configSchema && <JsonSchemaForm schema={configSchema} formData={configValues} onChange={setConfigValues} />)
-                }
-            </div>
-        );
-      case 3: // Map Fields
+      case 2:
         return (
           <div>
-            <h3 className="text-lg font-medium text-gray-900">Step 3: Map Data Fields</h3>
-            <p className="mt-2 text-sm text-gray-600">
-                We fetched a sample record. Tell us which fields to use for the evaluation.
-            </p>
-            {isLoading ? <div className="flex justify-center items-center p-8"><Loader2 className="animate-spin" /></div> : 
-                (sampleData && Object.keys(sampleData).length > 0 ?
-                    <div className="space-y-4 mt-4">
-                        <pre className="bg-gray-100 p-4 rounded-md text-xs overflow-auto max-h-48">
-                            {JSON.stringify(sampleData, null, 2)}
-                        </pre>
+            <h3 className="text-lg font-medium text-gray-900">Step 2: Select Threads</h3>
+            <p className="mt-2 text-sm text-gray-600">Use filters to narrow results. Your selections persist across pages and filters.</p>
+
+            {/* Filters */}
+            <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
-                            <label className="block text-sm font-medium">Prompt Input</label>
-                            <select value={inputField} onChange={e => setInputField(e.target.value)} className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md">
-                                {sampleDataKeys.map(key => <option key={key} value={key}>{key}</option>)}
+                <label className="block text-sm font-medium">Folders</label>
+                <select
+                  multiple
+                  className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md h-32"
+                  value={filters.folder_names || []}
+                  onChange={(e) => {
+                    const options = Array.from(e.target.selectedOptions).map(o => o.value);
+                    handleFilterChange('folder_names', options);
+                  }}
+                >
+                  {(configSchema?.properties?.folder_names?.options || []).map((opt: string) => (
+                    <option key={opt} value={opt}>{opt}</option>
+                  ))}
                             </select>
                         </div>
                         <div>
-                            <label className="block text-sm font-medium">Ground Truth</label>
-                            <select value={groundTruthField} onChange={e => setGroundTruthField(e.target.value)} className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md">
-                                {sampleDataKeys.map(key => <option key={key} value={key}>{key}</option>)}
+                <label className="block text-sm font-medium">Labels</label>
+                <select
+                  multiple
+                  className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md h-32"
+                  value={filters.filter_by_labels || []}
+                  onChange={(e) => {
+                    const options = Array.from(e.target.selectedOptions).map(o => o.value);
+                    handleFilterChange('filter_by_labels', options);
+                  }}
+                >
+                  {(configSchema?.properties?.filter_by_labels?.options || []).map((opt: string) => (
+                    <option key={opt} value={opt}>{opt}</option>
+                  ))}
                             </select>
                         </div>
-                        <div>
-                          <label className="block text-sm font-medium">Ground Truth Post-processing</label>
-                          <select value={groundTruthTransform} onChange={e => setGroundTruthTransform(e.target.value)} className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md">
-                              {transformations.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-                          </select>
                         </div>
-                         <div className="mt-4 p-3 bg-gray-50 border border-gray-200 rounded-md">
-                             <h4 className="text-sm font-medium text-gray-600">Preview</h4>
-                             <div className="mt-2 space-y-1 text-xs bg-white p-2 rounded overflow-auto max-h-28">
-                                 <p className="break-words">
-                                     <span className="font-semibold text-gray-500">Original:</span>
-                                     <span> {JSON.stringify(sampleData[groundTruthField])}</span>
-                                 </p>
-                                 <p className="break-words">
-                                     <span className="font-semibold text-gray-500">Transformed:</span>
-                                     <span> {JSON.stringify(applyTransform(sampleData[groundTruthField], groundTruthTransform))}</span>
-                                 </p>
-                             </div>
-                         </div>
-                    </div>
-                : <p className="text-sm text-gray-600 mt-4">No sample data found for this configuration. Try adjusting your parameters in the previous step.</p>)
-            }
+            <div className="mt-3 flex items-center gap-2">
+              <button onClick={applyFilters} className="px-3 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700">Apply Filters</button>
+              <button onClick={clearSelections} className="px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50">Clear Selections</button>
           </div>
-        );
-      case 4: // Save
-        return (
-            <div>
-                <h3 className="text-lg font-medium text-gray-900">Step 4: Name and Save</h3>
-                <p className="mt-2 text-sm text-gray-600">Give your evaluation template a name.</p>
 
-                {mode === 'edit' && dataSourceConfigDirty && (
-                     <div className="mt-4 p-3 bg-red-100 border border-red-300 rounded-md flex items-start">
-                         <AlertTriangle className="h-5 w-5 text-red-500 mr-3 flex-shrink-0" />
-                         <div>
-                             <h4 className="font-bold text-red-800">Warning: Dataset Will Be Replaced</h4>
-                             <p className="text-sm text-red-700 mt-1">You changed the data source configuration. Saving will permanently discard the original dataset and create a new one based on your new settings.</p>
-                         </div>
-                     </div>
-                )}
+            {/* Table */}
+            <div className="mt-4 border border-gray-200 rounded-md overflow-hidden">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      <button onClick={toggleSelectAllOnThisPage} className="flex items-center gap-2">
+                        {selectAllOnPage ? <CheckSquare size={16}/> : <Square size={16}/>} Select Page
+                      </button>
+                    </th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Subject</th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">From</th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Labels</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {threads.map(item => (
+                    <tr key={item.id} className="hover:bg-gray-50">
+                      <td className="px-4 py-2">
+                        <button onClick={() => toggleSelect(item.id)} className="text-gray-700">
+                          {selectedIds.has(item.id) ? <CheckSquare size={18}/> : <Square size={18}/>}
+                        </button>
+                      </td>
+                      <td className="px-4 py-2 text-sm text-gray-900 break-words">{item.subject}</td>
+                      <td className="px-4 py-2 text-sm text-gray-600 break-words">{item.from}</td>
+                      <td className="px-4 py-2 text-sm text-gray-600">{new Date(item.date).toLocaleString()}</td>
+                      <td className="px-4 py-2 text-xs text-gray-500">{(item.labels || []).join(', ')}</td>
+                    </tr>
+                  ))}
+                  {threads.length === 0 && (
+                    <tr>
+                      <td colSpan={5} className="px-4 py-6 text-center text-sm text-gray-500">No results. Adjust filters and try again.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+                    </div>
 
-                {mode === 'edit' && isDirty && !dataSourceConfigDirty && (
-                    <div className="mt-4 p-3 bg-yellow-50 border border-yellow-300 rounded-md flex items-center">
-                        <AlertTriangle className="h-5 w-5 text-yellow-500 mr-2" />
-                        <p className="text-sm text-yellow-700">You have unsaved changes. Saving will update the template's details.</p>
-                    </div>
-                )}
-
-                <div className="space-y-4 mt-4">
-                    <div>
-                        <label htmlFor="template-name" className="block text-sm font-medium">Template Name</label>
-                        <input
-                            type="text"
-                            id="template-name"
-                            value={templateName}
-                            onChange={(e) => setTemplateName(e.target.value)}
-                            className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md"
-                            placeholder="e.g., Email Categorization Test"
-                        />
-                    </div>
-                    <div>
-                        <label htmlFor="template-desc" className="block text-sm font-medium">Description (Optional)</label>
-                        <textarea
-                            id="template-desc"
-                            value={templateDescription}
-                            onChange={(e) => setTemplateDescription(e.target.value)}
-                            rows={3}
-                            className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md"
-                        />
-                    </div>
+            {/* Pagination */}
+            <div className="mt-3 flex items-center justify-between">
+              <div className="text-sm text-gray-600">Total available: {total}</div>
+              <div className="flex items-center gap-2">
+                <button disabled={page <= 1} onClick={() => handlePageChange(page - 1)} className="px-3 py-1 border rounded disabled:opacity-50">Prev</button>
+                <span className="text-sm">Page {page}</span>
+                <button disabled={(page * pageSize) >= total} onClick={() => handlePageChange(page + 1)} className="px-3 py-1 border rounded disabled:opacity-50">Next</button>
+                <select value={pageSize} onChange={(e) => handlePageSizeChange(parseInt(e.target.value))} className="ml-2 border rounded px-2 py-1 text-sm">
+                  {[25, 50, 100].map(sz => <option key={sz} value={sz}>{sz}/page</option>)}
+                </select>
                 </div>
             </div>
+
+            </div>
         );
-      case 5: // Run Evaluation
+      case 3:
         return (
           <div>
-            <h3 className="text-lg font-medium text-green-700">Template Ready for Evaluation</h3>
-            <p className="mt-2 text-sm text-gray-600">
-              Your template "{createdTemplate?.name}" has been created with {createdTemplate?.cached_data?.length || 0} records. You can now run an evaluation or download the data snapshot.
-            </p>
-            <div className="mt-6 border-t pt-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <button
-                      onClick={() => createdTemplate && handleRunEvaluation(createdTemplate)}
-                      disabled={!createdTemplate || isLoading}
-                      className="w-full flex items-center justify-center px-4 py-3 text-sm font-medium text-white bg-green-600 border border-transparent rounded-md hover:bg-green-700 disabled:bg-green-300 disabled:cursor-not-allowed"
-                  >
-                      <X className="mr-2 h-4 w-4" />
-                      Run Evaluation
-                  </button>
-                  <button
-                      onClick={handleDownloadSuccessSnapshot}
-                      disabled={!createdTemplate}
-                      className="w-full flex items-center justify-center px-4 py-3 text-sm font-medium text-blue-700 bg-blue-100 border border-transparent rounded-md hover:bg-blue-200 disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed"
-                  >
-                      <Download className="mr-2 h-4 w-4" />
-                      Download Snapshot
-                  </button>
+            <h3 className="text-lg font-medium text-gray-900">Step 3: Review & Export</h3>
+            <p className="mt-2 text-sm text-gray-600">You have selected <span className="font-semibold">{selectedIds.size}</span> thread(s) for your dataset.</p>
+            {selectedIds.size > 500 && (
+              <div className="mt-4 p-3 bg-yellow-50 border border-yellow-300 rounded-md flex items-start">
+                <AlertTriangle className="h-5 w-5 text-yellow-600 mr-3" />
+                <p className="text-sm text-yellow-800">Large datasets may take longer to prepare. Consider narrowing your selection if you encounter delays.</p>
               </div>
+            )}
+            <div className="mt-6 space-y-3">
+              {isExporting && (
+                <div>
+                  <div className="w-full bg-gray-200 rounded h-2 overflow-hidden">
+                    <div className="bg-blue-600 h-2" style={{ width: `${exportProgress.total ? Math.min(100, Math.round((exportProgress.completed / exportProgress.total) * 100)) : 0}%` }} />
+                  </div>
+                  <p className="mt-1 text-xs text-gray-600">{exportProgress.completed} / {exportProgress.total} processed</p>
+                </div>
+              )}
+              {!exportJobId || exportProgress.completed < exportProgress.total ? (
+                <button
+                  onClick={downloadDataset}
+                  disabled={selectedIds.size === 0 || isLoading || isExporting}
+                  className="w-full md:w-auto flex items-center justify-center px-4 py-3 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md hover:bg-blue-700 disabled:bg-blue-300"
+                >
+                  {(isLoading || isExporting) ? <Loader2 className="animate-spin h-5 w-5 mr-2" /> : <Download className="mr-2 h-4 w-4" />}
+                  {isExporting ? 'Preparing...' : 'Start Export'}
+                </button>
+              ) : (
+                <button
+                  onClick={handleDownloadReady}
+                  className="w-full md:w-auto flex items-center justify-center px-4 py-3 text-sm font-medium text-white bg-green-600 border border-transparent rounded-md hover:bg-green-700"
+                >
+                  <Download className="mr-2 h-4 w-4" />
+                  Download Dataset
+                </button>
+              )}
             </div>
-          </div>
-        );
-      case 6: // Running Evaluation
-        return (
-            <div className="text-center p-8">
-                <Loader2 className="h-12 w-12 text-blue-600 animate-spin mx-auto" />
-                <h3 className="mt-4 text-lg font-medium text-gray-900">Running Evaluation...</h3>
-                <p className="mt-2 text-sm text-gray-600">
-                    Evaluating <span className="font-semibold">{runningTemplate?.name}</span>. This may take a few minutes.
-                </p>
-            </div>
-        );
-      case 7: // Results
-        return <EvaluationResultsView run={currentRun} onClose={onClose} />;
-      case 8: // Processing Data Snapshot
-        return (
-            <div className="text-center p-8">
-                <Loader2 className="h-12 w-12 text-blue-600 animate-spin mx-auto" />
-                <h3 className="mt-4 text-lg font-medium text-gray-900">Processing Dataset...</h3>
-                <p className="mt-2 text-sm text-gray-600">
-                    We're fetching and preparing your data. This may take a few minutes.
-                </p>
             </div>
         );
       default:
@@ -706,90 +394,223 @@ const CreateEvaluationTemplateModal: React.FC<CreateEvaluationTemplateModalProps
     }
   };
 
-  if (!isOpen) {
-    return null;
-  }
-
-  // Map internal step state to the visual step in the sidebar
-  let displayStep = step;
-  if (step === 6) displayStep = 5; // "Running..." loader should keep "Run Evaluation" active
-  if (step === 7) displayStep = 6; // "Results" view is the "Finish" step
-  if (step === 8) displayStep = 4; // "Processing..." loader should keep "Name & Save" active
-
+  const displayStep = step;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl transform transition-all">
-        <div className="p-6">
+      <div className="bg-white rounded-lg shadow-xl w-[90vw] h-[90vh] flex flex-col transform transition-all">
+        {/* Modal Header */}
+        <div className="p-6 border-b border-gray-200 shrink-0">
           <div className="flex items-start justify-between">
             <div>
-                <h2 className="text-xl font-semibold text-gray-800">
-                    {mode === 'edit' && editingTemplate ? 'Editing Template' : 'Create Evaluation Template'}
-                </h2>
-                {mode === 'edit' && editingTemplate && (
-                    <p className="text-sm text-gray-500 mt-1">
-                        Editing: <span className="font-medium">{editingTemplate.name}</span>
-                    </p>
-                )}
+              <h2 className="text-xl font-semibold text-gray-800">Create Dataset</h2>
             </div>
             <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
               <X size={24} />
             </button>
           </div>
-          {errorMessage && <div className="mt-4 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative" role="alert">
+          {errorMessage && <div className="mt-4 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded" role="alert">
             <strong className="font-bold">Error:</strong>
             <span className="block sm:inline"> {errorMessage}</span>
           </div>}
-          <div className="mt-6 flex space-x-8">
-            <div className="w-1/4">
-              <StepSidebar steps={steps} currentStep={displayStep} onStepClick={handleStepClick} />
+        </div>
+        {/* Modal Body */}
+        <div className="flex-1 overflow-hidden p-6">
+          <div className="flex space-x-6 h-full">
+            {/* Sidebar */}
+            <div className="w-56 shrink-0">
+              <ol className="space-y-2">
+                {steps.map((s, idx) => (
+                  <li key={s.name} className={`px-3 py-2 rounded ${displayStep === idx+1 ? 'bg-blue-50 text-blue-700' : 'text-gray-600'}`}>{idx+1}. {s.name}</li>
+                ))}
+              </ol>
             </div>
-            <div className="w-3/4 pr-4">
-                <div className="min-h-[400px]">
-            {renderStepContent()}
+            {/* Content */}
+            <div className="flex-1 min-w-0 pr-2 min-h-0 flex flex-col">
+              {step === 2 ? (
+                <div className="h-full min-h-0 flex flex-col">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="text-lg font-medium text-gray-900">Step 2: Select Threads</h3>
+                      <p className="mt-1 text-sm text-gray-600">Your selections persist across pages and filters.</p>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className="inline-flex items-center px-3 py-2 text-sm font-medium text-purple-800 bg-purple-100 border border-purple-200 rounded-md">Selected entries for dataset: {selectedIds.size}</span>
+                      <button onClick={clearSelections} className="px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50">Clear Selections</button>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 h-full min-h-0 flex gap-4">
+                    {/* Table Column */}
+                    <div className="flex-1 min-h-0 min-w-0 flex flex-col">
+                      <div className="border border-gray-200 rounded-md flex-1 min-h-0 overflow-y-auto overflow-x-hidden">
+                        {isTableLoading ? (
+                          <div className="flex items-center justify-center h-full py-10">
+                            <Loader2 className="h-6 w-6 text-blue-600 animate-spin" />
+                          </div>
+                        ) : (
+                          <table className="min-w-full table-fixed divide-y divide-gray-200">
+                            <thead className="bg-gray-50 sticky top-0 z-10">
+                              <tr>
+                                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider bg-gray-50">
+                                  <button onClick={toggleSelectAllOnThisPage} className="flex items-center gap-2">
+                                    {selectAllOnPage ? <CheckSquare size={16}/> : <Square size={16}/>} Select Page
+                                  </button>
+                                </th>
+                                <th className="px-4 py-2 w-[45%] text-left text-xs font-medium text-gray-500 uppercase tracking-wider bg-gray-50">Subject</th>
+                                <th className="px-4 py-2 w-[25%] text-left text-xs font-medium text-gray-500 uppercase tracking-wider bg-gray-50">From</th>
+                                <th className="px-4 py-2 w-[15%] text-left text-xs font-medium text-gray-500 uppercase tracking-wider bg-gray-50">Date</th>
+                                <th className="px-4 py-2 w-[15%] text-left text-xs font-medium text-gray-500 uppercase tracking-wider bg-gray-50">Labels</th>
+                              </tr>
+                            </thead>
+                            <tbody className="bg-white divide-y divide-gray-200">
+                              {threads.map((item: any) => (
+                                <tr key={item.id} className="hover:bg-gray-50">
+                                  <td className="px-4 py-2">
+                                    <button onClick={() => toggleSelect(item.id)} className="text-gray-700">
+                                      {selectedIds.has(item.id) ? <CheckSquare size={18}/> : <Square size={18}/>}
+                                    </button>
+                                  </td>
+                                  <td className="px-4 py-2 text-sm text-gray-900 truncate">{item.subject}</td>
+                                  <td className="px-4 py-2 text-sm text-gray-600 truncate">{item.from}</td>
+                                  <td className="px-4 py-2 text-sm text-gray-600 whitespace-nowrap">{new Date(item.date).toLocaleString()}</td>
+                                  <td className="px-4 py-2 text-xs text-gray-500 truncate">{(item.labels || []).join(', ')}</td>
+                                </tr>
+                              ))}
+                              {threads.length === 0 && (
+                                <tr>
+                                  <td colSpan={5} className="px-4 py-6 text-center text-sm text-gray-500">No results. Adjust filters and try again.</td>
+                                </tr>
+                              )}
+                            </tbody>
+                          </table>
+                        )}
+                      </div>
+
+                      {/* Pagination and totals - always visible */}
+                      <div className="mt-3 flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <span className="text-sm text-gray-600">Total available: {total}</span>
+                          <div className="relative group inline-block">
+                            <button
+                              type="button"
+                              disabled={total > 500 || isSelectingAll}
+                              onClick={async () => {
+                                setIsSelectingAll(true);
+                                try {
+                                  const ids = await collectThreadIds(selectedDataSource, filters, Math.min(total, 500));
+                                  setSelectedIds(prev => {
+                                    const next = new Set(prev);
+                                    ids.forEach(id => next.add(id));
+                                    return next;
+                                  });
+                                  setSelectAllOnPage(true);
+                                } catch (e) {
+                                  console.error('Select all failed', e);
+                                } finally {
+                                  setIsSelectingAll(false);
+                                }
+                              }}
+                              className="px-2 py-1 text-xs font-medium rounded border disabled:opacity-50 flex items-center gap-2"
+                            >
+                              {isSelectingAll ? <Loader2 className="h-3 w-3 animate-spin"/> : null}
+                              {isSelectingAll ? 'Selecting...' : 'Select all'}
+                            </button>
+                            {total > 500 && (
+                              <div className="absolute left-0 mt-1 w-56 invisible group-hover:visible bg-gray-800 text-white text-xs rounded py-2 px-3 shadow-lg">
+                                Maximum dataset size is 500. Refine your filters to select fewer items.
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button disabled={page <= 1} onClick={() => handlePageChange(page - 1)} className="px-3 py-1 border rounded disabled:opacity-50">Prev</button>
+                          <span className="text-sm">Page {page}</span>
+                          <button disabled={(page * pageSize) >= total} onClick={() => handlePageChange(page + 1)} className="px-3 py-1 border rounded disabled:opacity-50">Next</button>
+                          <select value={pageSize} onChange={(e) => handlePageSizeChange(parseInt(e.target.value))} className="ml-2 border rounded px-2 py-1 text-sm">
+                            {[25, 50, 100].map(sz => <option key={sz} value={sz}>{sz}/page</option>)}
+                          </select>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Filters Sidebar */}
+                    <div className="w-72 shrink-0 border border-gray-200 rounded-md p-3 flex flex-col overflow-y-auto">
+                      <h4 className="text-sm font-medium text-gray-700">Filters</h4>
+                      <div className="mt-3">
+                        <p className="text-xs font-semibold text-gray-600 uppercase mb-2">Folders</p>
+                        <div className="max-h-40 overflow-y-auto space-y-1">
+                          {(configSchema?.properties?.folder_names?.options || []).map((opt: string) => {
+                            const checked = (filters.folder_names || []).includes(opt);
+                            return (
+                              <label key={opt} className="flex items-center gap-2 text-sm text-gray-700">
+                                <input
+                                  type="checkbox"
+                                  checked={checked}
+                                  onChange={() => {
+                                    const current = new Set(filters.folder_names || []);
+                                    if (current.has(opt)) current.delete(opt); else current.add(opt);
+                                    handleFilterChange('folder_names', Array.from(current));
+                                  }}
+                                />
+                                <span className="truncate">{opt}</span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      </div>
+                      <div className="mt-4">
+                        <p className="text-xs font-semibold text-gray-600 uppercase mb-2">Labels</p>
+                        <div className="max-h-40 overflow-y-auto space-y-1">
+                          {(configSchema?.properties?.filter_by_labels?.options || []).map((opt: string) => {
+                            const checked = (filters.filter_by_labels || []).includes(opt);
+                            return (
+                              <label key={opt} className="flex items-center gap-2 text-sm text-gray-700">
+                                <input
+                                  type="checkbox"
+                                  checked={checked}
+                                  onChange={() => {
+                                    const current = new Set(filters.filter_by_labels || []);
+                                    if (current.has(opt)) current.delete(opt); else current.add(opt);
+                                    handleFilterChange('filter_by_labels', Array.from(current));
+                                  }}
+                                />
+                                <span className="truncate">{opt}</span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      </div>
+                      <div className="mt-4">
+                        <button onClick={applyFilters} disabled={isLoading} className="w-full px-3 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:bg-blue-300 flex items-center justify-center gap-2">
+                          {isLoading ? <Loader2 className="animate-spin h-4 w-4"/> : null}
+                          {isLoading ? 'Applying...' : 'Apply Filters'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
                 </div>
+              ) : (
+                <div className="min-h-[200px]">{renderStepContent()}</div>
+              )}
             </div>
           </div>
         </div>
-        <div className="bg-gray-50 px-6 py-4 flex justify-between items-center rounded-b-lg">
+        {/* Modal Footer */}
+        <div className="bg-gray-50 px-6 py-4 flex justify-between items-center rounded-b-lg shrink-0">
           <div className="flex items-center gap-4">
-            <span className="px-2 py-0.5 text-xs font-semibold text-purple-800 bg-purple-100 rounded-full">
-                Experimental
-            </span>
-            {step > 1 && step < 5 && (
-              <button
-                onClick={handlePrevious}
-                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
-                disabled={isLoading}
-              >
-                Previous
-              </button>
+            <span className="px-2 py-0.5 text-xs font-semibold text-purple-800 bg-purple-100 rounded-full">Experimental</span>
+            {step > 1 && (
+              <button onClick={handlePrevious} className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50" disabled={isLoading}>Previous</button>
             )}
           </div>
           <div>
-            {step < 4 ? (
-              <button
-                onClick={handleNext}
-                className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md hover:bg-blue-700 disabled:bg-blue-300 flex items-center"
-                disabled={isLoading || (step === 1 && !selectedDataSource) || (step === 3 && !sampleData)}
-              >
-                {isLoading ? <Loader2 className="animate-spin h-5 w-5" /> : "Next"}
-              </button>
-            ) : step === 4 ? (
-              <button
-                onClick={handleSave}
-                className="px-4 py-2 text-sm font-medium text-white bg-green-600 border border-transparent rounded-md hover:bg-green-700 disabled:bg-green-300 flex items-center"
-                disabled={isLoading || !templateName.trim()}
-              >
-                {isLoading ? <Loader2 className="animate-spin h-5 w-5" /> : (mode === 'edit' ? 'Save Changes' : 'Create Template')}
+            {step < 3 ? (
+              <button onClick={handleNext} className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md hover:bg-blue-700 disabled:bg-blue-300 flex items-center" disabled={isLoading || (step === 1 && !selectedDataSource)}>
+                {isLoading ? <Loader2 className="animate-spin h-5 w-5" /> : 'Next'}
               </button>
             ) : (
-              <button
-                onClick={onClose}
-                className="px-4 py-2 text-sm font-medium text-white bg-gray-600 border border-transparent rounded-md hover:bg-gray-700"
-              >
-                Finish
-              </button>
+              <button onClick={onClose} className="px-4 py-2 text-sm font-medium text-white bg-gray-600 border border-transparent rounded-md hover:bg-gray-700">Finish</button>
             )}
           </div>
         </div>
@@ -797,74 +618,5 @@ const CreateEvaluationTemplateModal: React.FC<CreateEvaluationTemplateModalProps
     </div>
   );
 };
-
-
-const EvaluationResultsView: React.FC<{ run: EvaluationRun | null, onClose: () => void }> = ({ run, onClose }) => {
-    const [promptCopied, setPromptCopied] = useState(false);
-
-    if (!run) {
-        return (
-            <div className="text-center p-8">
-                <h3 className="text-lg font-medium text-red-700">Error</h3>
-                <p className="mt-2 text-sm text-gray-600">Could not load evaluation results.</p>
-            </div>
-        );
-    }
-
-    if (run.status === 'failed') {
-        return (
-            <div className="text-center p-8">
-                <h3 className="text-lg font-medium text-red-700">Evaluation Failed</h3>
-                <p className="mt-2 text-sm text-gray-600">Something went wrong during the evaluation. Please check the system logs for more details.</p>
-            </div>
-        )
-    }
-
-    const v1_accuracy = run.summary_report?.v1_accuracy ?? 0;
-    const v2_accuracy = run.summary_report?.v2_accuracy ?? 0;
-    const refined_prompt = run.detailed_results?.refined_prompt_v2 ?? "No prompt generated.";
-
-    const handleCopyPrompt = () => {
-        navigator.clipboard.writeText(refined_prompt);
-        setPromptCopied(true);
-        setTimeout(() => setPromptCopied(false), 2000);
-    };
-
-    return (
-        <div>
-            <h3 className="text-lg font-medium text-gray-900">Evaluation Complete</h3>
-            <div className="mt-4 grid grid-cols-2 gap-4 text-center">
-                <div className="p-4 bg-gray-100 rounded-lg">
-                    <p className="text-sm font-medium text-gray-600">Original Prompt (V1)</p>
-                    <p className="text-3xl font-bold text-gray-800 mt-1">{(v1_accuracy * 100).toFixed(1)}%</p>
-                    <p className="text-xs text-gray-500">Accuracy</p>
-                </div>
-                <div className="p-4 bg-green-100 rounded-lg border border-green-300">
-                    <p className="text-sm font-medium text-green-700">Refined Prompt (V2)</p>
-                    <p className="text-3xl font-bold text-green-800 mt-1">{(v2_accuracy * 100).toFixed(1)}%</p>
-                    <p className="text-xs text-green-500">Accuracy</p>
-                </div>
-            </div>
-            <div className="mt-6">
-                <label className="block text-sm font-medium text-gray-700">Refined Prompt (V2)</label>
-                <div className="relative mt-1">
-                    <textarea
-                        readOnly
-                        value={refined_prompt}
-                        rows={8}
-                        className="w-full p-2 border border-gray-300 rounded-md bg-gray-50 text-sm font-mono"
-                    />
-                    <button
-                        onClick={handleCopyPrompt}
-                        className="absolute top-2 right-2 p-1 text-gray-500 rounded hover:bg-gray-200"
-                    >
-                        {promptCopied ? <span className="text-xs text-green-600">Copied!</span> : <Copy size={16} />}
-                    </button>
-                </div>
-            </div>
-        </div>
-    );
-};
-
 
 export default CreateEvaluationTemplateModal; 

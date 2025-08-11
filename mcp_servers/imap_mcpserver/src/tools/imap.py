@@ -11,7 +11,7 @@ from email_reply_parser import EmailReplyParser
 
 from ..mcp_builder import mcp_builder
 from ..dependencies import get_context_from_headers
-from ..imap_client.client import get_message_by_id, get_complete_thread, draft_reply as client_draft_reply, set_label as client_set_label, get_recent_inbox_messages, get_all_labels
+from ..imap_client.client import get_message_by_id, get_complete_thread, draft_reply as client_draft_reply, set_label as client_set_label, get_recent_inbox_messages, get_all_labels, remove_from_inbox as client_remove_from_inbox
 from shared.qdrant.qdrant_client import semantic_search, search_by_vector, generate_qdrant_point_id
 from shared.services.embedding_service import get_embedding, rerank_documents
 from shared.app_settings import load_app_settings
@@ -50,6 +50,26 @@ async def set_label(messageId: str, label: str) -> Dict[str, Any]:
         return {"success": False, "message": "messageId and label are required."}
 
     result = await client_set_label(user_uuid=context.user_id, message_id=messageId, label=label)
+    return result
+
+@mcp_builder.tool()
+async def remove_from_inbox(messageId: str) -> Dict[str, Any]:
+    """
+    Skips the inbox for a Gmail message by moving it directly to All Mail.
+    This simulates Gmail's "Skip Inbox" feature - the email will be archived
+    and won't appear in the inbox but will still be accessible in All Mail.
+    
+    Args:
+        messageId: The Message-ID header of the email to skip inbox for
+    
+    Returns:
+        Dict with status and message indicating success or failure
+    """
+    context = get_context_from_headers()
+    result = await client_remove_from_inbox(
+        user_uuid=context.user_id,
+        message_id=messageId
+    )
     return result
 
 @mcp_builder.tool()

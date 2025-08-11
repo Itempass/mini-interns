@@ -1,6 +1,6 @@
 'use client';
-import React, { useState, useEffect, useCallback } from 'react';
-import { createWorkflow, createWorkflowFromTemplate, getWorkflowTemplates, Workflow, Template, WorkflowFromTemplateResponse } from '../services/workflows_api';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { createWorkflow, createWorkflowFromTemplate, getWorkflowTemplates, Workflow, Template, WorkflowFromTemplateResponse, importWorkflow } from '../services/workflows_api';
 
 interface CreateWorkflowModalProps {
   isOpen: boolean;
@@ -14,6 +14,7 @@ const CreateWorkflowModal: React.FC<CreateWorkflowModalProps> = ({ isOpen, onClo
   const [templates, setTemplates] = useState<Template[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const resetAndClose = useCallback(() => {
     setWorkflowName('');
@@ -44,6 +45,36 @@ const CreateWorkflowModal: React.FC<CreateWorkflowModalProps> = ({ isOpen, onClo
       setTemplates(fetchedTemplates);
     } catch (err) {
       console.error('Failed to fetch templates:', err);
+    }
+  };
+
+  const handleImportClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setError(null);
+    setIsProcessing(true);
+    try {
+      const newWorkflow = await importWorkflow(file);
+      if (newWorkflow) {
+        onWorkflowCreated({ workflow: newWorkflow });
+        resetAndClose();
+      } else {
+        throw new Error('API returned null after import.');
+      }
+    } catch (err: any) {
+        setError(err.message || 'Failed to import workflow.');
+        console.error(err);
+    } finally {
+        setIsProcessing(false);
+        // Reset file input
+        if (fileInputRef.current) {
+            fileInputRef.current.value = '';
+        }
     }
   };
 
@@ -128,6 +159,20 @@ const CreateWorkflowModal: React.FC<CreateWorkflowModalProps> = ({ isOpen, onClo
               >
                 create from scratch
               </button>
+              <span className="mx-2">|</span>
+              <button
+                onClick={handleImportClick}
+                className="px-4 py-2 text-sm bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300"
+              >
+                import workflow
+              </button>
+              <input
+                type="file"
+                ref={fileInputRef}
+                onChange={handleFileChange}
+                className="hidden"
+                accept=".json"
+              />
             </div>
           </div>
         )}

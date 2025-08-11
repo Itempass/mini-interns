@@ -4,6 +4,10 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from pydantic import BaseModel
 from starlette.requests import Request
+from fastapi.responses import StreamingResponse
+from io import BytesIO
+import json
+from fastapi import BackgroundTasks
 
 from prompt_optimizer import client as prompt_optimizer_client
 from prompt_optimizer import service, database
@@ -236,3 +240,166 @@ async def get_evaluation_run_details(
     if not run:
         raise HTTPException(status_code=404, detail="Evaluation run not found.")
     return run 
+
+class ListThreadsRequest(BaseModel):
+    filters: Dict[str, Any]
+    page: int = 1
+    page_size: int = 50
+
+class CollectIdsRequest(BaseModel):
+    filters: Dict[str, Any]
+    limit: int
+
+@router.post(
+    "/evaluation/data-sources/{source_id}/threads/list",
+    summary="List lightweight threads for selection with pagination"
+)
+async def list_threads_for_selection(
+    source_id: str,
+    request: ListThreadsRequest,
+    user: User = Depends(get_current_user)
+):
+    try:
+        return await service.list_threads(
+            source_id=source_id,
+            filters=request.filters,
+            page=request.page,
+            page_size=request.page_size,
+            user_id=user.uuid
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to list threads: {e}")
+
+
+@router.post(
+    "/evaluation/data-sources/{source_id}/threads/collect-ids",
+    summary="Collect up to N message IDs across filters for bulk selection",
+)
+async def collect_thread_ids(
+    source_id: str,
+    request: CollectIdsRequest,
+    user: User = Depends(get_current_user)
+):
+    try:
+        limit = max(0, min(request.limit, 500))
+        ids = await service.collect_thread_ids(
+            source_id=source_id,
+            filters=request.filters,
+            limit=limit,
+            user_id=user.uuid,
+        )
+        return {"ids": ids}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to collect ids: {e}")
+
+
+class ExportRequest(BaseModel):
+    selected_ids: List[str] | None = None
+    selected_uids: List[str] | None = None
+
+@router.post(
+    "/evaluation/data-sources/{source_id}/export",
+    summary="Export selected threads as JSON",
+)
+async def export_selected_threads(
+    source_id: str,
+    request: ExportRequest,
+    user: User = Depends(get_current_user)
+):
+    try:
+        # Prefer uids if provided
+        selected = request.selected_uids if request.selected_uids else (request.selected_ids or [])
+        dataset = await service.export_threads_dataset(
+            source_id=source_id,
+            selected_ids=selected,
+            user_id=user.uuid
+        )
+        # Return as an attachment for download
+        json_bytes = BytesIO()
+        json_bytes.write(bytes(json.dumps(dataset, indent=2), 'utf-8'))
+        json_bytes.seek(0)
+        filename = f"dataset_{source_id}.json"
+        return StreamingResponse(
+            json_bytes,
+            media_type="application/json",
+            headers={
+                "Content-Disposition": f"attachment; filename=\"{filename}\""
+            },
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to export dataset: {e}")
+
+
+# --- Export job (polling) endpoints ---
+
+class StartExportJobRequest(BaseModel):
+    selected_ids: List[str] | None = None
+    selected_uids: List[str] | None = None
+
+@router.post(
+    "/evaluation/data-sources/{source_id}/export/jobs",
+    summary="Start an export job and return job id"
+)
+async def start_export_job(
+    source_id: str,
+    request: StartExportJobRequest,
+    background_tasks: BackgroundTasks,
+    user: User = Depends(get_current_user)
+):
+    try:
+        selected = request.selected_uids if request.selected_uids else (request.selected_ids or [])
+        if not selected:
+            raise HTTPException(status_code=400, detail="No items selected")
+        job_id = service.create_export_job(user.uuid, source_id, selected)
+        background_tasks.add_task(service.build_export_job, job_id, user.uuid, source_id, selected)
+        return {"job_id": job_id, "status": "processing"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to start export job: {e}")
+
+
+@router.get(
+    "/evaluation/data-sources/export/jobs/{job_id}",
+    summary="Get export job status"
+)
+async def get_export_job_status(job_id: str, user: User = Depends(get_current_user)):
+    status = service.get_export_job_status(user.uuid, job_id)
+    if status == "not_found":
+        raise HTTPException(status_code=404, detail="Job not found")
+    return {"job_id": job_id, "status": status}
+
+@router.get(
+    "/evaluation/data-sources/export/jobs/{job_id}/progress",
+    summary="Get export job progress"
+)
+async def get_export_job_progress(job_id: str, user: User = Depends(get_current_user)):
+    status = service.get_export_job_status(user.uuid, job_id)
+    if status == "not_found":
+        raise HTTPException(status_code=404, detail="Job not found")
+    progress = service.get_export_job_progress(user.uuid, job_id)
+    return {"job_id": job_id, "status": status, **progress}
+
+
+@router.get(
+    "/evaluation/data-sources/export/jobs/{job_id}/download",
+    summary="Download export result when completed"
+)
+async def download_export_job(job_id: str, user: User = Depends(get_current_user)):
+    status = service.get_export_job_status(user.uuid, job_id)
+    if status != "completed":
+        raise HTTPException(status_code=400, detail=f"Job status is {status}")
+    dataset = service.get_export_job_result(user.uuid, job_id)
+    if dataset is None:
+        raise HTTPException(status_code=404, detail="Export data not available")
+    json_bytes = BytesIO(bytes(json.dumps(dataset, indent=2), 'utf-8'))
+    filename = f"dataset_export_{job_id}.json"
+    return StreamingResponse(
+        json_bytes,
+        media_type="application/json",
+        headers={"Content-Disposition": f"attachment; filename=\"{filename}\""},
+    ) 

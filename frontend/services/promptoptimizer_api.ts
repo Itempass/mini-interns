@@ -1,5 +1,5 @@
 
-import { API_URL, jsonApiFetch } from './api';
+import { API_URL, jsonApiFetch, apiFetch } from './api';
 
 // --- Type Definitions ---
 
@@ -64,6 +64,26 @@ export interface EvaluationTemplateUpdate {
     ground_truth_field: string;
     ground_truth_transform?: string;
   };
+}
+
+export interface ThreadListFilters {
+  folder_names?: string[];
+  filter_by_labels?: string[];
+}
+
+export interface ThreadListItem {
+  id: string; // message_id
+  subject: string;
+  from: string;
+  to: string;
+  date: string;
+  folders: string[];
+  labels: string[];
+}
+
+export interface ThreadListResponse {
+  items: ThreadListItem[];
+  total: number;
 }
 
 
@@ -138,4 +158,69 @@ export const updateEvaluationTemplate = async (templateId: string, templateData:
         method: 'PUT',
         body: JSON.stringify(templateData),
     });
+};
+
+export const listThreads = async (
+  sourceId: string,
+  filters: ThreadListFilters,
+  page: number,
+  pageSize: number
+): Promise<ThreadListResponse> => {
+  return await jsonApiFetch(`${API_URL}/evaluation/data-sources/${sourceId}/threads/list`, {
+    method: 'POST',
+    body: JSON.stringify({ filters, page, page_size: pageSize }),
+  });
+};
+
+export const exportThreadsDataset = async (
+  sourceId: string,
+  selectedIds: string[],
+  opts?: { useUids?: boolean }
+): Promise<Blob> => {
+  const response = await apiFetch(`${API_URL}/evaluation/data-sources/${sourceId}/export`, {
+    method: 'POST',
+    body: JSON.stringify(opts?.useUids ? { selected_uids: selectedIds } : { selected_ids: selectedIds }),
+  });
+  return await response.blob();
+};
+
+export const collectThreadIds = async (
+  sourceId: string,
+  filters: ThreadListFilters,
+  limit: number
+): Promise<string[]> => {
+  const res = await jsonApiFetch(`${API_URL}/evaluation/data-sources/${sourceId}/threads/collect-ids`, {
+    method: 'POST',
+    body: JSON.stringify({ filters, limit }),
+  });
+  return res.ids || [];
+};
+
+export const startExportJob = async (
+  sourceId: string,
+  selectedIds: string[]
+): Promise<{ job_id: string; status: string }> => {
+  return await jsonApiFetch(`${API_URL}/evaluation/data-sources/${sourceId}/export/jobs`, {
+    method: 'POST',
+    body: JSON.stringify({ selected_ids: selectedIds }),
+  });
+};
+
+export const getExportJobStatus = async (
+  jobId: string
+): Promise<{ job_id: string; status: 'processing' | 'completed' | 'failed' }> => {
+  return await jsonApiFetch(`${API_URL}/evaluation/data-sources/export/jobs/${jobId}`);
+};
+
+export const getExportJobProgress = async (
+  jobId: string
+): Promise<{ job_id: string; status: 'processing' | 'completed' | 'failed'; total: number; completed: number }> => {
+  return await jsonApiFetch(`${API_URL}/evaluation/data-sources/export/jobs/${jobId}/progress`);
+};
+
+export const downloadExportJob = async (
+  jobId: string
+): Promise<Blob> => {
+  const response = await apiFetch(`${API_URL}/evaluation/data-sources/export/jobs/${jobId}/download`);
+  return await response.blob();
 }; 

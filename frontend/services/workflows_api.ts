@@ -21,6 +21,8 @@ export interface TriggerModel {
     user_id: string;
     workflow_uuid: string;
     filter_rules: any;
+    trigger_prompt?: string;
+    trigger_model?: string;
     initial_data_description: string;
     created_at: string;
     updated_at: string;
@@ -168,6 +170,54 @@ export const updateWorkflowDetails = async (
     console.error('An error occurred while updating workflow details:', error);
     return null;
   }
+};
+
+export const exportWorkflow = async (workflowId: string): Promise<void> => {
+    try {
+        const response = await apiFetch(`${API_URL}/workflows/${workflowId}/export`);
+        const blob = await response.blob();
+
+        // Extract filename from Content-Disposition header
+        const contentDisposition = response.headers.get('content-disposition');
+        console.log('[exportWorkflow] Received Content-Disposition header:', contentDisposition);
+
+        let filename = 'workflow.json'; // default filename
+        if (contentDisposition) {
+            const filenameMatch = contentDisposition.match(/filename="([^"]+)"/);
+            if (filenameMatch && filenameMatch.length > 1) {
+                filename = filenameMatch[1];
+            }
+        }
+        console.log('[exportWorkflow] Parsed filename:', filename);
+
+        // Create a temporary link to trigger the download
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        window.URL.revokeObjectURL(url);
+    } catch (error) {
+        console.error('An error occurred while exporting the workflow:', error);
+        // Handle error appropriately in the UI
+    }
+};
+
+export const importWorkflow = async (file: File): Promise<Workflow | null> => {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+        return await jsonApiFetch(`${API_URL}/workflows/import`, {
+            method: 'POST',
+            body: formData,
+        });
+    } catch (error) {
+        console.error('An error occurred while importing the workflow:', error);
+        return null;
+    }
 };
 
 export interface TriggerType {
@@ -393,16 +443,19 @@ export const removeWorkflowTrigger = async (workflowId: string): Promise<Workflo
 
 export const updateWorkflowTrigger = async (
     workflowId: string, 
-    filterRules: any
+    triggerData: {
+      filter_rules?: any;
+      trigger_prompt?: string;
+      trigger_model?: string;
+    }
 ): Promise<WorkflowWithDetails | null> => {
     try {
         const url = `${API_URL}/workflows/${workflowId}/trigger`;
-        const body = { filter_rules: filterRules };
-        console.log('[workflows_api] Sending PUT request to:', url, 'with body:', JSON.stringify(body));
+        console.log('[workflows_api] Sending PUT request to:', url, 'with body:', JSON.stringify(triggerData));
 
         const data = await jsonApiFetch(url, {
             method: 'PUT',
-            body: JSON.stringify(body),
+            body: JSON.stringify(triggerData),
         });
 
         console.log('[workflows_api] Received response with status: 200');

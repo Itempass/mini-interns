@@ -176,6 +176,92 @@ async def update_workflow_details(
     
     return workflow
 
+async def import_workflow(workflow_data: Dict[str, Any], user_id: UUID) -> WorkflowModel:
+    """
+    Creates a new workflow from an imported data structure. This involves a
+    two-pass process to correctly remap internal step UUID references.
+    """
+    # 1. Create the new workflow shell
+    new_workflow = await create(
+        name=f"{workflow_data.get('name', 'Untitled')} (Imported)",
+        description=workflow_data.get('description', ''),
+        user_id=user_id
+    )
+
+    # Pass 1: Create steps and build a UUID mapping
+    uuid_map = {}  # { old_uuid: new_uuid }
+    new_steps = [] # To hold the newly created step objects
+    for step_data in workflow_data.get('steps', []):
+        step_type = step_data['type']
+        new_step = None
+
+        # Create the step based on its type
+        if step_type == "custom_llm":
+            new_step = await llm_client.create(
+                name=step_data['name'],
+                user_id=user_id,
+                model=step_data.get('model'),
+                system_prompt=step_data.get('system_prompt', '')
+            )
+        elif step_type == "custom_agent":
+            new_step = await agent_client.create(
+                name=step_data['name'],
+                user_id=user_id,
+                model=step_data.get('model'),
+                system_prompt=step_data.get('system_prompt', ''),
+                tools=step_data.get('tools', {})
+            )
+        elif step_type == "stop_checker":
+            new_step = await checker_client.create(
+                name=step_data['name'],
+                user_id=user_id,
+                check_mode=step_data.get('check_mode', 'stop_if_output_contains'),
+                match_values=step_data.get('match_values', []),
+                step_to_check_uuid=step_data.get('step_to_check_uuid')
+            )
+
+        if new_step:
+            uuid_map[step_data['uuid']] = new_step.uuid
+            new_steps.append(new_step)
+
+    # Pass 2: Update references in the newly created steps
+    for step in new_steps:
+        # Remap references in system prompts
+        if hasattr(step, 'system_prompt') and step.system_prompt:
+            for old_uuid, new_uuid in uuid_map.items():
+                step.system_prompt = step.system_prompt.replace(str(old_uuid), str(new_uuid))
+        
+        # Remap references in stop_checker steps
+        if step.type == "stop_checker" and hasattr(step, 'step_to_check_uuid') and step.step_to_check_uuid:
+            old_ref_uuid = str(step.step_to_check_uuid)
+            if old_ref_uuid in uuid_map:
+                step.step_to_check_uuid = uuid_map[old_ref_uuid]
+        
+        # Save the updated step
+        await update_step(step, user_id)
+
+    # Assign the new step UUIDs to the workflow
+    new_workflow.steps = [step.uuid for step in new_steps]
+
+    # Create and configure the trigger
+    if workflow_data.get('trigger'):
+        trigger_data = workflow_data['trigger']
+        trigger_type_id = "new_email" # Simplified as per previous discussion
+        new_trigger = await trigger_client.create(
+            workflow_uuid=new_workflow.uuid,
+            trigger_type_id=trigger_type_id,
+            user_id=user_id
+        )
+        if trigger_data.get('filter_rules'):
+            new_trigger.filter_rules = trigger_data['filter_rules']
+            await trigger_client.update(trigger_model=new_trigger, user_id=user_id)
+        new_workflow.trigger_uuid = new_trigger.uuid
+
+    # Final Save: Save the workflow with the updated step list and trigger
+    await save(workflow=new_workflow, user_id=user_id)
+    return new_workflow
+
+
 #
 # Structure Management
 #

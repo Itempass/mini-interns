@@ -209,6 +209,7 @@ const ImapSettings: React.FC<ImapSettingsProps> = ({
           setTestStatus('success');
           setTestMessage(result.message);
         } catch (error: any) {
+          console.error("[DEBUG] Caught error in 'handleTestConnection':", error);
           setTestStatus('error');
           setTestMessage(error.message || 'An unknown error occurred.');
         }

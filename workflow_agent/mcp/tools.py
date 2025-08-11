@@ -132,10 +132,17 @@ async def set_trigger(trigger_type_id: str) -> dict:
 @mcp_builder.tool()
 async def update_trigger_settings(
     trigger_uuid: str,
-    filter_rules: dict,
+    trigger_prompt: Optional[str] = None,
+    trigger_model: Optional[str] = None,
 ) -> dict:
     """
-    Updates the settings of an existing trigger. The 'filter_rules' determine the conditions under which the workflow runs. The 'trigger_uuid' can be found in the workflow details. Returns the updated `TriggerModel`.
+    Updates the settings of an existing trigger. 
+
+    - The 'trigger_uuid' can be found in the workflow details. 
+    - The 'trigger_prompt' is a natural language prompt that determines the conditions under which the workflow runs. 
+    - The 'trigger_model' is the language model used to evaluate the trigger prompt. 
+
+    Returns the updated `TriggerModel`.
     """
     context = get_context_from_headers()
     trigger = await trigger_client.get(
@@ -143,7 +150,14 @@ async def update_trigger_settings(
     )
     if not trigger:
         raise ValueError("Trigger not found")
-    trigger.filter_rules = filter_rules
+
+    if trigger_prompt is not None:
+        trigger.trigger_prompt = trigger_prompt
+    if trigger_model is not None:
+        if trigger_model not in VALID_LLM_MODELS:
+            raise ValueError(f"Invalid model ID: '{trigger_model}'. Must be one of {VALID_LLM_MODELS}")
+        trigger.trigger_model = trigger_model
+
     updated_trigger = await trigger_client.update(trigger, user_id=context.user_id)
     return updated_trigger.model_dump()
 
