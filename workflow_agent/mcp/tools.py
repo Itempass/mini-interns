@@ -639,9 +639,9 @@ async def list_email_labels() -> List[str]:
 
 
 @mcp_builder.tool()
-async def generate_label_description(label_name: str, sample_count: int = 10) -> str:
+async def generate_label_description(label_name: str) -> str:
     """
-    Generates a concise description for a single label based on up to `sample_count` recent emails in that label.
+    Generates a concise description for a single label based on 10 recent emails in that label.
 
     - If the label does not exist, returns an error message.
     - If the label has no recent emails, returns a message indicating that no description could be generated.
@@ -664,7 +664,7 @@ async def generate_label_description(label_name: str, sample_count: int = 10) ->
         emails: List[EmailMessage] = await get_messages_from_folder(
             user_uuid=context.user_id,
             folder_name=label_name,
-            count=max(1, min(sample_count, 50)),
+            count=10,
         )
 
         if not emails:

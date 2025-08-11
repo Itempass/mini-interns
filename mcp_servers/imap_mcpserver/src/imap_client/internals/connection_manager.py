@@ -13,6 +13,9 @@ from typing import Generator, Optional, Dict, List, Tuple
 from shared.app_settings import load_app_settings, AppSettings
 from uuid import UUID
 from shared.security.encryption import decrypt_value
+import asyncio
+from collections import defaultdict
+from shared.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -269,4 +272,32 @@ def imap_connection(app_settings: Optional[AppSettings] = None) -> Tuple[imaplib
                 mail.logout()
                 logger.info(f"Successfully logged out for user {app_settings.IMAP_USERNAME}")
             except Exception as e:
-                logger.error(f"IMAP logout failed: {e}") 
+                logger.error(f"IMAP logout failed: {e}")
+
+
+# -------------------- Per-user IMAP concurrency limiter --------------------
+
+_user_semaphores: dict[str, asyncio.Semaphore] = {}
+_semaphores_lock = asyncio.Lock()
+
+async def _get_user_semaphore(user_uuid: UUID) -> asyncio.Semaphore:
+    key = str(user_uuid)
+    async with _semaphores_lock:
+        sem = _user_semaphores.get(key)
+        if sem is None:
+            sem = asyncio.Semaphore(settings.IMAP_MAX_CONCURRENCY_PER_USER)
+            _user_semaphores[key] = sem
+        return sem
+
+@contextlib.asynccontextmanager
+async def acquire_imap_slot(user_uuid: UUID):
+    """
+    Async context manager to acquire a per-user IMAP concurrency slot.
+    Ensures we do not exceed settings.IMAP_MAX_CONCURRENCY_PER_USER concurrent connections per user.
+    """
+    sem = await _get_user_semaphore(user_uuid)
+    await sem.acquire()
+    try:
+        yield
+    finally:
+        sem.release() 

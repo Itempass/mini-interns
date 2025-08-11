@@ -48,6 +48,12 @@ class Settings(BaseSettings):
     AUTH_PASSWORD: Optional[str] = None
     AUTH_SELFSET_PASSWORD: bool = False
     ADMIN_USER_IDS: str = Field(default="11111111-1111-1111-1111-111111111111,22222222-2222-2222-2222-222222222222", env="ADMIN_USER_IDS")
+
+    # IMAP connection limits (per-user)
+    IMAP_MAX_CONCURRENCY_PER_USER: int = Field(default=5, env="IMAP_MAX_CONCURRENCY_PER_USER")
+
+    # Workflow agent tool call limits (per LLM turn)
+    WORKFLOW_AGENT_MAX_PARALLEL_TOOL_CALLS: int = Field(default=5, env="WORKFLOW_AGENT_MAX_PARALLEL_TOOL_CALLS")
     
     model_config = SettingsConfigDict(env_file=(".env", ".env.local"), extra='ignore')
 

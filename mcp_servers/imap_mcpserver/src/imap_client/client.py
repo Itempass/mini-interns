@@ -22,7 +22,7 @@ except ImportError:
 from mcp_servers.imap_mcpserver.src.imap_client.models import EmailMessage, EmailThread
 from mcp_servers.imap_mcpserver.src.imap_client.internals.bulk_threading import fetch_recent_threads_bulk
 from mcp_servers.imap_mcpserver.src.imap_client.helpers.contextual_id import create_contextual_id
-from mcp_servers.imap_mcpserver.src.imap_client.internals.connection_manager import imap_connection, IMAPConnectionError, FolderResolver, FolderNotFoundError
+from mcp_servers.imap_mcpserver.src.imap_client.internals.connection_manager import imap_connection, IMAPConnectionError, FolderResolver, FolderNotFoundError, acquire_imap_slot
 from mcp_servers.imap_mcpserver.src.imap_client.helpers.body_parser import extract_body_formats
 from uuid import UUID
 from typing import Callable, DefaultDict, Set
@@ -1038,8 +1038,9 @@ async def get_all_labels(user_uuid: UUID) -> List[str]:
     """Asynchronously gets all labels from the IMAP server."""
     app_settings = load_app_settings(user_uuid=user_uuid)
     try:
-        with imap_connection(app_settings=app_settings) as (mail, resolver):
-            return await asyncio.to_thread(_get_all_labels_sync, mail, resolver)
+        async with acquire_imap_slot(user_uuid):
+            with imap_connection(app_settings=app_settings) as (mail, resolver):
+                return await asyncio.to_thread(_get_all_labels_sync, mail, resolver)
     except IMAPConnectionError:
         logger.error(f"IMAP connection failed when getting all labels for user {user_uuid}")
         raise  # Re-raise the connection error to be handled by the caller
@@ -1059,12 +1060,14 @@ async def get_all_special_use_folders(user_uuid: UUID) -> List[str]:
 async def get_messages_from_folder(user_uuid: UUID, folder_name: str, count: int = 10) -> List[EmailMessage]:
     """Asynchronously gets recent messages from a specific folder/label."""
     app_settings = load_app_settings(user_uuid=user_uuid)
-    return await asyncio.to_thread(_get_messages_from_folder_sync, folder_name, count, app_settings)
+    async with acquire_imap_slot(user_uuid):
+        return await asyncio.to_thread(_get_messages_from_folder_sync, folder_name, count, app_settings)
 
 async def get_messages_from_multiple_folders(user_uuid: UUID, folder_names: List[str], count: int = 10) -> Dict[str, List[EmailMessage]]:
     """Asynchronously gets recent messages from a list of specific folders/labels using a single connection."""
     app_settings = load_app_settings(user_uuid=user_uuid)
-    return await asyncio.to_thread(_get_messages_from_multiple_folders_sync, folder_names, count, app_settings)
+    async with acquire_imap_slot(user_uuid):
+        return await asyncio.to_thread(_get_messages_from_multiple_folders_sync, folder_names, count, app_settings)
 
 async def get_recent_threads_bulk(
     target_thread_count: int = 50, 

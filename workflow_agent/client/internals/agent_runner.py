@@ -125,30 +125,32 @@ async def run_agent_turn(
             # STATE: LLM requested tool execution.
             logger.info("Agent is executing tools.")
             tool_calls = last_message.tool_calls
-            
+
+            # Enforce per-turn cap: execute first N, return error for the rest.
+            max_calls = max(0, int(getattr(settings, 'WORKFLOW_AGENT_MAX_PARALLEL_TOOL_CALLS', 5)))
+            accepted_calls = tool_calls[:max_calls]
+            rejected_calls = tool_calls[max_calls:]
+
+            # Prepare coroutines for accepted calls
             tool_coroutines = []
-            
-            for tool_call in tool_calls:
+            for tool_call in accepted_calls:
                 tool_name = tool_call['function']['name']
                 tool_args = json.loads(tool_call['function']['arguments'])
                 # Pass the arguments as a single dictionary, not as keyword arguments
                 coro = mcp_client.call_tool(tool_name, tool_args)
                 tool_coroutines.append(coro)
 
-            tool_results = await asyncio.gather(*tool_coroutines, return_exceptions=True)
+            # Execute accepted calls in parallel
+            tool_results = await asyncio.gather(*tool_coroutines, return_exceptions=True) if tool_coroutines else []
 
-            # Append the results of each tool call to the conversation history
+            # Append results for accepted calls
             for i, result in enumerate(tool_results):
-                tool_call_id = tool_calls[i]['id']
+                tool_call = accepted_calls[i]
+                tool_call_id = tool_call['id']
                 if isinstance(result, Exception):
-                    logger.error(f"Error executing tool {tool_calls[i]['function']['name']}: {result}")
+                    logger.error(f"Error executing tool {tool_call['function']['name']}: {result}")
                     content = f"Error: {str(result)}"
                 else:
-                    # --- TEMPORARY DEBUGGING ---
-                    logger.info(f"WORKFLOW_AGENT_DEBUG: Tool result object: {result}")
-                    logger.info(f"WORKFLOW_AGENT_DEBUG: Tool result structured_content: {result.structured_content}")
-                    # --- END TEMPORARY DEBUGGING ---
-
                     # The structure of structured_content varies. If the tool returns a list,
                     # it's wrapped in a 'result' key. Otherwise, it's the object itself.
                     if result.structured_content is None:
@@ -157,7 +159,6 @@ async def run_agent_turn(
                         payload = result.structured_content['result']
                     else:
                         payload = result.structured_content
-                    
                     content = json.dumps(payload)
 
                 conversation.append(
@@ -167,6 +168,26 @@ async def run_agent_turn(
                         content=content,
                     )
                 )
+
+            # Append error responses for rejected calls
+            if rejected_calls:
+                total = len(tool_calls)
+                for idx, tool_call in enumerate(rejected_calls):
+                    tool_call_id = tool_call['id']
+                    error_payload = {
+                        "error": "too_many_parallel_tool_calls",
+                        "called": total,
+                        "max_allowed": max_calls,
+                        "rejected_index": max_calls + idx,
+                        "note": "The agent requested more tool calls than allowed in a single turn. Please retry with fewer calls."
+                    }
+                    conversation.append(
+                        ChatMessage(
+                            role="tool",
+                            tool_call_id=tool_call_id,
+                            content=json.dumps(error_payload),
+                        )
+                    )
 
         elif last_message.role == "user" or last_message.role == "tool":
             # STATE: User sent a message OR tools have finished. Call LLM for the next step.
