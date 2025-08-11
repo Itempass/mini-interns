@@ -22,7 +22,7 @@ except ImportError:
 from mcp_servers.imap_mcpserver.src.imap_client.models import EmailMessage, EmailThread
 from mcp_servers.imap_mcpserver.src.imap_client.internals.bulk_threading import fetch_recent_threads_bulk
 from mcp_servers.imap_mcpserver.src.imap_client.helpers.contextual_id import create_contextual_id
-from mcp_servers.imap_mcpserver.src.imap_client.internals.connection_manager import imap_connection, IMAPConnectionError, FolderResolver, FolderNotFoundError
+from mcp_servers.imap_mcpserver.src.imap_client.internals.connection_manager import imap_connection, IMAPConnectionError, FolderResolver, FolderNotFoundError, acquire_imap_slot
 from mcp_servers.imap_mcpserver.src.imap_client.helpers.body_parser import extract_body_formats
 from uuid import UUID
 from typing import Callable, DefaultDict, Set
@@ -867,6 +867,108 @@ def _get_messages_from_folder_sync(folder_name: str, count: int, app_settings: A
         return []
 
 
+def _get_messages_from_multiple_folders_sync(folder_names: List[str], count: int, app_settings: AppSettings) -> Dict[str, List[EmailMessage]]:
+    """Synchronous function to get recent messages from multiple folders using a single connection."""
+    results: Dict[str, List[EmailMessage]] = {name: [] for name in folder_names}
+    try:
+        with imap_connection(app_settings=app_settings) as (mail, _):
+            for folder_name in folder_names:
+                try:
+                    status, _ = mail.select(f'"{folder_name}"', readonly=True)
+                    if status != 'OK':
+                        logger.warning(f"Could not select folder: {folder_name}, skipping.")
+                        continue
+                        
+                    typ, data = mail.uid('search', None, 'ALL')
+                    if typ != 'OK' or not data[0]:
+                        logger.info(f"No messages found in folder: {folder_name}")
+                        continue
+
+                    uids = data[0].split()
+                    recent_uids = uids[-count:]
+                    
+                    if not recent_uids:
+                        continue
+
+                    # Fetch all messages with labels in one call
+                    uid_list_str = ','.join([uid.decode() for uid in recent_uids])
+                    typ, fetch_data = mail.uid('fetch', uid_list_str, '(RFC822 X-GM-LABELS)')
+                    if typ != 'OK' or not fetch_data:
+                        continue
+
+                    messages = []
+                    i = 0
+                    # The fetch_data can contain other things besides tuples, so we iterate safely
+                    while i < len(fetch_data):
+                        if isinstance(fetch_data[i], tuple) and len(fetch_data[i]) >= 2:
+                            header_info = fetch_data[i][0].decode() if isinstance(fetch_data[i][0], bytes) else str(fetch_data[i][0])
+                            msg_bytes = fetch_data[i][1]
+                            
+                            # Re-use the robust parsing from the single message fetch logic
+                            # We create a temporary message object to extract headers, then build the full one
+                            temp_msg = email.message_from_bytes(msg_bytes)
+                            message_id_header = temp_msg.get('Message-ID', '').strip('<>')
+                            if not message_id_header:
+                                i += 1
+                                continue
+                            
+                            # Extract UID from header info
+                            uid_match = re.search(r'(\d+) \(', header_info)
+                            uid = uid_match.group(1) if uid_match else "unknown"
+
+                            # The _fetch_single_message function is perfect for parsing the rest
+                            # We can call it with the data we already have, avoiding another network call
+                            # by passing a mock mail object or adapting it.
+                            # For simplicity, let's replicate its parsing logic here.
+                            
+                            contextual_id = create_contextual_id(folder_name, uid)
+                            
+                            labels = []
+                            labels_match = re.search(r'X-GM-LABELS \(([^)]+)\)', header_info)
+                            if labels_match:
+                                labels_str = labels_match.group(1)
+                                labels = re.findall(r'"([^"]*)"', labels_str)
+                                labels = [label.replace('\\\\', '\\') for label in labels]
+
+                            message_type = 'sent' if '\\Sent' in labels else 'received'
+                            body_formats = extract_body_formats(temp_msg)
+
+                            messages.append(EmailMessage(
+                                uid=contextual_id,
+                                message_id=message_id_header,
+                                **{'from': temp_msg.get('From', '')},
+                                to=temp_msg.get('To', ''),
+                                cc=temp_msg.get('Cc', ''),
+                                bcc=temp_msg.get('Bcc', ''),
+                                subject=temp_msg.get('Subject', ''),
+                                date=temp_msg.get('Date', ''),
+                                body_raw=body_formats['raw'],
+                                body_markdown=body_formats['markdown'],
+                                body_cleaned=body_formats['cleaned'],
+                                gmail_labels=labels,
+                                references=temp_msg.get('References', ''),
+                                in_reply_to=temp_msg.get('In-Reply-To', '').strip('<>'),
+                                type=message_type
+                            ))
+                        i += 1
+                    
+                    # Messages are fetched in order of UID list, which is oldest to newest.
+                    # We want newest first, so we reverse the final list.
+                    results[folder_name] = messages[::-1]
+                    logger.info(f"Fetched {len(messages)} messages from folder '{folder_name}'")
+
+                except Exception as e:
+                    logger.error(f"Error processing folder {folder_name} within multi-folder fetch: {e}")
+                    continue
+            return results
+    except IMAPConnectionError as e:
+        logger.error(f"IMAP Connection failed during multi-folder fetch: {e}")
+        return {name: [] for name in folder_names} # Return empty dict on connection failure
+    except Exception as e:
+        logger.error(f"Unexpected error getting messages from multiple folders: {e}", exc_info=True)
+        return {name: [] for name in folder_names}
+
+
 # --- Async Wrappers ---
 
 async def get_recent_inbox_message_ids(user_uuid: UUID, count: int = 20) -> List[str]:
@@ -936,8 +1038,9 @@ async def get_all_labels(user_uuid: UUID) -> List[str]:
     """Asynchronously gets all labels from the IMAP server."""
     app_settings = load_app_settings(user_uuid=user_uuid)
     try:
-        with imap_connection(app_settings=app_settings) as (mail, resolver):
-            return await asyncio.to_thread(_get_all_labels_sync, mail, resolver)
+        async with acquire_imap_slot(user_uuid):
+            with imap_connection(app_settings=app_settings) as (mail, resolver):
+                return await asyncio.to_thread(_get_all_labels_sync, mail, resolver)
     except IMAPConnectionError:
         logger.error(f"IMAP connection failed when getting all labels for user {user_uuid}")
         raise  # Re-raise the connection error to be handled by the caller
@@ -957,7 +1060,14 @@ async def get_all_special_use_folders(user_uuid: UUID) -> List[str]:
 async def get_messages_from_folder(user_uuid: UUID, folder_name: str, count: int = 10) -> List[EmailMessage]:
     """Asynchronously gets recent messages from a specific folder/label."""
     app_settings = load_app_settings(user_uuid=user_uuid)
-    return await asyncio.to_thread(_get_messages_from_folder_sync, folder_name, count, app_settings)
+    async with acquire_imap_slot(user_uuid):
+        return await asyncio.to_thread(_get_messages_from_folder_sync, folder_name, count, app_settings)
+
+async def get_messages_from_multiple_folders(user_uuid: UUID, folder_names: List[str], count: int = 10) -> Dict[str, List[EmailMessage]]:
+    """Asynchronously gets recent messages from a list of specific folders/labels using a single connection."""
+    app_settings = load_app_settings(user_uuid=user_uuid)
+    async with acquire_imap_slot(user_uuid):
+        return await asyncio.to_thread(_get_messages_from_multiple_folders_sync, folder_names, count, app_settings)
 
 async def get_recent_threads_bulk(
     target_thread_count: int = 50, 
