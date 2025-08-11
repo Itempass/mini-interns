@@ -209,7 +209,7 @@ async def add_step(
 
     if system_prompt and step_type in ["custom_llm", "custom_agent"]:
         
-
+        
         step_to_update = None
         if step_type == "custom_llm":
             step_to_update = await llm_client.get(uuid=new_step_uuid, user_id=user_uuid)
@@ -362,48 +362,6 @@ async def update_step_model(
 
 
 @mcp_builder.tool()
-async def list_available_mcp_tools() -> List[dict]:
-    """
-    Returns a list of all available tools from all connected MCP servers that can be enabled for an agent step.
-    """
-    return await workflow_client.discover_mcp_tools()
-
-
-@mcp_builder.tool()
-async def update_step_mcp_tools(
-    step_uuid: str,
-    enabled_tools: List[str],
-) -> dict:
-    """
-    Updates the set of enabled tools for a specific agent step. This only works for steps of type 'custom_agent'. Provide the full list of tool names that should be enabled. Returns the updated step model.
-    """
-    context = get_context_from_headers()
-    user_uuid = context.user_id
-    workflow = await workflow_client.get_with_details(context.workflow_uuid, user_uuid)
-    if not workflow:
-        raise ValueError("Workflow not found")
-
-    step_to_update = next((s for s in workflow.steps if str(s.uuid) == step_uuid), None)
-    if not step_to_update:
-        raise ValueError("Step not found in workflow")
-
-    if step_to_update.type != "custom_agent":
-        raise TypeError(
-            "MCP tools can only be updated for steps of type 'custom_agent'."
-        )
-
-    # The tools attribute is a dictionary where keys are tool names (e.g., 'imap-mcp-server-send_email')
-    # and values are dictionaries indicating if the tool is enabled.
-    new_tools_dict = {}
-    for tool_name in enabled_tools:
-        new_tools_dict[tool_name] = {"enabled": True}
-
-    step_to_update.tools = new_tools_dict
-    updated_step = await workflow_client.update_step(step_to_update, user_uuid)
-    return updated_step.model_dump()
-
-
-@mcp_builder.tool()
 async def update_checker_step_settings(
     step_uuid: str,
     check_mode: str,
@@ -457,6 +415,48 @@ async def update_checker_step_settings(
     step_to_update.check_mode = check_mode
     step_to_update.match_values = match_values
 
+    updated_step = await workflow_client.update_step(step_to_update, user_uuid)
+    return updated_step.model_dump()
+
+
+@mcp_builder.tool()
+async def list_available_mcp_tools() -> List[dict]:
+    """
+    Returns a list of all available tools from all connected MCP servers that can be enabled for an agent step.
+    """
+    return await workflow_client.discover_mcp_tools()
+
+
+@mcp_builder.tool()
+async def update_step_mcp_tools(
+    step_uuid: str,
+    enabled_tools: List[str],
+) -> dict:
+    """
+    Updates the set of enabled tools for a specific agent step. This only works for steps of type 'custom_agent'. Provide the full list of tool names that should be enabled. Returns the updated step model.
+    """
+    context = get_context_from_headers()
+    user_uuid = context.user_id
+    workflow = await workflow_client.get_with_details(context.workflow_uuid, user_uuid)
+    if not workflow:
+        raise ValueError("Workflow not found")
+
+    step_to_update = next((s for s in workflow.steps if str(s.uuid) == step_uuid), None)
+    if not step_to_update:
+        raise ValueError("Step not found in workflow")
+
+    if step_to_update.type != "custom_agent":
+        raise TypeError(
+            "MCP tools can only be updated for steps of type 'custom_agent'."
+        )
+
+    # The tools attribute is a dictionary where keys are tool names (e.g., 'imap-mcp-server-send_email')
+    # and values are dictionaries indicating if the tool is enabled.
+    new_tools_dict = {}
+    for tool_name in enabled_tools:
+        new_tools_dict[tool_name] = {"enabled": True}
+
+    step_to_update.tools = new_tools_dict
     updated_step = await workflow_client.update_step(step_to_update, user_uuid)
     return updated_step.model_dump()
 
@@ -561,9 +561,11 @@ async def _process_single_label(label_name: str, sample_emails: List[EmailMessag
     return label_name, new_description
 
 
-@mcp_builder.tool()
+#@mcp_builder.tool()
 async def get_email_labels_with_descriptions() -> str:
     """
+    DEPRECATED: Use `list_email_labels` to fetch labels and `generate_label_description` for per-label descriptions.
+
     Fetches all labels from the user's email inbox, generates a description for each based on its content,
     and returns them as a markdown formatted list. This is useful for understanding how emails are currently organized.
     """
@@ -614,4 +616,75 @@ async def get_email_labels_with_descriptions() -> str:
         logger.error(
             f"An error occurred during label description generation: {e}", exc_info=True
         )
-        return "Sorry, an unexpected error occurred while generating label descriptions." 
+        return "Sorry, an unexpected error occurred while generating label descriptions."
+
+
+# --- New split tools ---
+
+@mcp_builder.tool()
+async def list_email_labels() -> List[str]:
+    """
+    Returns all user-defined email labels (non special-use folders) for the current user.
+    """
+    context = get_context_from_headers()
+    try:
+        labels = await get_all_labels(user_uuid=context.user_id)
+        return labels or []
+    except IMAPConnectionError:
+        logger.warning(f"IMAP connection failed for user {context.user_id} when listing labels.")
+        return []
+    except Exception as e:
+        logger.error(f"Unexpected error while listing labels: {e}", exc_info=True)
+        return []
+
+
+@mcp_builder.tool()
+async def generate_label_description(label_name: str, sample_count: int = 10) -> str:
+    """
+    Generates a concise description for a single label based on up to `sample_count` recent emails in that label.
+
+    - If the label does not exist, returns an error message.
+    - If the label has no recent emails, returns a message indicating that no description could be generated.
+    """
+    context = get_context_from_headers()
+
+    if not label_name or not label_name.strip():
+        return "Error: 'label_name' is required."
+
+    try:
+        # Optional: validate the label exists to provide fast feedback
+        available_labels = await get_all_labels(user_uuid=context.user_id)
+        if available_labels and label_name not in available_labels:
+            return (
+                f"Unknown label: '{label_name}'. Known labels: {', '.join(available_labels[:20])}"
+                + (" ..." if len(available_labels) > 20 else "")
+            )
+
+        # Fetch sample emails for this label only
+        emails: List[EmailMessage] = await get_messages_from_folder(
+            user_uuid=context.user_id,
+            folder_name=label_name,
+            count=max(1, min(sample_count, 50)),
+        )
+
+        if not emails:
+            return (
+                f"No recent emails found for label '{label_name}'. "
+                f"Add some emails to this label and try again."
+            )
+
+        prompt = _build_llm_prompt(emails, label_name)
+        description = await _get_llm_response(prompt, "google/gemini-2.5-flash")
+        if description.startswith("Error:"):
+            return "Sorry, an error occurred while generating the description. Please try again later."
+        return description
+
+    except IMAPConnectionError:
+        logger.warning(f"IMAP connection failed for user {context.user_id} when generating description for label '{label_name}'.")
+        return "Could not connect to your email account. Please check your IMAP settings."
+    except Exception as e:
+        logger.error(
+            f"Unexpected error during label description generation for '{label_name}': {e}",
+            exc_info=True,
+        )
+        return "Sorry, an unexpected error occurred while generating the description." 
