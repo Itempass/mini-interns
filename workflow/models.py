@@ -202,3 +202,27 @@ class WorkflowWithDetails(BaseModel):
     template_version: Optional[str] = None
     created_at: datetime
     updated_at: datetime 
+
+
+# 4.4. Template and Starter Chat Models
+class TemplateInfo(BaseModel):
+    """Lightweight descriptor for a workflow template available on disk."""
+
+    id: str
+    name: str
+    description: str
+
+
+class StarterChatOption(BaseModel):
+    """Quick reply option for a starter chat prompt."""
+
+    label: str
+    message: str
+
+
+class StarterChat(BaseModel):
+    """Defines how the first chat turn should be initiated for a newly created workflow."""
+
+    mode: Literal["auto", "prompt"]
+    message: str
+    responses: List[StarterChatOption] = Field(default_factory=list)

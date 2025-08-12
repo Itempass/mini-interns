@@ -1,6 +1,12 @@
 from pydantic import BaseModel
 from typing import Dict, Any, Optional
-from workflow.models import CustomAgent, CustomLLM, StopWorkflowChecker
+from workflow.models import (
+    CustomAgent,
+    CustomLLM,
+    StopWorkflowChecker,
+    WorkflowModel,
+    StarterChat,
+)
 
 
 class CreateWorkflowRequest(BaseModel):
@@ -43,3 +49,8 @@ UpdateStepRequest = CustomLLM | CustomAgent | StopWorkflowChecker
 
 class CreateFromTemplateRequest(BaseModel):
     template_id: str
+
+
+class WorkflowFromTemplateResponse(BaseModel):
+    workflow: WorkflowModel
+    starter_chat: Optional[StarterChat] = None

@@ -11,7 +11,7 @@ triggers) and the underlying database layer to present a unified and
 consistent API for workflow management.
 """
 import logging
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional, Tuple
 from uuid import UUID
 import asyncio
 from workflow.internals import runner
@@ -40,10 +40,14 @@ from workflow.models import (
     WorkflowWithDetails,
     WorkflowStep,
     InitialWorkflowData,
+    TemplateInfo,
+    StarterChat,
 )
 import json
 
 logger = logging.getLogger(__name__)
+from workflow.internals import templates as templates_internal
+
 
 
 #
@@ -260,6 +264,42 @@ async def import_workflow(workflow_data: Dict[str, Any], user_id: UUID) -> Workf
     # Final Save: Save the workflow with the updated step list and trigger
     await save(workflow=new_workflow, user_id=user_id)
     return new_workflow
+
+
+#
+# Templates
+#
+
+async def list_templates() -> List[TemplateInfo]:
+    """Lists available templates on disk for workflows."""
+    return templates_internal.list_templates_on_disk()
+
+
+async def create_from_template(template_id: str, user_id: UUID) -> Tuple[WorkflowModel, Optional[StarterChat]]:
+    """Creates a workflow and returns optional starter chat for UI initialization."""
+    template_dict, starter_chat = templates_internal.read_and_parse_template(template_id)
+    # If full import present
+    if isinstance(template_dict, dict) and isinstance(template_dict.get("workflow_import"), dict):
+        new_workflow = await import_workflow(workflow_data=template_dict["workflow_import"], user_id=user_id)
+        desired_name = template_dict.get("name")
+        desired_description = template_dict.get("description")
+        if desired_name is not None or desired_description is not None:
+            updated = await update_workflow_details(
+                workflow_uuid=new_workflow.uuid,
+                name=desired_name,
+                description=desired_description,
+                user_id=user_id,
+            )
+            if updated is not None:
+                new_workflow = updated
+        return new_workflow, starter_chat
+    # Else create a new empty workflow with metadata
+    new_workflow = await create(
+        name=template_dict["name"],
+        description=template_dict.get("description", ""),
+        user_id=user_id,
+    )
+    return new_workflow, starter_chat
 
 
 #
