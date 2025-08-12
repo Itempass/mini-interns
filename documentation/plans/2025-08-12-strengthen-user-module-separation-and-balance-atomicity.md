@@ -36,7 +36,7 @@ We want all user-related concerns (authentication, registration, user discovery,
 - Ensure `shared/config.py` contains `MYSQL_HOST` and is loaded from env.
 - Validate local dev and docker-compose scenarios still work.
 
-3) Centralize password-mode auth helpers in `user`
+3) Centralize password-mode auth helpers in `user` ✅
 - Create `user/auth.py` (or `user/internals/password_auth.py`) that exposes pure functions used by password-mode auth in `api/endpoints/auth.py`:
   - `get_auth_configuration_status()`
   - `get_active_password()`
@@ -47,12 +47,15 @@ We want all user-related concerns (authentication, registration, user discovery,
   - `get_auth_mode() -> Literal['auth0','password','none']`
 - Move the email claim namespace used for Auth0 (`https://api.brewdock.com/email`) behind a constant or setting in `user/auth.py` (e.g. from `shared/config.py`).
 - Refactor `api/endpoints/auth.py` to call into these helpers, keeping the endpoint layer a thin delegator.
+  - Implemented `user/internals/password_auth.py` and exposed via `user/client.py`.
+  - Updated `api/endpoints/auth.py` to call centralized helpers for mode, status, set-password, verify, and login.
 
-4) Centralize admin checks
+4) Centralize admin checks ✅
 - Add to `user/client.py`:
   - `is_admin(user: User) -> bool` (reads from `settings.ADMIN_USER_IDS`).
   - `add_admin_flag(user: User) -> User` to set `user.is_admin` consistently.
 - Update `api/endpoints/user.py` to use these helpers in `is_admin` dependency and `/users/me` response enrichment.
+  - Implemented `is_admin` and `add_admin_flag` in `user/client.py` and refactored the endpoint.
 
 5) Align balance defaults across model and schema
 - Decide on the canonical initial balance for Auth0 users (current behavior implies `$5.00`).
@@ -65,9 +68,10 @@ We want all user-related concerns (authentication, registration, user discovery,
   - Remove or clearly comment `get_token_for_user()` if not applicable to our flow (Client Credentials cannot impersonate a user; avoid confusion).
 - If kept, wire any used helpers through `user/client.py` so callers never import internals directly.
 
-7) Public API improvements for `user`
+7) Public API improvements for `user` ✅ (partial)
 - Expose a `create_user(user: User) -> User` thin wrapper in `user/client.py` to mirror the internal DB function.
 - Update `user/__init__.py` to export the package’s public API (`client`, `models`, `exceptions`) for a cleaner import surface.
+  - Added centralized helpers to resolve Auth0 users from token payloads via `user.client.find_or_create_user_from_auth0_payload` and `user.client.validate_auth0_token`, and refactored `api/endpoints/auth.py` accordingly.
 
 8) Tests and guardrails
 - Unit tests:
