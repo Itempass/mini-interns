@@ -14,6 +14,7 @@ interface WorkflowSidebarProps {
 const WorkflowSidebar: React.FC<WorkflowSidebarProps> = ({ workflows, onSelectWorkflow, selectedWorkflow, onWorkflowsUpdate }) => {
   const [isCreateModalOpen, setCreateModalOpen] = useState(false);
   const [menuOpenFor, setMenuOpenFor] = useState<string | null>(null);
+  const isEmpty = workflows.length === 0;
 
   const handleWorkflowCreated = (response: WorkflowFromTemplateResponse) => {
     onWorkflowsUpdate(response.workflow, undefined, response.starter_chat);
@@ -36,7 +37,15 @@ const WorkflowSidebar: React.FC<WorkflowSidebarProps> = ({ workflows, onSelectWo
     <div className="flex flex-col h-full">
       <div className="flex justify-between items-center p-4 border-b border-gray-200">
         <h2 className="text-lg font-semibold">Workflows</h2>
-        <button onClick={() => setCreateModalOpen(true)} className="p-1 text-gray-500 hover:text-black">
+        <button
+          onClick={() => setCreateModalOpen(true)}
+          aria-label={isEmpty ? 'Create your first workflow' : 'Create workflow'}
+          className={
+            isEmpty
+              ? 'p-1 rounded-md ring-2 ring-blue-500 animate-pulse bg-blue-50 text-blue-700'
+              : 'p-1 rounded-md text-gray-500 hover:text-black'
+          }
+        >
           <Plus className="h-6 w-6" />
         </button>
       </div>

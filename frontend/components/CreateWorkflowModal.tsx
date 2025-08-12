@@ -12,6 +12,8 @@ const CreateWorkflowModal: React.FC<CreateWorkflowModalProps> = ({ isOpen, onClo
   const [view, setView] = useState<'options' | 'scratch'>('options');
   const [workflowName, setWorkflowName] = useState('');
   const [templates, setTemplates] = useState<Template[]>([]);
+  // Featured workflow template ID (derived from filename without .json)
+  const FEATURED_TEMPLATE_ID = 'simple_email_labeler';
   const [error, setError] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -42,7 +44,14 @@ const CreateWorkflowModal: React.FC<CreateWorkflowModalProps> = ({ isOpen, onClo
   const fetchTemplates = async () => {
     try {
       const fetchedTemplates = await getWorkflowTemplates();
-      setTemplates(fetchedTemplates);
+      // Ensure featured template appears first if present
+      const sorted = [...fetchedTemplates].sort((a, b) => {
+        const aFeatured = a.id === FEATURED_TEMPLATE_ID ? 1 : 0;
+        const bFeatured = b.id === FEATURED_TEMPLATE_ID ? 1 : 0;
+        if (aFeatured !== bFeatured) return bFeatured - aFeatured;
+        return a.name.localeCompare(b.name);
+      });
+      setTemplates(sorted);
     } catch (err) {
       console.error('Failed to fetch templates:', err);
     }
@@ -136,17 +145,30 @@ const CreateWorkflowModal: React.FC<CreateWorkflowModalProps> = ({ isOpen, onClo
               <div className="mb-8">
                 <p className="text-center text-gray-500 mb-4">Start from a template</p>
                 <div className={`grid grid-cols-1 sm:grid-cols-2 ${templates.length > 2 ? 'lg:grid-cols-3' : ''} gap-4 max-h-96 overflow-y-auto p-1`}>
-                  {templates.map((template) => (
-                    <div
-                      key={template.id}
-                      onClick={() => handleCreateFromTemplate(template.id)}
-                      className="py-4 border rounded-lg hover:bg-gray-100 cursor-pointer flex flex-col h-full transition-all duration-200 ease-in-out transform hover:-translate-y-1"
-                    >
-                      <p className="font-semibold text-lg px-4">{template.name}</p>
-                      <div className="border-t border-gray-200 mt-2 mb-3"></div>
-                      <p className="text-sm text-gray-600 flex-grow px-4">{template.description}</p>
-                    </div>
-                  ))}
+                  {templates.map((template, idx) => {
+                    const isFeatured = template.id === FEATURED_TEMPLATE_ID;
+                    return (
+                      <div
+                        key={template.id}
+                        onClick={() => handleCreateFromTemplate(template.id)}
+                        className={
+                          `relative py-4 border rounded-lg cursor-pointer flex flex-col h-full transition-all duration-200 ease-in-out transform hover:-translate-y-1 ` +
+                          (isFeatured
+                            ? 'border-blue-600 ring-2 ring-blue-300 bg-blue-50 animate-pulse hover:bg-blue-100'
+                            : 'hover:bg-gray-100')
+                        }
+                      >
+                        {isFeatured && (
+                          <span className="absolute top-2 right-2 text-xs font-semibold text-white bg-blue-600 px-2 py-0.5 rounded">
+                            Recommended
+                          </span>
+                        )}
+                        <p className="font-semibold text-lg px-4">{template.name}</p>
+                        <div className="border-t border-gray-200 mt-2 mb-3"></div>
+                        <p className="text-sm text-gray-600 flex-grow px-4">{template.description}</p>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             )}
