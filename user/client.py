@@ -12,6 +12,9 @@ from user.models import User
 from user.exceptions import InsufficientBalanceError
 from uuid import uuid4, UUID
 from datetime import datetime, timezone
+from user.internals import password_auth
+from shared.config import settings
+from typing import Dict
 
 def get_or_create_default_user() -> User:
     """
@@ -66,3 +69,70 @@ def deduct_from_balance(user_uuid: UUID, cost: float) -> Optional[User]:
 def get_all_users() -> list[User]:
     """Retrieves all users."""
     return get_all_users_from_db() 
+
+
+# --- Password-mode auth helpers (public surface for other modules) ---
+
+def get_auth_configuration_status() -> str:
+    return password_auth.get_auth_configuration_status()
+
+
+def get_active_password() -> Optional[str]:
+    return password_auth.get_active_password()
+
+
+def get_session_token(password: str) -> Optional[str]:
+    return password_auth.get_session_token(password)
+
+
+def verify_session_token(token: str) -> bool:
+    return password_auth.verify_session_token(token)
+
+
+def set_password(new_password: str) -> None:
+    return password_auth.set_password(new_password)
+
+
+def login(password: str) -> Optional[str]:
+    return password_auth.login(password)
+
+
+def get_auth_mode() -> str:
+    return password_auth.get_auth_mode()
+
+
+# --- Admin helpers ---
+
+def is_admin(user: User) -> bool:
+    admin_ids_str = settings.ADMIN_USER_IDS or ""
+    admin_ids = [item.strip() for item in admin_ids_str.split(',') if item.strip()]
+    return str(user.uuid) in admin_ids
+
+
+def add_admin_flag(user: User) -> User:
+    user.is_admin = is_admin(user)
+    return user
+
+
+# --- Auth0 helpers ---
+
+async def validate_auth0_token(token: str) -> Optional[Dict[str, Any]]:
+    """Validates an Auth0 JWT and returns the decoded payload if valid, else None."""
+    from user.internals import auth0_validator
+    return await auth0_validator.validate_auth0_token(token)
+
+
+def find_or_create_user_from_auth0_payload(payload: Dict[str, Any]) -> User:
+    """
+    Extracts identity from an Auth0 payload and finds or creates a corresponding user.
+    Raises ValueError if the required subject is missing.
+    """
+    auth0_sub = payload.get("sub")
+    if not auth0_sub:
+        raise ValueError("Invalid token: missing user subject")
+
+    # Prefer namespaced claim provided by Auth0 Action; fallback to standard 'email'
+    email_claim_namespace = "https://api.brewdock.com/email"
+    email = payload.get(email_claim_namespace) or payload.get("email")
+
+    return find_or_create_user_by_auth0_sub_in_db(auth0_sub=auth0_sub, email=email)

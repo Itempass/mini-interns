@@ -86,7 +86,11 @@ export interface Template {
 
 export interface WorkflowFromTemplateResponse {
     workflow: Workflow;
-    workflow_start_message?: string;
+    starter_chat?: {
+        mode: 'auto' | 'prompt';
+        message: string;
+        responses?: { label: string; message: string }[];
+    };
 }
 
 export const getWorkflows = async (): Promise<Workflow[]> => {

@@ -30,7 +30,9 @@ from ..types.api_models.workflow import (
     UpdateStepRequest,
     UpdateTriggerRequest,
     CreateFromTemplateRequest,
+    WorkflowFromTemplateResponse,
 )
+from workflow.models import TemplateInfo, StarterChat
 from workflow_agent.client.models import ChatMessage, ChatRequest, ChatStepResponse
 from .auth import get_current_user
 from agentlogger.src.client import upsert_and_forward_log_entry, get_log_entry
@@ -47,18 +49,10 @@ router = APIRouter(
     tags=["Workflows"],
     dependencies=[Depends(get_current_user)]
 )
-WORKFLOW_TEMPLATES_DIR = "api/workflow_templates"
 
 
-class TemplateInfo(BaseModel):
-    id: str
-    name: str
-    description: str
-
-
-class WorkflowFromTemplateResponse(BaseModel):
-    workflow: WorkflowModel
-    workflow_start_message: Optional[str] = None
+class WorkflowFromTemplateResponse(WorkflowFromTemplateResponse):
+    pass
 
 
 class UpdateWorkflowStatusRequest(BaseModel):
@@ -101,30 +95,15 @@ async def get_available_tools():
 
 @router.get("/templates", response_model=List[TemplateInfo])
 async def list_workflow_templates():
-    """
-    Lists all available workflow templates from the template directory.
-    """
+    """Lists all available workflow templates via the workflow client."""
     logger.info("GET /workflows/templates - Listing all workflow templates")
-    if not os.path.isdir(WORKFLOW_TEMPLATES_DIR):
-        logger.warning(f"Workflow templates directory not found at {WORKFLOW_TEMPLATES_DIR}")
+    try:
+        templates = await workflow_client.list_templates()
+        logger.info(f"GET /workflows/templates - Found {len(templates)} templates.")
+        return templates
+    except Exception as e:
+        logger.error(f"Error listing workflow templates: {e}", exc_info=True)
         return []
-    
-    templates = []
-    for f in os.listdir(WORKFLOW_TEMPLATES_DIR):
-        if f.endswith(".json"):
-            try:
-                with open(os.path.join(WORKFLOW_TEMPLATES_DIR, f), "r") as template_file:
-                    data = json.load(template_file)
-                    templates.append(TemplateInfo(
-                        id=f.replace(".json", ""),
-                        name=data.get("name", "Unnamed Template"),
-                        description=data.get("description", "No description available.")
-                    ))
-            except Exception as e:
-                logger.error(f"Error reading or parsing template file {f}: {e}")
-
-    logger.info(f"GET /workflows/templates - Found {len(templates)} templates.")
-    return templates
 
 
 @router.post("/from-template", response_model=WorkflowFromTemplateResponse, status_code=status.HTTP_201_CREATED)
@@ -134,26 +113,13 @@ async def create_workflow_from_template(request: CreateFromTemplateRequest, user
     """
     logger.info(f"POST /workflows/from-template - Creating workflow from template '{request.template_id}'")
     try:
-        template_path = os.path.join(WORKFLOW_TEMPLATES_DIR, f"{request.template_id}.json")
-        if not os.path.isfile(template_path):
-            logger.error(f"Template file not found at {template_path}")
-            raise HTTPException(status_code=404, detail=f"Template with ID '{request.template_id}' not found.")
-
-        with open(template_path, 'r') as f:
-            template_data = json.load(f)
-        
-        workflow_start_message = template_data.get("workflow_start_message")
-
-        new_workflow = await workflow_client.create(
-            name=template_data["name"],
-            description=template_data["description"],
-            user_id=user.uuid
+        created_workflow, starter_chat = await workflow_client.create_from_template(
+            template_id=request.template_id, user_id=user.uuid
         )
-        
-        return WorkflowFromTemplateResponse(
-            workflow=new_workflow,
-            workflow_start_message=workflow_start_message
-        )
+        return WorkflowFromTemplateResponse(workflow=created_workflow, starter_chat=starter_chat)
+    except HTTPException:
+        # Re-raise HTTPExceptions as-is
+        raise
     except Exception as e:
         logger.error(f"POST /workflows/from-template - Error creating workflow from template: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Error creating workflow from template.")
