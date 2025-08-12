@@ -1,12 +1,13 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { ChatMessage, runWorkflowAgentChatStep, submitHumanInput, ChatStepResponse } from '../services/workflows_api';
 import { Send, Bot, User, Loader2, Square } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import FeatureRequestForm from './chat_input/FeatureRequestForm';
 import { ApiError } from '../services/api';
+import { useStarterPrompt } from '../hooks/useStarterPrompt';
 
 interface WorkflowChatProps {
   workflowId: string;
@@ -36,6 +37,8 @@ const WorkflowChat: React.FC<WorkflowChatProps> = ({ workflowId, onWorkflowUpdat
   const prevWorkflowId = useRef<string | null>(null);
   const [starterPromptActive, setStarterPromptActive] = useState<boolean>(false);
 
+  const { pendingStarter, markConsumedIfAny } = useStarterPrompt(workflowId, initialStarterChat);
+
   useEffect(() => {
     onBusyStatusChange?.(isAgentThinking);
   }, [isAgentThinking, onBusyStatusChange]);
@@ -48,7 +51,6 @@ const WorkflowChat: React.FC<WorkflowChatProps> = ({ workflowId, onWorkflowUpdat
       prevWorkflowId.current = workflowId;
       const newConversationId = uuidv4();
       setConversationId(newConversationId);
-      
       if (initialChatMessage) {
         const userMessage: ChatMessage = { role: 'user', content: initialChatMessage };
         const newMessages = [welcomeMessage, userMessage];
@@ -61,7 +63,7 @@ const WorkflowChat: React.FC<WorkflowChatProps> = ({ workflowId, onWorkflowUpdat
         runConversation(newMessages);
         clearInitialChatMessage();
       } else if (initialStarterChat) {
-        // Handle new starter chat behavior
+        // Handle starter chat on first visit
         const assistantPrompt: ChatMessage = { role: 'assistant', content: initialStarterChat.message };
         setMessages([welcomeMessage, assistantPrompt]);
         setStarterPromptActive(initialStarterChat.mode === 'prompt');
@@ -76,15 +78,31 @@ const WorkflowChat: React.FC<WorkflowChatProps> = ({ workflowId, onWorkflowUpdat
           runConversation(newMessages);
           clearInitialStarterChat && clearInitialStarterChat();
         }
+        // Clear the prop-level starter chat regardless of mode so it doesn't leak to other workflows
+        if (clearInitialStarterChat) clearInitialStarterChat();
       } else {
         setMessages([welcomeMessage]);
       }
     }
-  }, [workflowId, initialChatMessage]);
+  }, [workflowId, initialChatMessage, initialStarterChat]);
+
+  // When revisiting a workflow with a pending prompt-mode starter, re-inject it
+  useEffect(() => {
+    // Only trigger if we are on the same workflow and messages are at initial welcome state
+    if (!pendingStarter) return;
+    const hasOnlyWelcome = messages.length === 1 && messages[0]?.role === 'assistant';
+    if (!hasOnlyWelcome) return;
+
+    const assistantPrompt: ChatMessage = { role: 'assistant', content: pendingStarter.message };
+    setMessages([messages[0], assistantPrompt]);
+    setStarterPromptActive(true);
+  }, [pendingStarter]);
   const handleStarterQuickReply = async (replyMessage: string) => {
     const newMessages = [...messages, { role: 'user', content: replyMessage } as ChatMessage];
     setMessages(newMessages);
     setStarterPromptActive(false);
+    // Mark the starter prompt as consumed on interaction
+    markConsumedIfAny();
     setIsAgentThinking(true);
     if (abortControllerRef.current) abortControllerRef.current.abort();
     abortControllerRef.current = new AbortController();
@@ -113,6 +131,11 @@ const WorkflowChat: React.FC<WorkflowChatProps> = ({ workflowId, onWorkflowUpdat
     const newMessages = [...messages, userMessage];
     setMessages(newMessages);
     setUserInput('');
+    // If the starter prompt was active, mark consumed on first real message
+    if (starterPromptActive) {
+      markConsumedIfAny();
+      setStarterPromptActive(false);
+    }
     setIsAgentThinking(true);
 
     if (abortControllerRef.current) {
@@ -305,9 +328,9 @@ const WorkflowChat: React.FC<WorkflowChatProps> = ({ workflowId, onWorkflowUpdat
           
           return null;
         })}
-        {starterPromptActive && initialStarterChat?.mode === 'prompt' && (
+        {starterPromptActive && (
           <div className="flex flex-col items-center gap-2">
-            {(initialStarterChat.responses ?? []).map((opt, i) => (
+            {((pendingStarter?.responses ?? initialStarterChat?.responses) ?? []).map((opt, i) => (
               <button
                 key={i}
                 onClick={() => handleStarterQuickReply(opt.message)}
