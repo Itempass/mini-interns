@@ -1,6 +1,6 @@
 'use client';
 import React, { useState } from 'react';
-import { Workflow, deleteWorkflow } from '../services/workflows_api';
+import { Workflow, deleteWorkflow, WorkflowFromTemplateResponse } from '../services/workflows_api';
 import { Plus, MoreVertical, Trash2 } from 'lucide-react';
 import CreateWorkflowModal from './CreateWorkflowModal';
 
@@ -8,15 +8,15 @@ interface WorkflowSidebarProps {
   workflows: Workflow[];
   onSelectWorkflow: (workflow: Workflow | null) => void;
   selectedWorkflow: Workflow | null;
-  onWorkflowsUpdate: (newWorkflow?: Workflow, startMessage?: string) => void;
+  onWorkflowsUpdate: (newWorkflow?: Workflow, startMessage?: string, starterChat?: WorkflowFromTemplateResponse['starter_chat']) => void;
 }
 
 const WorkflowSidebar: React.FC<WorkflowSidebarProps> = ({ workflows, onSelectWorkflow, selectedWorkflow, onWorkflowsUpdate }) => {
   const [isCreateModalOpen, setCreateModalOpen] = useState(false);
   const [menuOpenFor, setMenuOpenFor] = useState<string | null>(null);
 
-  const handleWorkflowCreated = (response: { workflow: Workflow, workflow_start_message?: string }) => {
-    onWorkflowsUpdate(response.workflow, response.workflow_start_message);
+  const handleWorkflowCreated = (response: WorkflowFromTemplateResponse) => {
+    onWorkflowsUpdate(response.workflow, undefined, response.starter_chat);
     setCreateModalOpen(false);
   };
 

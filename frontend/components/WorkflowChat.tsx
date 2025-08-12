@@ -14,6 +14,8 @@ interface WorkflowChatProps {
   onBusyStatusChange?: (isBusy: boolean) => void;
   initialChatMessage?: string;
   clearInitialChatMessage: () => void;
+  initialStarterChat?: { mode: 'auto' | 'prompt'; message: string; responses?: { label: string; message: string }[] };
+  clearInitialStarterChat?: () => void;
 }
 
 interface HumanInputRequest {
@@ -22,7 +24,7 @@ interface HumanInputRequest {
   data: any;
 }
 
-const WorkflowChat: React.FC<WorkflowChatProps> = ({ workflowId, onWorkflowUpdate, onBusyStatusChange, initialChatMessage, clearInitialChatMessage }) => {
+const WorkflowChat: React.FC<WorkflowChatProps> = ({ workflowId, onWorkflowUpdate, onBusyStatusChange, initialChatMessage, clearInitialChatMessage, initialStarterChat, clearInitialStarterChat }) => {
   const [conversationId, setConversationId] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [userInput, setUserInput] = useState('');
@@ -32,6 +34,7 @@ const WorkflowChat: React.FC<WorkflowChatProps> = ({ workflowId, onWorkflowUpdat
   const abortControllerRef = useRef<AbortController | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const prevWorkflowId = useRef<string | null>(null);
+  const [starterPromptActive, setStarterPromptActive] = useState<boolean>(false);
 
   useEffect(() => {
     onBusyStatusChange?.(isAgentThinking);
@@ -57,11 +60,38 @@ const WorkflowChat: React.FC<WorkflowChatProps> = ({ workflowId, onWorkflowUpdat
 
         runConversation(newMessages);
         clearInitialChatMessage();
+      } else if (initialStarterChat) {
+        // Handle new starter chat behavior
+        const assistantPrompt: ChatMessage = { role: 'assistant', content: initialStarterChat.message };
+        setMessages([welcomeMessage, assistantPrompt]);
+        setStarterPromptActive(initialStarterChat.mode === 'prompt');
+        if (initialStarterChat.mode === 'auto') {
+          // Auto-send the starter message as the user's first message
+          const userMessage: ChatMessage = { role: 'user', content: initialStarterChat.message };
+          const newMessages = [welcomeMessage, userMessage];
+          setMessages(newMessages);
+          setIsAgentThinking(true);
+          if (abortControllerRef.current) abortControllerRef.current.abort();
+          abortControllerRef.current = new AbortController();
+          runConversation(newMessages);
+          clearInitialStarterChat && clearInitialStarterChat();
+        }
       } else {
         setMessages([welcomeMessage]);
       }
     }
   }, [workflowId, initialChatMessage]);
+  const handleStarterQuickReply = async (replyMessage: string) => {
+    const newMessages = [...messages, { role: 'user', content: replyMessage } as ChatMessage];
+    setMessages(newMessages);
+    setStarterPromptActive(false);
+    setIsAgentThinking(true);
+    if (abortControllerRef.current) abortControllerRef.current.abort();
+    abortControllerRef.current = new AbortController();
+    await runConversation(newMessages);
+    clearInitialStarterChat && clearInitialStarterChat();
+  };
+
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -275,6 +305,19 @@ const WorkflowChat: React.FC<WorkflowChatProps> = ({ workflowId, onWorkflowUpdat
           
           return null;
         })}
+        {starterPromptActive && initialStarterChat?.mode === 'prompt' && (
+          <div className="flex flex-col items-center gap-2">
+            {(initialStarterChat.responses ?? []).map((opt, i) => (
+              <button
+                key={i}
+                onClick={() => handleStarterQuickReply(opt.message)}
+                className="w-full max-w-md px-4 py-2 border rounded-md bg-white hover:bg-gray-50 text-gray-800 text-center"
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        )}
         {humanInputRequest && (
           <div className="flex items-start gap-3">
             <Bot className="w-6 h-6 text-blue-500" />

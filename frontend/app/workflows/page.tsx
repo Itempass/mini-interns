@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import TopBar from '../../components/TopBar';
 import WorkflowSidebar from '../../components/WorkflowSidebar';
 import WorkflowSettings from '../../components/WorkflowSettings';
-import { Workflow, WorkflowWithDetails, getWorkflows } from '../../services/workflows_api';
+import { Workflow, WorkflowWithDetails, getWorkflows, WorkflowFromTemplateResponse } from '../../services/workflows_api';
 
 import ConnectionStatusIndicator from '../../components/ConnectionStatusIndicator';
 import NoWorkflowsView from '../../components/NoWorkflowsView';
@@ -20,6 +20,7 @@ const WorkflowsPage = () => {
   const [isLogsExpanded, setIsLogsExpanded] = useState(false);
   const [isAgentBusy, setIsAgentBusy] = useState(false);
   const [initialChatMessage, setInitialChatMessage] = useState<string | undefined>(undefined);
+  const [initialStarterChat, setInitialStarterChat] = useState<WorkflowFromTemplateResponse['starter_chat'] | undefined>(undefined);
 
   // State for log detail modal
   const [selectedLogId, setSelectedLogId] = useState<string | null>(null);
@@ -27,13 +28,14 @@ const WorkflowsPage = () => {
   const [isLogModalOpen, setIsLogModalOpen] = useState(false);
   const [isLoadingLog, setIsLoadingLog] = useState(false);
 
-  const fetchWorkflows = async (newlyCreated?: Workflow, startMessage?: string) => {
+  const fetchWorkflows = async (newlyCreated?: Workflow, startMessage?: string, starterChat?: WorkflowFromTemplateResponse['starter_chat']) => {
     const freshWorkflows = await getWorkflows();
     setWorkflows(freshWorkflows);
 
     if (newlyCreated) {
       setSelectedWorkflow(newlyCreated);
       setInitialChatMessage(startMessage);
+      setInitialStarterChat(starterChat);
     } else if (selectedWorkflow) {
       const updatedSelectedWorkflow = freshWorkflows.find(w => w.uuid === selectedWorkflow.uuid);
       setSelectedWorkflow(updatedSelectedWorkflow || (freshWorkflows.length > 0 ? freshWorkflows[0] : null));
@@ -92,7 +94,7 @@ const WorkflowsPage = () => {
                 workflows={workflows}
                 onSelectWorkflow={handleSelectWorkflow} 
                 selectedWorkflow={selectedWorkflow} 
-                onWorkflowsUpdate={(workflow, startMessage) => fetchWorkflows(workflow, startMessage)}
+                onWorkflowsUpdate={(workflow, startMessage, starterChat) => fetchWorkflows(workflow, startMessage, starterChat)}
               />
             </div>
             <div className="border-t border-gray-200">
@@ -104,12 +106,14 @@ const WorkflowsPage = () => {
               <>
                 <div className={`flex-1 flex-row gap-4 overflow-hidden ${isLogsExpanded ? 'hidden' : 'flex'}`}>
                     <div className="flex-1 flex flex-col bg-white border border-gray-300 rounded-lg shadow-md">
-                      <WorkflowChat
+              <WorkflowChat
                         workflowId={selectedWorkflow.uuid}
                         onWorkflowUpdate={handleWorkflowUpdate}
                         onBusyStatusChange={setIsAgentBusy}
-                        initialChatMessage={initialChatMessage}
-                        clearInitialChatMessage={() => setInitialChatMessage(undefined)}
+                         initialChatMessage={initialChatMessage}
+                         clearInitialChatMessage={() => setInitialChatMessage(undefined)}
+                         initialStarterChat={initialStarterChat}
+                         clearInitialStarterChat={() => setInitialStarterChat(undefined)}
                       />
                     </div>
                     <div className="flex-1 overflow-y-auto bg-white border border-gray-300 rounded-lg shadow-md">
