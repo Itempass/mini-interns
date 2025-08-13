@@ -31,9 +31,9 @@ const SettingsPage = () => {
       }
       if (topup === 'success') {
         // Basic banner via alert for now; BalanceSettings will refetch on mount
-        setTimeout(() => alert('Top-up successful!'), 0);
+        setTimeout(() => alert('Top-up successful!\n\nSomething went wrong? Please contact us at founders@itempass.com!'), 0);
       } else if (topup === 'cancel') {
-        setTimeout(() => alert('Top-up canceled.'), 0);
+        setTimeout(() => alert('Top-up canceled.\n\nSomething went wrong? Please contact us at founders@itempass.com!'), 0);
       }
     }
   }, []);

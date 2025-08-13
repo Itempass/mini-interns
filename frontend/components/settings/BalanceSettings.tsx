@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { getMe, getCostHistory, createCheckoutSession, UserProfile, CostLogEntry } from '../../services/api';
+import { getMe, getCostHistory, createCheckoutSession, getClientAuthMode, UserProfile, CostLogEntry } from '../../services/api';
 
 const BalanceSettings = () => {
   const [user, setUser] = useState<UserProfile | null>(null);
@@ -7,18 +7,21 @@ const BalanceSettings = () => {
   const [totalCosts, setTotalCosts] = useState<number>(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [authMode, setAuthMode] = useState<'auth0' | 'password' | 'none'>('none');
 
   useEffect(() => {
     const fetchData = async () => {
       try {
         setLoading(true);
-        const [userData, costData] = await Promise.all([
+        const [userData, costData, mode] = await Promise.all([
           getMe(),
-          getCostHistory()
+          getCostHistory(),
+          getClientAuthMode(),
         ]);
         setUser(userData);
         setCostHistory(costData.costs);
         setTotalCosts(costData.total_costs);
+        setAuthMode(mode);
         setError(null);
       } catch (err: any) {
         setError(err.message || 'Failed to fetch data.');
@@ -38,37 +41,52 @@ const BalanceSettings = () => {
     return <div className="p-6 text-red-500">{error}</div>;
   }
 
+  const isAuth0 = authMode === 'auth0';
+
   return (
     <div className="p-6">
       <h2 className="text-2xl font-bold mb-4">Balance & Usage</h2>
-      
-      <div className="mb-8 p-4 border rounded-lg bg-gray-50">
-        <h3 className="text-lg font-semibold">Current Balance</h3>
-        <p className="text-3xl font-bold text-green-600">${user?.balance.toFixed(2)}</p>
-      </div>
 
-      {/* Top up card (Auth0-only gating happens server-side; UI shown always for simplicity) */}
-      <div className="mb-8 p-4 border rounded-lg">
-        <h3 className="text-lg font-semibold mb-2">Top up balance</h3>
-        <div className="flex gap-2 mb-3">
-          {[0.5, 5, 10, 20, 50, 100].map((amt) => (
-            <button
-              key={amt}
-              onClick={async () => {
-                try {
-                  const { url } = await createCheckoutSession(amt as number);
-                  window.location.href = url;
-                } catch (e: any) {
-                  alert(e?.message || 'Failed to create checkout session');
-                }
-              }}
-              className="px-3 py-2 border rounded hover:bg-gray-50"
-            >
-              ${amt}
-            </button>
-          ))}
+      {!isAuth0 && (
+        <div className="mb-4 p-3 rounded-md border bg-yellow-50 text-yellow-800 text-sm">
+          Available on Hosted Version only
         </div>
-        <p className="text-sm text-gray-500">You will be redirected to Stripe Checkout. After payment you’ll return here.</p>
+      )}
+
+      {/* Two-column header section: balance (left) and top-up (right) */}
+      <div className={`mb-8 grid grid-cols-1 md:grid-cols-2 gap-4 ${!isAuth0 ? 'opacity-50' : ''}`}>
+        <div className="p-4 border rounded-lg bg-gray-50">
+          <h3 className="text-lg font-semibold">Current Balance</h3>
+          <p className="text-3xl font-bold text-green-600">${user?.balance.toFixed(2)}</p>
+        </div>
+        <div className={`p-4 border rounded-lg ${!isAuth0 ? 'pointer-events-none' : ''}`}>
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-lg font-semibold">Top up balance</h3>
+            <div className="flex items-center gap-2 text-xs text-gray-500">
+              <span>Payments processed by</span>
+              <img src="/stripe.svg" alt="Stripe" className="h-4" />
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2 mb-3">
+            {[0.5, 5, 10, 20, 50, 100].map((amt) => (
+              <button
+                key={amt}
+                onClick={async () => {
+                  try {
+                    const { url } = await createCheckoutSession(amt as number);
+                    window.location.href = url;
+                  } catch (e: any) {
+                    alert(e?.message || 'Failed to create checkout session');
+                  }
+                }}
+                className="px-3 py-2 border rounded hover:bg-gray-50"
+              >
+                ${amt}
+              </button>
+            ))}
+          </div>
+          <p className="text-sm text-gray-500">You will be redirected to Stripe Checkout. After payment you’ll return here.</p>
+        </div>
       </div>
 
       <div>
