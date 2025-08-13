@@ -41,6 +41,7 @@ COPY triggers/ ./triggers/
 COPY workflow/ ./workflow/
 COPY workflow_agent/ ./workflow_agent/
 COPY user/ ./user/
+COPY payments/ ./payments/
 COPY prompt_optimizer/ ./prompt_optimizer/
 COPY scripts/ ./scripts/
 COPY promtail-config.yml .
@@ -50,6 +51,7 @@ COPY supervisord.conf .
 COPY --from=frontend-builder /app/frontend/.next ./frontend/.next
 COPY --from=frontend-builder /app/frontend/package.json ./frontend/package.json
 COPY --from=frontend-builder /app/frontend/node_modules ./frontend/node_modules
+COPY --from=frontend-builder /app/frontend/public ./frontend/public
 
 # Make entrypoint script executable
 COPY entrypoint.sh .

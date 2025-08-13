@@ -40,6 +40,9 @@ aiomysql
 # For the workflow engine database
 mysql-connector-python
 
+# Stripe payments
+stripe==8.*
+
 # Authentication
 auth0-python
 PyJWT

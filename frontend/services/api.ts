@@ -502,6 +502,56 @@ export const getCostHistory = async (): Promise<CostHistoryResponse> => {
   }
 };
 
+// Billing API
+export const createCheckoutSession = async (amountUsd: number): Promise<{ url: string }> => {
+  try {
+    return await jsonApiFetch(`${API_URL}/billing/checkout-session`, {
+      method: 'POST',
+      body: JSON.stringify({ amount_usd: amountUsd }),
+    });
+  } catch (error) {
+    console.error('An error occurred while creating checkout session:', error);
+    throw error;
+  }
+};
+
+// Top-ups API
+export interface TopupEntry {
+  checkout_session_id?: string | null;
+  payment_intent_id?: string | null;
+  amount_usd: number;
+  currency: string;
+  status: string;
+  created_at: string; // ISO string
+}
+
+export interface TopupsResponse {
+  topups: TopupEntry[];
+}
+
+export const getTopups = async (): Promise<TopupsResponse> => {
+  try {
+    return await jsonApiFetch(`${API_URL}/billing/topups`);
+  } catch (error) {
+    console.error('An error occurred while fetching top-ups:', error);
+    return { topups: [] };
+  }
+};
+
+// Billing config
+export interface BillingConfigResponse {
+  enable_test_payment_amount: boolean;
+}
+
+export const getBillingConfig = async (): Promise<BillingConfigResponse> => {
+  try {
+    return await jsonApiFetch(`${API_URL}/billing/config`);
+  } catch (error) {
+    console.error('An error occurred while fetching billing config:', error);
+    return { enable_test_payment_amount: false };
+  }
+};
+
 
 // MCP API
 export interface McpTool {

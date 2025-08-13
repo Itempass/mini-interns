@@ -6,6 +6,7 @@ from user.internals.database import (
     find_or_create_user_by_auth0_sub as find_or_create_user_by_auth0_sub_in_db,
     set_user_balance as set_user_balance_in_db,
     deduct_from_balance as deduct_from_balance_in_db,
+    add_to_balance as add_to_balance_in_db,
     get_all_users as get_all_users_from_db,
 )
 from user.models import User
@@ -65,6 +66,15 @@ def deduct_from_balance(user_uuid: UUID, cost: float) -> Optional[User]:
         return deduct_from_balance_in_db(user_uuid, cost)
     
     return user # Return the original user object if no deduction was made
+
+def add_to_balance(user_uuid: UUID, amount: float) -> Optional[User]:
+    """Adds an amount to a user's balance if they are an Auth0 user."""
+    user = get_user_by_uuid_from_db(user_uuid)
+    if not user:
+        return None
+    if user.auth0_sub:
+        return add_to_balance_in_db(user_uuid, amount)
+    return user
 
 def get_all_users() -> list[User]:
     """Retrieves all users."""

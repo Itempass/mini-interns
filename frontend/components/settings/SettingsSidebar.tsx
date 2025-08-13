@@ -24,6 +24,18 @@ const SettingsSidebar: React.FC<SettingsSidebarProps> = ({ version, selectedCate
       <div className="flex-1 overflow-y-auto p-4">
         <ul className="space-y-2">
           <li
+            className={getListItemClasses('balance')}
+            onClick={() => setSelectedCategory('balance')}
+          >
+            Balance
+          </li>
+          <li
+            className={getListItemClasses('usage_history')}
+            onClick={() => setSelectedCategory('usage_history')}
+          >
+            Usage History
+          </li>
+          <li
             className={getListItemClasses('imap')}
             onClick={() => setSelectedCategory('imap')}
           >
@@ -34,12 +46,6 @@ const SettingsSidebar: React.FC<SettingsSidebarProps> = ({ version, selectedCate
             onClick={() => setSelectedCategory('mcp')}
           >
             MCP Servers
-          </li>
-          <li
-            className={getListItemClasses('balance')}
-            onClick={() => setSelectedCategory('balance')}
-          >
-            Balance
           </li>
         </ul>
       </div>

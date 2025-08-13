@@ -6,9 +6,10 @@ interface CreateWorkflowModalProps {
   isOpen: boolean;
   onClose: () => void;
   onWorkflowCreated: (response: WorkflowFromTemplateResponse) => void;
+  isFirstWorkflow: boolean;
 }
 
-const CreateWorkflowModal: React.FC<CreateWorkflowModalProps> = ({ isOpen, onClose, onWorkflowCreated }) => {
+const CreateWorkflowModal: React.FC<CreateWorkflowModalProps> = ({ isOpen, onClose, onWorkflowCreated, isFirstWorkflow }) => {
   const [view, setView] = useState<'options' | 'scratch'>('options');
   const [workflowName, setWorkflowName] = useState('');
   const [templates, setTemplates] = useState<Template[]>([]);
@@ -147,18 +148,19 @@ const CreateWorkflowModal: React.FC<CreateWorkflowModalProps> = ({ isOpen, onClo
                 <div className={`grid grid-cols-1 sm:grid-cols-2 ${templates.length > 2 ? 'lg:grid-cols-3' : ''} gap-4 max-h-96 overflow-y-auto p-1`}>
                   {templates.map((template, idx) => {
                     const isFeatured = template.id === FEATURED_TEMPLATE_ID;
+                    const shouldHighlight = isFeatured && isFirstWorkflow;
                     return (
                       <div
                         key={template.id}
                         onClick={() => handleCreateFromTemplate(template.id)}
                         className={
                           `relative py-4 border rounded-lg cursor-pointer flex flex-col h-full transition-all duration-200 ease-in-out transform hover:-translate-y-1 ` +
-                          (isFeatured
+                          (shouldHighlight
                             ? 'border-blue-600 ring-2 ring-blue-300 bg-blue-50 animate-pulse hover:bg-blue-100'
                             : 'hover:bg-gray-100')
                         }
                       >
-                        {isFeatured && (
+                        {shouldHighlight && (
                           <span className="absolute top-2 right-2 text-xs font-semibold text-white bg-blue-600 px-2 py-0.5 rounded">
                             Recommended
                           </span>
