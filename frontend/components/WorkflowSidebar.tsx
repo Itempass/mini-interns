@@ -88,6 +88,7 @@ const WorkflowSidebar: React.FC<WorkflowSidebarProps> = ({ workflows, onSelectWo
         isOpen={isCreateModalOpen}
         onClose={() => setCreateModalOpen(false)}
         onWorkflowCreated={handleWorkflowCreated}
+        isFirstWorkflow={isEmpty}
       />
     </div>
   );
