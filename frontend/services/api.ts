@@ -513,6 +513,20 @@ export const getTopups = async (): Promise<TopupsResponse> => {
   }
 };
 
+// Billing config
+export interface BillingConfigResponse {
+  enable_test_payment_amount: boolean;
+}
+
+export const getBillingConfig = async (): Promise<BillingConfigResponse> => {
+  try {
+    return await jsonApiFetch(`${API_URL}/billing/config`);
+  } catch (error) {
+    console.error('An error occurred while fetching billing config:', error);
+    return { enable_test_payment_amount: false };
+  }
+};
+
 
 // MCP API
 export interface McpTool {

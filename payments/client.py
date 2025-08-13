@@ -39,7 +39,9 @@ def create_checkout_session(user_uuid: UUID, amount_usd: float, origin: str) -> 
 
     # Validate against allowed presets (in cents). Note: Stripe minimum for USD is 50 cents.
     amount_cents = int(round(amount_usd * 100))
-    allowed_cents = {50, 500, 1000, 2000, 5000, 10000}
+    allowed_cents = {500, 1000, 2000, 5000, 10000}
+    if settings.ENABLE_TEST_PAYMENT_AMOUNT:
+        allowed_cents.add(50)
     if amount_cents not in allowed_cents:
         raise ValueError("Invalid amount")
     success_url = f"{origin}/settings?tab=balance&topup=success"

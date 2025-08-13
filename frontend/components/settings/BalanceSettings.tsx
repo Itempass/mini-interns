@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { getMe, createCheckoutSession, getClientAuthMode, getTopups, UserProfile, TopupEntry } from '../../services/api';
+import { getMe, createCheckoutSession, getClientAuthMode, getTopups, getBillingConfig, UserProfile, TopupEntry } from '../../services/api';
 
 const BalanceSettings = () => {
   const [user, setUser] = useState<UserProfile | null>(null);
@@ -7,19 +7,22 @@ const BalanceSettings = () => {
   const [error, setError] = useState<string | null>(null);
   const [authMode, setAuthMode] = useState<'auth0' | 'password' | 'none'>('none');
   const [topups, setTopups] = useState<TopupEntry[]>([]);
+  const [enableTestPayment, setEnableTestPayment] = useState(false);
 
   useEffect(() => {
     const fetchData = async () => {
       try {
         setLoading(true);
-        const [userData, mode, topupsData] = await Promise.all([
+        const [userData, mode, topupsData, billingConfig] = await Promise.all([
           getMe(),
           getClientAuthMode(),
           getTopups(),
+          getBillingConfig(),
         ]);
         setUser(userData);
         setAuthMode(mode);
         setTopups(topupsData.topups || []);
+        setEnableTestPayment(!!billingConfig.enable_test_payment_amount);
         setError(null);
       } catch (err: any) {
         setError(err.message || 'Failed to fetch data.');
@@ -67,7 +70,7 @@ const BalanceSettings = () => {
             </div>
           </div>
           <div className="flex flex-wrap gap-2 mb-3">
-            {[0.5, 5, 10, 20, 50, 100].map((amt) => (
+            {[...(enableTestPayment ? [0.5] : []), 5, 10, 20, 50, 100].map((amt) => (
               <button
                 key={amt}
                 onClick={async () => {

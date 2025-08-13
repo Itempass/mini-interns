@@ -9,6 +9,7 @@ from api.endpoints.auth import get_current_user
 from user.models import User
 from user import client as user_client
 from payments import client as payments_client
+from shared.config import settings
 
 
 logger = logging.getLogger(__name__)
@@ -101,4 +102,14 @@ async def list_topups(current_user: User = Depends(get_current_user)):
             )
         )
     return TopupsResponse(topups=entries)
+
+
+class BillingConfig(BaseModel):
+    enable_test_payment_amount: bool
+
+
+@router.get("/config", response_model=BillingConfig)
+async def get_billing_config():
+    """Expose non-sensitive billing-related flags to the frontend."""
+    return BillingConfig(enable_test_payment_amount=bool(settings.ENABLE_TEST_PAYMENT_AMOUNT))
 
