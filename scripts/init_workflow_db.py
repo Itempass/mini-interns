@@ -199,6 +199,30 @@ def init_workflow_db():
                 logger.error(f"An error occurred during the trigger_model backfill migration: {err}")
             # --- End of Trigger Model Backfill Migration ---
 
+            # --- Start of Stripe Payments Table Creation ---
+            # Create stripe_payments table if it doesn't exist (idempotent)
+            logger.info("Ensuring 'stripe_payments' table exists...")
+            try:
+                cursor.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS stripe_payments (
+                        id INT AUTO_INCREMENT PRIMARY KEY,
+                        payment_intent_id VARCHAR(255) UNIQUE,
+                        checkout_session_id VARCHAR(255) UNIQUE,
+                        user_uuid BINARY(16) NOT NULL,
+                        amount_cents INT NOT NULL,
+                        currency VARCHAR(10) NOT NULL,
+                        status VARCHAR(32) NOT NULL DEFAULT 'pending',
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                    """
+                )
+                logger.info("'stripe_payments' table is present or was created successfully.")
+            except mysql.connector.Error as err:
+                logger.error(f"Failed to create 'stripe_payments' table: {err}")
+                raise err
+            # --- End of Stripe Payments Table Creation ---
+
             conn.commit()
             cursor.close()
             conn.close()

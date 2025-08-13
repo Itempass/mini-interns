@@ -41,6 +41,7 @@ COPY triggers/ ./triggers/
 COPY workflow/ ./workflow/
 COPY workflow_agent/ ./workflow_agent/
 COPY user/ ./user/
+COPY payments/ ./payments/
 COPY prompt_optimizer/ ./prompt_optimizer/
 COPY scripts/ ./scripts/
 COPY promtail-config.yml .

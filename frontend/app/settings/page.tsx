@@ -1,5 +1,5 @@
 'use client';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { getVersion } from '../../services/api';
 import TopBar from '../../components/TopBar';
 
@@ -14,13 +14,29 @@ const SettingsPage = () => {
   const [isHelpPanelOpen, setHelpPanelOpen] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState('imap');
 
-  useState(() => {
+  useEffect(() => {
     const fetchVersion = async () => {
-        const fetchedVersion = await getVersion();
-        setVersion(fetchedVersion);
-    }
+      const fetchedVersion = await getVersion();
+      setVersion(fetchedVersion);
+    };
     fetchVersion();
-  });
+
+    // Parse query params for tab/topup
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const tab = params.get('tab');
+      const topup = params.get('topup');
+      if (tab === 'balance') {
+        setSelectedCategory('balance');
+      }
+      if (topup === 'success') {
+        // Basic banner via alert for now; BalanceSettings will refetch on mount
+        setTimeout(() => alert('Top-up successful!'), 0);
+      } else if (topup === 'cancel') {
+        setTimeout(() => alert('Top-up canceled.'), 0);
+      }
+    }
+  }, []);
   
   return (
     <div className="flex flex-col h-screen relative bg-gray-100" style={{

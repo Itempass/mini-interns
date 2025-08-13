@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { getMe, getCostHistory, UserProfile, CostLogEntry } from '../../services/api';
+import { getMe, getCostHistory, createCheckoutSession, UserProfile, CostLogEntry } from '../../services/api';
 
 const BalanceSettings = () => {
   const [user, setUser] = useState<UserProfile | null>(null);
@@ -45,6 +45,30 @@ const BalanceSettings = () => {
       <div className="mb-8 p-4 border rounded-lg bg-gray-50">
         <h3 className="text-lg font-semibold">Current Balance</h3>
         <p className="text-3xl font-bold text-green-600">${user?.balance.toFixed(2)}</p>
+      </div>
+
+      {/* Top up card (Auth0-only gating happens server-side; UI shown always for simplicity) */}
+      <div className="mb-8 p-4 border rounded-lg">
+        <h3 className="text-lg font-semibold mb-2">Top up balance</h3>
+        <div className="flex gap-2 mb-3">
+          {[0.5, 5, 10, 20, 50, 100].map((amt) => (
+            <button
+              key={amt}
+              onClick={async () => {
+                try {
+                  const { url } = await createCheckoutSession(amt as number);
+                  window.location.href = url;
+                } catch (e: any) {
+                  alert(e?.message || 'Failed to create checkout session');
+                }
+              }}
+              className="px-3 py-2 border rounded hover:bg-gray-50"
+            >
+              ${amt}
+            </button>
+          ))}
+        </div>
+        <p className="text-sm text-gray-500">You will be redirected to Stripe Checkout. After payment you’ll return here.</p>
       </div>
 
       <div>

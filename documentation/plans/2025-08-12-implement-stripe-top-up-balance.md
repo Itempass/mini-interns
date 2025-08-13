@@ -15,6 +15,7 @@ Key properties:
 - Stripe webhook with signature verification
 - Idempotent crediting using a payment tracking table
 - Simple preset amounts (e.g., $5, $10, $20) to reduce validation complexity
+- No DB type migration for `users.balance` (float remains); Stripe cents are converted to dollars in code with rounding
 
 Non-goals:
 - No subscriptions or recurring billing
@@ -46,7 +47,7 @@ Non-goals:
 2) Backend creates a Stripe Checkout Session (server-only, using secret key) with metadata `user_uuid` and our preset line item/amount.
 3) Frontend redirects to the Checkout Session URL.
 4) User completes payment on Stripe; Stripe sends a signed webhook to our public `/billing/webhook`.
-5) Our webhook verifies the signature, validates event details, and idempotently credits `users.balance` by the paid amount.
+5) Our webhook verifies the signature using the raw request body, validates event details, and idempotently credits `users.balance` by the paid amount.
 6) Frontend returns to success URL, reloads balance, and shows confirmation.
 
 ---
@@ -98,36 +99,40 @@ Non-goals:
 - Add to `shared/config.py` and environment:
   - `STRIPE_SECRET_KEY`
   - `STRIPE_WEBHOOK_SECRET`
-  - `STRIPE_CURRENCY` (default `usd`)
-  - `FRONTEND_BASE_URL` (for success/cancel redirects)
+  - `STRIPE_CURRENCY` (fixed to `usd` for this phase; backend validation requires `usd`)
+  - Frontend origin allowlist configured in code (e.g., `shared/config.py`) for deriving success/cancel URLs from `Origin` header; no env var required
 
 5.2 Dependencies
 - Add Python package: `stripe`
 
 5.3 New endpoints (`api/endpoints/billing.py`)
 - POST `/billing/checkout-session` (auth required)
+  - Reject unless active auth mode is `auth0`; requires authenticated user
   - Validates amount against allowed presets/range
   - Creates Stripe Checkout Session with:
     - `mode = "payment"`
-    - `success_url = {FRONTEND_BASE_URL}/settings?tab=balance&topup=success`
-    - `cancel_url = {FRONTEND_BASE_URL}/settings?tab=balance&topup=cancel`
+    - Derive `success_url` and `cancel_url` from the request `Origin` header after validating it against the configured allowlist:
+      - `success_url = {origin}/settings?tab=balance&topup=success`
+      - `cancel_url = {origin}/settings?tab=balance&topup=cancel`
     - `metadata = { "user_uuid": str(current_user.uuid) }`
     - Line item with price_data (currency, name "Balance top-up", unit_amount in cents)
   - Stores a pending record (see 5.5) with `checkout_session_id`, `user_uuid`, `amount_cents`, `currency`, `status='pending'`
   - Returns `{ url }`
 
 - POST `/billing/webhook` (no auth; Stripe-signed)
-  - Verifies signature using `STRIPE_WEBHOOK_SECRET`
-  - Accept only event(s): `checkout.session.completed` (and optionally require `payment_status == 'paid'`)
-  - Extracts: `checkout_session_id`, `payment_intent_id`, `amount_total`, `currency`, `metadata.user_uuid`
-  - Finds matching pending record; if not found, ignore or log (defense-in-depth)
-  - Idempotency: if `payment_intent_id` or `checkout_session_id` already marked processed → do nothing
-  - Validations:
-    - `amount_total` > 0
-    - `currency` equals `STRIPE_CURRENCY`
-    - `metadata.user_uuid` matches the pending record
-  - Crediting: convert cents to dollars and call `user_client.add_to_balance(user_uuid, amount_usd)`
-  - Mark payment record as `succeeded` and store the credited amount
+  - Must be called directly on the FastAPI backend (do not proxy via Next.js), so the raw body is intact
+  - Verifies signature using `STRIPE_WEBHOOK_SECRET` and the exact raw request body
+  - Accept only `checkout.session.completed` with `payment_status == 'paid'`
+  - Extracts: `checkout_session_id`, `payment_intent_id`, `amount_total` (cents), `currency`, `metadata.user_uuid`
+  - Transactional, idempotent processing:
+    - Begin DB transaction
+    - Upsert/find `stripe_payments` by `payment_intent_id` (and/or `checkout_session_id`)
+      - If already `succeeded`, return 200 (idempotent no-op)
+    - Validate: `amount_total > 0`, `currency == 'usd'`, `metadata.user_uuid` matches pending row
+    - Convert and credit: `amount_usd = round(amount_total / 100.0, 2)`; `UPDATE users SET balance = balance + :amount_usd WHERE uuid = ...`
+    - Mark payment `status='succeeded'`, persist `amount_cents`, `currency`
+    - Commit transaction; return 200
+  - On validation failure, roll back and return 400 so Stripe retries; log details
 
 5.4 Include router
 - In `api/main.py`, include the new `billing` router
@@ -135,9 +140,8 @@ Non-goals:
 5.5 Database changes
 - Add new table for payment idempotency/tracking, e.g., `stripe_payments`:
   - Fields listed in section 4
-  - Unique index on `payment_intent_id` (and/or `checkout_session_id`)
-- Optionally add `pending_topups` table; or reuse `stripe_payments` with `status='pending'` when session is created
-- Implement migration in `scripts/init_workflow_db.py` (guarded by existence checks)
+  - Unique index on `payment_intent_id` (and optionally `checkout_session_id`)
+- Implement creation in `scripts/init_workflow_db.py` (guarded by existence checks; idempotent)
 
 5.6 User module additions (atomic increment)
 - `user/internals/database.py`: add `add_to_balance(user_uuid: UUID, amount: float)` → `UPDATE users SET balance = balance + :amount WHERE uuid = ...`
@@ -145,7 +149,13 @@ Non-goals:
 - Confirm alignment with `2025-08-12-strengthen-user-module-separation-and-balance-atomicity.md` (keep operations atomic and race-safe)
 
 5.7 Access control
-- Only show and enable top-up in Auth0 mode (aligns with current enforcement that only Auth0 users are billed)
+- Backend: `POST /billing/checkout-session` is allowed only when auth mode is `auth0`; otherwise 403
+- Frontend: hide/disable top-up UI unless `GET /auth/mode` returns `auth0`
+
+5.8 Webhook raw body handling
+- Use the exact raw request body for signature verification; do not parse/alter payload before verifying
+- Do not route the webhook through the Next.js proxy; Stripe should call the FastAPI API URL/port directly
+- Example (conceptual): read `await request.body()`, then `stripe.Webhook.construct_event(payload, sig_header, secret)`
 
 ---
 
@@ -156,8 +166,13 @@ Non-goals:
   - Add a “Top up balance” card with preset buttons ($5, $10, $20, $50, $100)
   - Add a confirm button to initiate top-up
   - On click: call backend `POST /billing/checkout-session` with the selected amount; redirect browser to returned URL
-  - On return to success URL: refresh balance via `getMe()` and display a success message
+  - On return to success/cancel URL: refresh balance via `getMe()` and display a success/cancel banner
   - Hide/disable this section unless backend says mode is Auth0 (via existing `GET /auth/mode`)
+- File: `frontend/app/settings/page.tsx`
+  - Parse query params `tab` and `topup`
+    - If `tab=balance`, set `selectedCategory='balance'`
+    - If `topup=success`, show success banner and trigger a refresh of balance and cost history
+    - If `topup=cancel`, show cancel banner (no credit change)
 
 6.2 Frontend API
 - File: `frontend/services/api.ts`
@@ -171,19 +186,21 @@ Non-goals:
 
 ### 7. Security & Integrity
 
-- Webhook signature verification: required, using `Stripe-Signature` + `STRIPE_WEBHOOK_SECRET`
+- Webhook signature verification: required, using `Stripe-Signature` + `STRIPE_WEBHOOK_SECRET` and the exact raw request body
 - Process only expected event types and require `payment_status == 'paid'`
 - Idempotency: persist and check `payment_intent_id` or `checkout_session_id` to avoid double-credit
 - Trust Stripe amounts only (ignore client-sent numbers in webhook)
 - Validate that the webhook’s session matches a server-created pending record (amount, currency, user)
 - Restrict to preset amounts (or strict min/max bounds) to avoid abuse
 - Do not expose secret keys in frontend; only backend creates sessions
+ - Validate the frontend `Origin` against an in-code allowlist before constructing success/cancel URLs
+- Abandoned sessions: keep `stripe_payments` rows in `status='pending'`; no cleanup required. Optionally, handle `checkout.session.expired` to mark as `expired` (no credit).
 
 ---
 
 ### 8. Testing & Verification
 
-- Local webhook relay: Stripe CLI → `stripe listen --forward-to http://localhost:<API_PORT>/billing/webhook`
+- Local webhook relay: Stripe CLI → `stripe listen --forward-to http://localhost:<API_PORT>/billing/webhook` (point to FastAPI backend directly)
 - Manual tests:
   - Create session for $5 top-up; complete with test card; confirm DB shows credited amount and UI updates
   - Retry delivery of webhook to verify idempotency
@@ -199,11 +216,13 @@ Non-goals:
 ### 9. Rollout Checklist
 
 - [ ] Add `stripe` to backend dependencies (`requirements.txt`)
-- [ ] Configure environment variables in deployment: `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `FRONTEND_BASE_URL`, `STRIPE_CURRENCY`
+- [ ] Configure environment variables in deployment: `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_CURRENCY`
+- [ ] Configure frontend origin allowlist in `shared/config.py` (code-defined; no env var required)
 - [ ] Database migration: create `stripe_payments` table
 - [ ] Implement backend endpoints and include router
 - [ ] Implement `add_to_balance` in user module
 - [ ] Add frontend UI in Balance page and API function
+- [ ] Wire `settings` page query param handling for `tab` and `topup`
 - [ ] Test end-to-end with Stripe CLI
 - [ ] Document operational steps (how to rotate webhook secret, verify logs)
 

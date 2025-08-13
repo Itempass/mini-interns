@@ -477,6 +477,19 @@ export const getCostHistory = async (): Promise<CostHistoryResponse> => {
   }
 };
 
+// Billing API
+export const createCheckoutSession = async (amountUsd: number): Promise<{ url: string }> => {
+  try {
+    return await jsonApiFetch(`${API_URL}/billing/checkout-session`, {
+      method: 'POST',
+      body: JSON.stringify({ amount_usd: amountUsd }),
+    });
+  } catch (error) {
+    console.error('An error occurred while creating checkout session:', error);
+    throw error;
+  }
+};
+
 
 // MCP API
 export interface McpTool {

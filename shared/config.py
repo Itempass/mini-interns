@@ -39,6 +39,11 @@ class Settings(BaseSettings):
     QDRANT_NAMESPACE_UUID: str = 'a1b2c3d4-e5f6-7890-1234-567890abcdef' # For deterministic UUID generation for Qdrant points
     OPENROUTER_API_KEY: str
 
+    # Stripe
+    STRIPE_SECRET_KEY: Optional[str] = None
+    STRIPE_WEBHOOK_SECRET: Optional[str] = None
+    STRIPE_CURRENCY: str = "usd"
+
     # Authentication settings
     AUTH0_DOMAIN: Optional[str] = None
     AUTH0_API_AUDIENCE: Optional[str] = None
@@ -62,3 +67,11 @@ settings = Settings()
 # Version for the vectorization process.
 # Increment this when the logic in initialize_inbox.py or related data processing changes.
 VECTORIZATION_VERSION = "1.0"
+
+# Allowed frontend origins for deriving Stripe success/cancel URLs from the request Origin header.
+# Configure per-environment here; not sourced from environment variables.
+ALLOWED_FRONTEND_ORIGINS = [
+    "http://localhost:3000",
+    "https://app.brewdock.ai",
+    "https://hostedtestversion.cloud2.itempasshomelab.org",
+]

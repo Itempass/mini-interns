@@ -199,6 +199,21 @@ def deduct_from_balance(user_uuid: UUID, cost: float) -> Optional[User]:
         cursor.close()
         conn.close()
 
+def add_to_balance(user_uuid: UUID, amount: float) -> Optional[User]:
+    """Adds an amount to a user's balance atomically."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        query = "UPDATE users SET balance = balance + %s WHERE uuid = UUID_TO_BIN(%s)"
+        cursor.execute(query, (amount, str(user_uuid)))
+        conn.commit()
+        if cursor.rowcount > 0:
+            return get_user_by_uuid(user_uuid)
+        return None
+    finally:
+        cursor.close()
+        conn.close()
+
 def get_all_users() -> list[User]:
     """Retrieves all users from the database."""
     conn = get_db_connection()
