@@ -63,6 +63,7 @@ const BalanceSettings = () => {
           <div className="flex items-center justify-between mb-2">
             <h3 className="text-lg font-semibold">Top up balance</h3>
             <div className="flex items-center gap-2 text-xs text-gray-500">
+              <span aria-hidden>🔒</span>
               <span>Payments processed by</span>
               <img src="/stripe.svg" alt="Stripe" className="h-4" />
             </div>

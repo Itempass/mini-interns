@@ -12,7 +12,7 @@ import BalanceSettings from '../../components/settings/BalanceSettings';
 const SettingsPage = () => {
   const [version, setVersion] = useState<string>('');
   const [isHelpPanelOpen, setHelpPanelOpen] = useState(false);
-  const [selectedCategory, setSelectedCategory] = useState('imap');
+  const [selectedCategory, setSelectedCategory] = useState('balance');
 
   useEffect(() => {
     const fetchVersion = async () => {
