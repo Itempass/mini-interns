@@ -16,7 +16,11 @@ from shared.config import settings
 import json
 from mcp_servers.imap_mcpserver.src.imap_client import client as imap_client
 from api.endpoints.auth import get_current_user
-from mcp_servers.imap_mcpserver.src.imap_client.internals.connection_manager import imap_connection, FolderNotFoundError
+from mcp_servers.imap_mcpserver.src.imap_client.internals.connection_manager import (
+    imap_connection,
+    FolderNotFoundError,
+    acquire_imap_slot,
+)
 import user.client as user_client
 from shared.security.encryption import decrypt_value
 from shared.services.openrouter_service import openrouter_service
@@ -75,51 +79,57 @@ async def main():
                         continue
 
                     logger.info(f"Checking for mail for user {user.uuid} ({app_settings.IMAP_USERNAME}) in '{resolved_inbox_name}'...")
-                    
-                    with MailBox(app_settings.IMAP_SERVER).login(app_settings.IMAP_USERNAME, app_settings.IMAP_PASSWORD, initial_folder=resolved_inbox_name) as mailbox:
-                        # IMPORTANT: We use the username here to handle cases where the user changes their email address.
-                        last_uid = get_last_uid(app_settings.IMAP_USERNAME)
-                        logger.info(f"Last processed UID for '{app_settings.IMAP_USERNAME}': {last_uid}")
 
-                        if last_uid is None:
-                            uids = mailbox.uids()
-                            if uids:
-                                latest_uid_on_server = uids[-1]
-                                set_last_uid(app_settings.IMAP_USERNAME, latest_uid_on_server)
-                                logger.info(f"No previous UID found for '{app_settings.IMAP_USERNAME}'. Baseline set to {latest_uid_on_server}.")
+                    # Acquire a per-user IMAP slot so we don't exceed provider limits
+                    async with acquire_imap_slot(user.uuid):
+                        with MailBox(app_settings.IMAP_SERVER).login(
+                            app_settings.IMAP_USERNAME,
+                            app_settings.IMAP_PASSWORD,
+                            initial_folder=resolved_inbox_name,
+                        ) as mailbox:
+                            # IMPORTANT: We use the username here to handle cases where the user changes their email address.
+                            last_uid = get_last_uid(app_settings.IMAP_USERNAME)
+                            logger.info(f"Last processed UID for '{app_settings.IMAP_USERNAME}': {last_uid}")
+
+                            if last_uid is None:
+                                uids = mailbox.uids()
+                                if uids:
+                                    latest_uid_on_server = uids[-1]
+                                    set_last_uid(app_settings.IMAP_USERNAME, latest_uid_on_server)
+                                    logger.info(f"No previous UID found for '{app_settings.IMAP_USERNAME}'. Baseline set to {latest_uid_on_server}.")
+                                else:
+                                    logger.info(f"No emails in inbox for '{app_settings.IMAP_USERNAME}'.")
+                                continue
+
+                            messages = list(mailbox.fetch(A(uid=f'{int(last_uid) + 1}:*'), mark_seen=False))
+
+                            # The UID in the response can be lower than last_uid, so we must filter.
+                            filtered_messages = [msg for msg in messages if int(msg.uid) > int(last_uid)]
+
+                            if filtered_messages:
+                                logger.info(f"Found {len(filtered_messages)} new email(s) for {app_settings.IMAP_USERNAME}.")
+
+                                my_email_address = app_settings.IMAP_USERNAME.lower()
+
+                                for msg in filtered_messages:
+                                    if msg.from_ and my_email_address in msg.from_.lower():
+                                        logger.info(f"Skipping email sent by self: '{msg.subject}'")
+                                        continue
+
+                                    message_id_tuple = msg.headers.get('message-id')
+                                    if not message_id_tuple:
+                                        logger.warning("Skipping email with no Message-ID.")
+                                        continue
+
+                                    message_id = message_id_tuple[0].strip().strip('<>')
+                                    logger.info(f"Processing message: {message_id} for user {user.uuid}")
+                                    await process_message(user, msg, message_id)
+
+                                latest_uid = filtered_messages[-1].uid
+                                set_last_uid(app_settings.IMAP_USERNAME, latest_uid)
+                                logger.info(f"Updated last UID for '{app_settings.IMAP_USERNAME}' to {latest_uid}")
                             else:
-                                logger.info(f"No emails in inbox for '{app_settings.IMAP_USERNAME}'.")
-                            continue
-
-                        messages = list(mailbox.fetch(A(uid=f'{int(last_uid) + 1}:*'), mark_seen=False))
-                        
-                        # The UID in the response can be lower than last_uid, so we must filter.
-                        filtered_messages = [msg for msg in messages if int(msg.uid) > int(last_uid)]
-
-                        if filtered_messages:
-                            logger.info(f"Found {len(filtered_messages)} new email(s) for {app_settings.IMAP_USERNAME}.")
-                            
-                            my_email_address = app_settings.IMAP_USERNAME.lower()
-
-                            for msg in filtered_messages:
-                                if msg.from_ and my_email_address in msg.from_.lower():
-                                    logger.info(f"Skipping email sent by self: '{msg.subject}'")
-                                    continue
-
-                                message_id_tuple = msg.headers.get('message-id')
-                                if not message_id_tuple:
-                                    logger.warning("Skipping email with no Message-ID.")
-                                    continue
-                                
-                                message_id = message_id_tuple[0].strip().strip('<>')
-                                logger.info(f"Processing message: {message_id} for user {user.uuid}")
-                                await process_message(user, msg, message_id)
-
-                            latest_uid = filtered_messages[-1].uid
-                            set_last_uid(app_settings.IMAP_USERNAME, latest_uid)
-                            logger.info(f"Updated last UID for '{app_settings.IMAP_USERNAME}' to {latest_uid}")
-                        else:
-                            logger.info(f"No new emails for {app_settings.IMAP_USERNAME}.")
+                                logger.info(f"No new emails for {app_settings.IMAP_USERNAME}.")
                 
                 except Exception as e:
                     logger.error(f"An error occurred processing user {user.uuid}: {e}", exc_info=True)

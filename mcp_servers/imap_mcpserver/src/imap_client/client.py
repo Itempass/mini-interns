@@ -974,65 +974,75 @@ def _get_messages_from_multiple_folders_sync(folder_names: List[str], count: int
 async def get_recent_inbox_message_ids(user_uuid: UUID, count: int = 20) -> List[str]:
     """Asynchronously gets recent Message-IDs from INBOX"""
     app_settings = load_app_settings(user_uuid=user_uuid)
-    return await asyncio.to_thread(_get_recent_message_ids_sync, app_settings, count)
+    async with acquire_imap_slot(user_uuid):
+        return await asyncio.to_thread(_get_recent_message_ids_sync, app_settings, count)
 
 async def get_message_by_id(user_uuid: UUID, message_id: str) -> Optional[EmailMessage]:
     """
     Asynchronously gets a single EmailMessage by its Message-ID.
     """
     app_settings = load_app_settings(user_uuid=user_uuid)
-    return await asyncio.to_thread(_get_message_by_id_sync, message_id, app_settings)
+    async with acquire_imap_slot(user_uuid):
+        return await asyncio.to_thread(_get_message_by_id_sync, message_id, app_settings)
 
 async def get_complete_thread(user_uuid: UUID, source_message: EmailMessage) -> Optional[EmailThread]:
     if not source_message or not source_message.message_id:
         return None
     app_settings = load_app_settings(user_uuid=user_uuid)
-    return await asyncio.to_thread(_get_complete_thread_sync, source_message.message_id, app_settings)
+    async with acquire_imap_slot(user_uuid):
+        return await asyncio.to_thread(_get_complete_thread_sync, source_message.message_id, app_settings)
 
 async def get_recent_inbox_messages(user_uuid: UUID, count: int = 10) -> List[EmailMessage]:
     """Asynchronously gets the most recent messages from the inbox."""
     app_settings = load_app_settings(user_uuid=user_uuid)
-    return await asyncio.to_thread(_get_recent_messages_from_attribute_sync, '\\Inbox', app_settings, count)
+    async with acquire_imap_slot(user_uuid):
+        return await asyncio.to_thread(_get_recent_messages_from_attribute_sync, '\\Inbox', app_settings, count)
 
 async def get_recent_sent_messages(user_uuid: UUID, count: int = 20) -> List[EmailMessage]:
     """Asynchronously gets the most recent messages from the sent folder."""
     app_settings = load_app_settings(user_uuid=user_uuid)
-    return await asyncio.to_thread(_get_recent_messages_from_attribute_sync, '\\Sent', app_settings, count)
+    async with acquire_imap_slot(user_uuid):
+        return await asyncio.to_thread(_get_recent_messages_from_attribute_sync, '\\Sent', app_settings, count)
 
 async def draft_reply(user_uuid: UUID, original_message: EmailMessage, reply_body: str) -> Dict[str, Any]:
     app_settings = load_app_settings(user_uuid=user_uuid)
-    return await asyncio.to_thread(_draft_reply_sync, original_message, reply_body, app_settings)
+    async with acquire_imap_slot(user_uuid):
+        return await asyncio.to_thread(_draft_reply_sync, original_message, reply_body, app_settings)
 
 async def set_label(user_uuid: UUID, message_id: str, label: str) -> Dict[str, Any]:
     app_settings = load_app_settings(user_uuid=user_uuid)
     loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(None, _set_label_sync, message_id, label, app_settings)
+    async with acquire_imap_slot(user_uuid):
+        return await loop.run_in_executor(None, _set_label_sync, message_id, label, app_settings)
 
 async def remove_from_inbox(user_uuid: UUID, message_id: str) -> Dict[str, Any]:
     """Async wrapper for removing Gmail message from inbox by moving to All Mail"""
     app_settings = load_app_settings(user_uuid=user_uuid)
-    return await asyncio.to_thread(_remove_from_inbox_sync, message_id, app_settings)
+    async with acquire_imap_slot(user_uuid):
+        return await asyncio.to_thread(_remove_from_inbox_sync, message_id, app_settings)
 
 async def get_emails(user_uuid: UUID, folder_name: str, count: int = 10, filter_by_labels: Optional[List[str]] = None) -> List[EmailMessage]:
     """Asynchronous wrapper for getting emails from a folder with optional label filtering."""
     app_settings = load_app_settings(user_uuid=user_uuid)
     loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(
-        None,
-        _get_emails_sync,
-        folder_name,
-        count,
-        app_settings,
-        filter_by_labels
-    )
+    async with acquire_imap_slot(user_uuid):
+        return await loop.run_in_executor(
+            None,
+            _get_emails_sync,
+            folder_name,
+            count,
+            app_settings,
+            filter_by_labels
+        )
 
 async def get_all_folders(user_uuid: UUID) -> List[str]:
     """Asynchronous wrapper for getting all folders."""
     app_settings = load_app_settings(user_uuid=user_uuid)
     loop = asyncio.get_running_loop()
-    with imap_connection(app_settings=app_settings) as (mail, resolver):
-        # We don't need the resolver here, but the connection manager provides it.
-        return await loop.run_in_executor(None, _get_all_folders_sync, mail)
+    async with acquire_imap_slot(user_uuid):
+        with imap_connection(app_settings=app_settings) as (mail, resolver):
+            # We don't need the resolver here, but the connection manager provides it.
+            return await loop.run_in_executor(None, _get_all_folders_sync, mail)
 
 async def get_all_labels(user_uuid: UUID) -> List[str]:
     """Asynchronously gets all labels from the IMAP server."""
@@ -1054,7 +1064,8 @@ async def get_all_special_use_folders(user_uuid: UUID) -> List[str]:
     """
     app_settings = load_app_settings(user_uuid=user_uuid)
     loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(None, _get_all_special_use_folders_sync, app_settings)
+    async with acquire_imap_slot(user_uuid):
+        return await loop.run_in_executor(None, _get_all_special_use_folders_sync, app_settings)
 
 
 async def get_messages_from_folder(user_uuid: UUID, folder_name: str, count: int = 10) -> List[EmailMessage]:
@@ -1090,7 +1101,9 @@ async def get_recent_threads_bulk(
     Returns:
         Tuple[List[EmailThread], Dict[str, float]]: A tuple containing the list of threads and performance timing data.
     """
-    return await fetch_recent_threads_bulk(
+    # Use the bulk optimized fetch with concurrency guard
+    async with acquire_imap_slot(user_uuid) if user_uuid else asyncio.dummy_context():
+        return await fetch_recent_threads_bulk(
         target_thread_count=target_thread_count,
         max_age_months=max_age_months,
         source_folder_attribute=source_folder_attribute,
@@ -1215,7 +1228,8 @@ def _list_headers_sync(folder_name: str, count: int, app_settings: AppSettings, 
 async def list_headers(user_uuid: UUID, folder_name: str, count: int = 50, filter_by_labels: Optional[List[str]] = None) -> List[Dict[str, Any]]:
     app_settings = load_app_settings(user_uuid=user_uuid)
     loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(None, _list_headers_sync, folder_name, count, app_settings, filter_by_labels)
+    async with acquire_imap_slot(user_uuid):
+        return await loop.run_in_executor(None, _list_headers_sync, folder_name, count, app_settings, filter_by_labels)
 
 
 def _list_headers_multi_with_counts_sync(folder_names: List[str], count: int, app_settings: AppSettings, filter_by_labels: Optional[List[str]] = None) -> Dict[str, Any]:
@@ -1330,7 +1344,8 @@ def _list_headers_multi_with_counts_sync(folder_names: List[str], count: int, ap
 async def list_headers_multi_with_counts(user_uuid: UUID, folder_names: List[str], count: int = 50, filter_by_labels: Optional[List[str]] = None) -> Dict[str, Any]:
     app_settings = load_app_settings(user_uuid=user_uuid)
     loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(None, _list_headers_multi_with_counts_sync, folder_names, count, app_settings, filter_by_labels)
+    async with acquire_imap_slot(user_uuid):
+        return await loop.run_in_executor(None, _list_headers_multi_with_counts_sync, folder_names, count, app_settings, filter_by_labels)
 
 
 def _get_message_by_contextual_uid_sync(contextual_uid: str, app_settings: AppSettings) -> Optional[EmailMessage]:
@@ -1348,7 +1363,8 @@ def _get_message_by_contextual_uid_sync(contextual_uid: str, app_settings: AppSe
 
 async def get_message_by_contextual_uid(user_uuid: UUID, contextual_uid: str) -> Optional[EmailMessage]:
     app_settings = load_app_settings(user_uuid=user_uuid)
-    return await asyncio.to_thread(_get_message_by_contextual_uid_sync, contextual_uid, app_settings)
+    async with acquire_imap_slot(user_uuid):
+        return await asyncio.to_thread(_get_message_by_contextual_uid_sync, contextual_uid, app_settings)
 
 
 def _list_recent_uids_sync(folder_name: str, count: int, app_settings: AppSettings, filter_by_labels: Optional[List[str]] = None) -> List[str]:
@@ -1374,7 +1390,8 @@ def _list_recent_uids_sync(folder_name: str, count: int, app_settings: AppSettin
 async def list_recent_uids(user_uuid: UUID, folder_name: str, count: int = 50, filter_by_labels: Optional[List[str]] = None) -> List[str]:
     app_settings = load_app_settings(user_uuid=user_uuid)
     loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(None, _list_recent_uids_sync, folder_name, count, app_settings, filter_by_labels)
+    async with acquire_imap_slot(user_uuid):
+        return await loop.run_in_executor(None, _list_recent_uids_sync, folder_name, count, app_settings, filter_by_labels)
 
 def _count_uids_sync(folder_name: str, app_settings: AppSettings, filter_by_labels: Optional[List[str]] = None) -> int:
     """Counts UIDs matching the search in a folder without fetching any message data."""
@@ -1398,7 +1415,8 @@ def _count_uids_sync(folder_name: str, app_settings: AppSettings, filter_by_labe
 async def count_uids(user_uuid: UUID, folder_name: str, filter_by_labels: Optional[List[str]] = None) -> int:
     app_settings = load_app_settings(user_uuid=user_uuid)
     loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(None, _count_uids_sync, folder_name, app_settings, filter_by_labels)
+    async with acquire_imap_slot(user_uuid):
+        return await loop.run_in_executor(None, _count_uids_sync, folder_name, app_settings, filter_by_labels)
 
 
 # --- Bulk Export (Single Connection, Deduplicate by Thread) ---
@@ -1577,7 +1595,6 @@ def _resolve_thread_ids_single_connection(
                 mail.select(f'"{folder}"', readonly=True)
                 unresolved = []
                 resolved_here = 0
-                batch_thrids: List[str] = []
                 for message_id in message_ids:
                     try:
                         typ, data = mail.uid('search', None, f'(HEADER Message-ID "{message_id}")')
@@ -1589,35 +1606,16 @@ def _resolve_thread_ids_single_connection(
                                 meta = data2[0][0] if isinstance(data2[0][0], (bytes, bytearray)) else None
                             if meta:
                                 thrid = _parse_thrid_from_meta(meta)
-                                if thrid and thrid not in seen_thrids:
-                                    seen_thrids.add(thrid)
-                                    batch_thrids.append(thrid)
+                                if thrid and thrid not in thrids:
+                                    thrids.add(thrid)
                                     thrid_to_identifiers[thrid].append(message_id)
                                     resolved_here += 1
-                                    # Flush batches to update progress incrementally
-                                    if len(batch_thrids) >= BATCH_SIZE:
-                                        current_folder = folder
-                                        _flush_batch(batch_thrids)
-                                        batch_thrids = []
-                                        # re-select folder after fetch switches mailboxes
-                                        try:
-                                            mail.select(f'"{current_folder}"', readonly=True)
-                                        except Exception:
-                                            pass
                                     continue
                         unresolved.append(message_id)
                     except Exception:
                         unresolved.append(message_id)
-                # Flush remaining
-                if batch_thrids:
-                    current_folder = folder
-                    _flush_batch(batch_thrids)
-                    try:
-                        mail.select(f'"{current_folder}"', readonly=True)
-                    except Exception:
-                        pass
                 message_ids = unresolved
-                logger.info(f"[bulk] Folder {folder}: resolved {resolved_here} Message-IDs, remaining unresolved={len(message_ids)}; cumulative thrids={len(seen_thrids)}")
+                logger.info(f"[bulk] Folder {folder}: resolved {resolved_here} Message-IDs, remaining unresolved={len(message_ids)}; cumulative thrids={len(thrids)}")
                 if not message_ids:
                     break
             except Exception:
@@ -2009,4 +2007,5 @@ async def export_threads_dataset_bulk(
     """
     app_settings = load_app_settings(user_uuid=user_uuid)
     loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(None, _export_threads_dataset_bulk_sync, identifiers, app_settings, progress_callback)
+    async with acquire_imap_slot(user_uuid):
+        return await loop.run_in_executor(None, _export_threads_dataset_bulk_sync, identifiers, app_settings, progress_callback)

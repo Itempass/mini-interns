@@ -4,7 +4,7 @@ import sys
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from api.endpoints import app_settings, agent, agentlogger, mcp, connection, auth, workflow, prompt_optimizer, user, timeout_test, billing
+from api.endpoints import app_settings, agent, agentlogger, mcp, connection, auth, workflow, prompt_optimizer, user, timeout_test, billing, management
 from shared.config import settings
 from shared.version import __version__, get_latest_version
 import uvicorn
@@ -102,6 +102,7 @@ app.include_router(prompt_optimizer.router, tags=["prompt_optimizer"])
 app.include_router(user.router, tags=["user"])
 app.include_router(timeout_test.router, tags=["timeout_test"])
 app.include_router(billing.router, tags=["billing"])
+app.include_router(management.router, tags=["management"])
 
 @app.get("/version")
 def get_app_version():
