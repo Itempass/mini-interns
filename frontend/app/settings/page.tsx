@@ -8,6 +8,7 @@ import SettingsSidebar from '../../components/settings/SettingsSidebar';
 import ImapSettings from '../../components/settings/ImapSettings';
 import McpServersSettings from '../../components/settings/McpServersSettings';
 import BalanceSettings from '../../components/settings/BalanceSettings';
+import UsageHistory from '../../components/settings/UsageHistory';
 
 const SettingsPage = () => {
   const [version, setVersion] = useState<string>('');
@@ -53,14 +54,17 @@ const SettingsPage = () => {
             />
         </div>
         
-        <div className="flex-1 bg-white border border-gray-300 rounded-lg shadow-md overflow-y-auto">
-            {selectedCategory === 'imap' && (
-                <ImapSettings 
-                    setHelpPanelOpen={setHelpPanelOpen}
-                />
-            )}
-            {selectedCategory === 'mcp' && <McpServersSettings />}
-            {selectedCategory === 'balance' && <BalanceSettings />}
+        <div className="flex-1 bg-white border border-gray-300 rounded-lg shadow-md flex flex-col overflow-hidden">
+            <div className="flex-1 overflow-y-auto">
+                {selectedCategory === 'imap' && (
+                    <ImapSettings 
+                        setHelpPanelOpen={setHelpPanelOpen}
+                    />
+                )}
+                {selectedCategory === 'mcp' && <McpServersSettings />}
+                {selectedCategory === 'usage_history' && <UsageHistory />}
+                {selectedCategory === 'balance' && <BalanceSettings />}
+            </div>
         </div>
 
         {isHelpPanelOpen && (

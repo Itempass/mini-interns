@@ -58,3 +58,47 @@ async def stripe_webhook(request: Request):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Webhook processing failed")
 
 
+
+class TopupEntry(BaseModel):
+    checkout_session_id: Optional[str] = None
+    payment_intent_id: Optional[str] = None
+    amount_usd: float
+    currency: str
+    status: str
+    created_at: str
+
+
+class TopupsResponse(BaseModel):
+    topups: list[TopupEntry]
+
+
+@router.get("/topups", response_model=TopupsResponse)
+async def list_topups(current_user: User = Depends(get_current_user)):
+    """
+    Return the current user's successful top-ups, newest first.
+    Protected: requires authentication; uses the authenticated user's UUID to scope results.
+    """
+    # Only allow in Auth0 mode for consistency with top-up availability.
+    if user_client.get_auth_mode() != "auth0":
+        return TopupsResponse(topups=[])
+
+    rows = payments_client.get_topups_for_user(current_user.uuid)
+    entries: list[TopupEntry] = []
+    for r in rows:
+        amount_cents = r.get('amount_cents') or 0
+        amount_usd = round((amount_cents or 0) / 100.0, 2)
+        # created_at comes from MySQL as datetime or str depending on connector
+        created_at_value = r.get('created_at')
+        created_at_str = created_at_value.isoformat() if hasattr(created_at_value, 'isoformat') else str(created_at_value)
+        entries.append(
+            TopupEntry(
+                checkout_session_id=r.get('checkout_session_id'),
+                payment_intent_id=r.get('payment_intent_id'),
+                amount_usd=amount_usd,
+                currency=r.get('currency') or 'usd',
+                status=r.get('status') or 'succeeded',
+                created_at=created_at_str,
+            )
+        )
+    return TopupsResponse(topups=entries)
+

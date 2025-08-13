@@ -172,3 +172,26 @@ def process_webhook_event(raw_body: bytes, signature_header: str) -> None:
         conn.close()
 
 
+
+def get_topups_for_user(user_uuid: UUID) -> list[dict]:
+    """
+    Returns a list of successful top-up payments for the given user from the stripe_payments table.
+    Each entry contains: checkout_session_id, payment_intent_id, amount_cents, currency, status, created_at.
+    """
+    conn = _get_db_connection()
+    cur = conn.cursor(dictionary=True)
+    try:
+        cur.execute(
+            """
+            SELECT checkout_session_id, payment_intent_id, amount_cents, currency, status, created_at
+            FROM stripe_payments
+            WHERE user_uuid = UUID_TO_BIN(%s) AND status = 'succeeded'
+            ORDER BY created_at DESC
+            """,
+            (str(user_uuid),),
+        )
+        rows = cur.fetchall() or []
+        return rows
+    finally:
+        cur.close()
+        conn.close()

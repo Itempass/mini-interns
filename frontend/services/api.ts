@@ -490,6 +490,29 @@ export const createCheckoutSession = async (amountUsd: number): Promise<{ url: s
   }
 };
 
+// Top-ups API
+export interface TopupEntry {
+  checkout_session_id?: string | null;
+  payment_intent_id?: string | null;
+  amount_usd: number;
+  currency: string;
+  status: string;
+  created_at: string; // ISO string
+}
+
+export interface TopupsResponse {
+  topups: TopupEntry[];
+}
+
+export const getTopups = async (): Promise<TopupsResponse> => {
+  try {
+    return await jsonApiFetch(`${API_URL}/billing/topups`);
+  } catch (error) {
+    console.error('An error occurred while fetching top-ups:', error);
+    return { topups: [] };
+  }
+};
+
 
 // MCP API
 export interface McpTool {

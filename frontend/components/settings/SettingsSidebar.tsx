@@ -30,6 +30,12 @@ const SettingsSidebar: React.FC<SettingsSidebarProps> = ({ version, selectedCate
             Balance
           </li>
           <li
+            className={getListItemClasses('usage_history')}
+            onClick={() => setSelectedCategory('usage_history')}
+          >
+            Usage History
+          </li>
+          <li
             className={getListItemClasses('imap')}
             onClick={() => setSelectedCategory('imap')}
           >
