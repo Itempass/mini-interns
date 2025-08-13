@@ -45,7 +45,7 @@ const ManagementPage = () => {
   };
 
   return (
-    <div className="flex flex-col h-screen bg-gray-100">
+    <div className="flex flex-col flex-1 bg-gray-100">
       <TopBar />
       <div className="p-8">
         <h1 className="text-2xl font-bold mb-4">User Management</h1>

@@ -4,6 +4,7 @@ import "./globals.css";
 import BackendStatusChecker from "../components/BackendStatusChecker";
 import Auth0Provider from "../components/Auth0Provider"; // Corrected import
 import { getAuthMode } from "../lib/auth";
+import GlobalBalanceBanner from "../components/GlobalBalanceBanner";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -23,8 +24,9 @@ export default async function RootLayout({
     return (
       <html lang="en">
         <Auth0Provider>
-          <body className={inter.className}>
+          <body className={`${inter.className} min-h-screen flex flex-col`}>
             <BackendStatusChecker>
+              <GlobalBalanceBanner />
               {children}
             </BackendStatusChecker>
           </body>
@@ -35,8 +37,9 @@ export default async function RootLayout({
 
   return (
     <html lang="en">
-      <body className={inter.className}>
+      <body className={`${inter.className} min-h-screen flex flex-col`}>
         <BackendStatusChecker>
+          <GlobalBalanceBanner />
           {children}
         </BackendStatusChecker>
       </body>
