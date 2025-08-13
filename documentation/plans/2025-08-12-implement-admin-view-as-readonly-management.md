@@ -24,6 +24,9 @@
      - `GET /management/users/{user_uuid}/workflows/{workflow_uuid}`
        - Returns: `workflow.models.WorkflowWithDetails`
        - Implementation: `return await workflow_client.get_with_details(workflow_uuid, user_id=user_uuid)`
+      - `GET /management/users/{user_uuid}/workflows/{workflow_uuid}/export`
+        - Returns: JSON attachment of the workflow (same shape as `/workflows/{id}/export`)
+        - Implementation: reuse export logic while scoping `user_id=user_uuid`
    - Logs (mandatory):
      - `GET /management/users/{user_uuid}/agentlogger/logs/grouped?limit&offset&workflow_id&log_type`
      - `GET /management/users/{user_uuid}/agentlogger/logs/{log_id}`
@@ -70,15 +73,16 @@ Files to edit/create (backend):
      - Reads `user_id` from `useSearchParams()`.
      - Sets `sessionStorage.admin_view_user_id = <uuid>` and `sessionStorage.admin_view_mode = 'true'`.
      - Navigates to `/workflows` via `router.replace('/workflows')`.
-   - Optional exit page: `frontend/app/workflows/management/clear/page.tsx` that clears these keys and redirects back to `/workflows`.
+    - Note: No dedicated exit route needed. `sessionStorage` is tab-scoped; closing the tab exits admin view.
 
 3) Client fetch rewrite using sessionStorage (no UI or component changes)
    - File: `frontend/services/api.ts` (in `apiFetch`):
      - If `typeof window !== 'undefined'` and method is GET and `sessionStorage.admin_view_user_id` exists:
-       - If URL starts with `/api/workflows`, rewrite to `/api/management/users/<id>/workflows...` (preserve the rest of path and query).
+        - If URL starts with `/api/workflows`, rewrite to `/api/management/users/<id>/workflows...` (preserve the rest of path and query). Include export paths (e.g., `/api/workflows/{uuid}/export`).
        - If URL starts with `/api/agentlogger`, rewrite to `/api/management/users/<id>/agentlogger/...`.
      - If method is not GET and `sessionStorage.admin_view_mode === 'true'`, throw an error with status 403 and a clear message to enforce read-only from the client side.
    - Tokens and other headers remain handled by `apiFetch` as today; only the URL is rewritten for read calls when in admin view.
+    - Short note: In admin view, non-essential routes (e.g., workflow templates and global availability endpoints) may return 404s; this is acceptable for management usage.
 
 4) No changes to components
    - We intentionally reuse `frontend/app/workflows/page.tsx` and all nested components as-is.
@@ -108,7 +112,12 @@ Files to edit/create (frontend):
   - 404 → not found
   - 403 → non-admin
 
-Phase 2 (optional): logs endpoints mirror existing shapes under `/agentlogger`.
+- `GET /management/users/{user_uuid}/workflows/{workflow_uuid}/export`
+  - 200 → JSON attachment identical to standard export
+  - 404 → not found
+  - 403 → non-admin
+
+Phase 2 (mandatory): logs endpoints mirror existing shapes under `/agentlogger`.
 
 ---
 
@@ -121,12 +130,12 @@ Phase 2 (optional): logs endpoints mirror existing shapes under `/agentlogger`.
 
 ### Testing plan
 - Frontend manual tests:
-  - Admin: open `/management`, click View as, confirm workflows load; verify all write actions are disabled; banner present.
+  - Admin: open `/management`, click View as, confirm workflows load; verify all write actions are disabled; client-side 403s are acceptable when interacting with write controls.
   - Non-admin: cannot navigate to `/management` (middleware/redirect already handled via backend checks + UI hiding if desired).
 
 ### Rollout
 - Behind configuration of `ADMIN_USER_IDS`.
-- Ship Phase 1 (workflows). Phase 2 (logs) optional if we need full parity in the right panel.
+- Ship Phase 1 (workflows). Phase 2 (logs) is mandatory for log viewing parity.
 
 ### Risks and mitigations
 - UI still calling write endpoints in read-only mode → Mitigate by gating all write flows with `readonly` checks and removing UI controls.

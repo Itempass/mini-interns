@@ -76,9 +76,34 @@ export const apiFetch = async (url: string, options: RequestInit = {}) => {
     (headers as any)['Authorization'] = `Bearer ${token}`;
   }
 
-  console.log(`[apiFetch] Making request to ${url} with headers:`, headers);
+  // --- Admin view URL rewriting and read-only enforcement (client-side only) ---
+  let finalUrl = url;
+  if (typeof window !== 'undefined') {
+    const method = (options.method || 'GET').toString().toUpperCase();
+    const adminViewUserId = sessionStorage.getItem('admin_view_user_id');
+    const adminViewMode = sessionStorage.getItem('admin_view_mode') === 'true';
 
-  const response = await fetch(url, {
+    // Enforce read-only when in admin view
+    if (adminViewMode && method !== 'GET') {
+      throw new ApiError('Read-only admin view: write operations are blocked', 403);
+    }
+
+    // Rewrite GETs for workflows and logs to management endpoints when a target user is set
+    if (adminViewUserId && method === 'GET') {
+      if (!url.startsWith('/api/management/')) {
+        if (url.startsWith('/api/workflows')) {
+          finalUrl = url.replace('/api/workflows', `/api/management/users/${adminViewUserId}/workflows`);
+        }
+        if (url.startsWith('/api/agentlogger')) {
+          finalUrl = url.replace('/api/agentlogger', `/api/management/users/${adminViewUserId}/agentlogger`);
+        }
+      }
+    }
+  }
+
+  console.log(`[apiFetch] Making request to ${finalUrl} with headers:`, headers);
+
+  const response = await fetch(finalUrl, {
     ...options,
     headers,
   });
