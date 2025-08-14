@@ -1,5 +1,0 @@
-{
-  "name": "Email Labeler",
-  "description": "Labels emails according to your label definitions. Make sure that the labels exist in gmail first!",
-  "workflow_start_message": "Please create something that applies my existing inbox labels to new incoming emails. \n \n Here's a template you can follow: \n 1) Create a trigger new_email \n 2) Get my current labels using list_email_labels and tell the user their labels (this is NOT a step, use this yourself to get more context) \n 3) For each specific label, generate a description using generate_label_description(label_name) (this is also NOT a step, it's for your context) \n 4) LLM step that labels the incoming email \n 5) Agent step that applies the label to the email"
-} 

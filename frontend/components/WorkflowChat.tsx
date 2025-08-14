@@ -329,12 +329,12 @@ const WorkflowChat: React.FC<WorkflowChatProps> = ({ workflowId, onWorkflowUpdat
           return null;
         })}
         {starterPromptActive && (
-          <div className="flex flex-col items-center gap-2">
+          <div className="flex flex-col items-center gap-2 pt-3">
             {((pendingStarter?.responses ?? initialStarterChat?.responses) ?? []).map((opt, i) => (
               <button
                 key={i}
                 onClick={() => handleStarterQuickReply(opt.message)}
-                className="w-full max-w-md px-4 py-2 border rounded-md bg-white hover:bg-gray-50 text-gray-800 text-center"
+                className={`w-full max-w-md px-4 py-2 border rounded-md text-center ${starterPromptActive ? 'ring-2 ring-blue-500 animate-pulse bg-blue-50 text-blue-700' : 'bg-white hover:bg-gray-50 text-gray-800'}`}
               >
                 {opt.label}
               </button>

@@ -300,7 +300,7 @@ async def _create_step_in_db(step: WorkflowStep, user_id: UUID) -> WorkflowStep:
         async with conn.cursor(DictCursor) as cursor:
             # Exclude top-level fields that have their own columns
             details = step.model_dump(exclude={"uuid", "user_id", "name", "type", "created_at", "updated_at"})
-            details_json = json.dumps(details)
+            details_json = json.dumps(details, default=str)
             try:
                 await cursor.execute(
                     """
@@ -379,7 +379,7 @@ async def _update_step_in_db(step: WorkflowStep, user_id: UUID) -> WorkflowStep:
         async with conn.cursor(DictCursor) as cursor:
             # Exclude top-level fields that have their own columns
             details = step.model_dump(exclude={"uuid", "user_id", "name", "type", "created_at", "updated_at"})
-            details_json = json.dumps(details)
+            details_json = json.dumps(details, default=str)
             try:
                 await cursor.execute(
                     """
