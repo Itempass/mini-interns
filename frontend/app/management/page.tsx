@@ -45,9 +45,9 @@ const ManagementPage = () => {
   };
 
   return (
-    <div className="flex flex-col flex-1 bg-gray-100">
+    <div className="flex flex-col flex-1 bg-gray-100 min-h-0">
       <TopBar />
-      <div className="p-8">
+      <div className="p-8 overflow-auto">
         <h1 className="text-2xl font-bold mb-4">User Management</h1>
         {loading && <p>Loading users...</p>}
         {error && <p className="text-red-500">{error}</p>}

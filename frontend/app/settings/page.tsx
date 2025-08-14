@@ -40,13 +40,13 @@ const SettingsPage = () => {
   }, []);
   
   return (
-    <div className="flex flex-col flex-1 relative bg-gray-100" style={{
+    <div className="flex flex-col flex-1 relative bg-gray-100 min-h-0 overflow-hidden" style={{
       backgroundImage: 'radial-gradient(#E5E7EB 1px, transparent 1px)',
       backgroundSize: '24px 24px'
     }}>
       <TopBar />
-      <div className="flex flex-1 overflow-hidden gap-4 p-4">
-        <div className="w-64 flex-shrink-0 flex flex-col bg-white border border-gray-300 rounded-lg overflow-hidden shadow-md">
+      <div className="flex flex-1 overflow-hidden gap-4 p-4 min-h-0">
+        <div className="w-64 flex-shrink-0 flex flex-col bg-white border border-gray-300 rounded-lg overflow-hidden shadow-md min-h-0 h-full">
             <SettingsSidebar 
                 version={version} 
                 selectedCategory={selectedCategory}
@@ -54,8 +54,8 @@ const SettingsPage = () => {
             />
         </div>
         
-        <div className="flex-1 bg-white border border-gray-300 rounded-lg shadow-md flex flex-col overflow-hidden">
-            <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 bg-white border border-gray-300 rounded-lg shadow-md flex flex-col overflow-hidden min-h-0">
+            <div className="flex-1 overflow-y-auto min-h-0">
                 {selectedCategory === 'imap' && (
                     <ImapSettings 
                         setHelpPanelOpen={setHelpPanelOpen}

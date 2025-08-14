@@ -34,7 +34,7 @@ const WorkflowSidebar: React.FC<WorkflowSidebarProps> = ({ workflows, onSelectWo
   };
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col flex-1 min-h-0">
       <div className="flex justify-between items-center p-4 border-b border-gray-200">
         <h2 className="text-lg font-semibold">Workflows</h2>
         <button
@@ -49,7 +49,7 @@ const WorkflowSidebar: React.FC<WorkflowSidebarProps> = ({ workflows, onSelectWo
           <Plus className="h-6 w-6" />
         </button>
       </div>
-      <div className="flex-1 overflow-y-auto p-4">
+      <div className="flex-1 overflow-y-auto p-4 min-h-0">
         <ul>
           {workflows.map((workflow) => (
             <li key={workflow.uuid} className="mb-2 relative">

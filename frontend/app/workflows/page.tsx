@@ -81,15 +81,15 @@ const WorkflowsPage = () => {
   };
 
   return (
-    <div className="flex flex-col flex-1 relative bg-gray-100" style={{
+    <div className="flex flex-col flex-1 relative bg-gray-100 min-h-0 overflow-hidden" style={{
       backgroundImage: 'radial-gradient(#E5E7EB 1px, transparent 1px)',
       backgroundSize: '24px 24px'
     }}>
-      <div className="flex flex-col flex-grow overflow-hidden">
+      <div className="flex flex-col flex-1 overflow-hidden min-h-0">
         <TopBar />
-        <div className="flex flex-1 overflow-hidden gap-4 p-4">
-          <div className="w-64 flex-shrink-0 flex flex-col bg-white border border-gray-300 rounded-lg overflow-hidden shadow-md">
-            <div className="flex flex-col flex-grow overflow-y-auto">
+        <div className="flex flex-1 overflow-hidden gap-4 p-4 min-h-0">
+          <div className="w-64 flex-shrink-0 flex flex-col bg-white border border-gray-300 rounded-lg overflow-hidden shadow-md min-h-0">
+            <div className="flex-1 min-h-0 overflow-y-auto">
               <WorkflowSidebar 
                 workflows={workflows}
                 onSelectWorkflow={handleSelectWorkflow} 
@@ -101,11 +101,11 @@ const WorkflowsPage = () => {
               <ConnectionStatusIndicator />
             </div>
           </div>
-          <main className="flex-1 flex flex-col gap-4 overflow-y-auto">
+          <main className="flex-1 flex flex-col gap-4 overflow-hidden min-h-0">
             {selectedWorkflow ? (
               <>
-                <div className={`flex-1 flex-row gap-4 overflow-hidden ${isLogsExpanded ? 'hidden' : 'flex'}`}>
-                    <div className="flex-1 flex flex-col bg-white border border-gray-300 rounded-lg shadow-md">
+                <div className={`flex-1 flex-row gap-4 overflow-hidden min-h-0 ${isLogsExpanded ? 'hidden' : 'flex'}`}>
+                    <div className="flex-1 flex flex-col bg-white border border-gray-300 rounded-lg shadow-md min-h-0 overflow-hidden">
               <WorkflowChat
                         workflowId={selectedWorkflow.uuid}
                         onWorkflowUpdate={handleWorkflowUpdate}

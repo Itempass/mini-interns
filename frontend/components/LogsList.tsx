@@ -16,6 +16,8 @@ const LogsList: React.FC<LogsListProps> = ({ onSelectLog, workflowId, logType })
   const [loading, setLoading] = useState(true);
   const [offset, setOffset] = useState(0);
   const [hasMore, setHasMore] = useState(true);
+  const [isFetchingMore, setIsFetchingMore] = useState(false);
+  const containerRef = React.useRef<HTMLDivElement | null>(null);
   const [expandedWorkflows, setExpandedWorkflows] = useState<Record<string, boolean>>({});
 
   const fetchLogs = async (currentOffset: number, isNewWorkflow: boolean) => {
@@ -38,10 +40,12 @@ const LogsList: React.FC<LogsListProps> = ({ onSelectLog, workflowId, logType })
     fetchLogs(0, true);
   }, [workflowId, logType]);
 
-  const handleLoadMore = () => {
+  const handleLoadMore = (manual?: boolean) => {
+    if (!hasMore || loading || isFetchingMore) return;
     const newOffset = offset + PAGE_SIZE;
     setOffset(newOffset);
-    fetchLogs(newOffset, false);
+    setIsFetchingMore(true);
+    fetchLogs(newOffset, false).finally(() => setIsFetchingMore(false));
   };
 
   const toggleWorkflow = (workflowInstanceId: string) => {
@@ -139,8 +143,22 @@ const LogsList: React.FC<LogsListProps> = ({ onSelectLog, workflowId, logType })
     );
   };
   
+  // Infinite scroll: observe near-bottom of the scroll container
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const onScroll = () => {
+      const threshold = 200; // px from bottom
+      if (el.scrollTop + el.clientHeight >= el.scrollHeight - threshold) {
+        handleLoadMore();
+      }
+    };
+    el.addEventListener('scroll', onScroll);
+    return () => el.removeEventListener('scroll', onScroll);
+  }, [offset, hasMore, loading, isFetchingMore]);
+
   return (
-    <div>
+    <div ref={containerRef} className="h-full min-h-0 overflow-y-auto">
       <div className="flex items-center justify-end mb-5">
         <button
           onClick={handleDownload}
@@ -179,16 +197,7 @@ const LogsList: React.FC<LogsListProps> = ({ onSelectLog, workflowId, logType })
         </div>
       }
       {loading && <div className="p-5 text-center">Loading...</div>}
-      {!loading && hasMore && groupedLogs.length > 0 && (
-        <div className="mt-5 text-center">
-          <button
-            onClick={handleLoadMore}
-            className="px-6 py-2 text-white bg-green-600 rounded-md hover:bg-green-700"
-          >
-            Load More
-          </button>
-        </div>
-      )}
+      {isFetchingMore && <div className="p-3 text-center text-sm text-gray-500">Loading more…</div>}
       {!loading && groupedLogs.length === 0 && (
         <p className="p-5 text-center bg-white rounded-lg shadow-md mt-4">As soon as your workflow has executed for the first time, logs will appear here.</p>
       )}

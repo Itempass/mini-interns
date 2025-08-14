@@ -277,12 +277,12 @@ const WorkflowChat: React.FC<WorkflowChatProps> = ({ workflowId, onWorkflowUpdat
   );
   
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col flex-1 min-h-0">
       <div className="p-4 border-b border-gray-200 flex items-center justify-between">
         <h3 className="text-lg font-semibold flex items-center"><Bot className="mr-2" /> Workflow Agent</h3>
         {isAgentThinking && <Loader2 className="w-5 h-5 animate-spin text-gray-500" />}
       </div>
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+      <div className="flex-1 overflow-y-auto p-4 space-y-4 min-h-0">
         {messages.map((msg, index) => {
           if (msg.role === 'tool') return null; // Do not render tool results directly
 

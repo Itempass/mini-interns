@@ -24,7 +24,7 @@ export default async function RootLayout({
     return (
       <html lang="en">
         <Auth0Provider>
-          <body className={`${inter.className} min-h-screen flex flex-col`}>
+          <body className={`${inter.className} h-screen flex flex-col overflow-hidden`}>
             <BackendStatusChecker>
               <GlobalBalanceBanner />
               {children}
@@ -37,7 +37,7 @@ export default async function RootLayout({
 
   return (
     <html lang="en">
-      <body className={`${inter.className} min-h-screen flex flex-col`}>
+      <body className={`${inter.className} h-screen flex flex-col overflow-hidden`}>
         <BackendStatusChecker>
           <GlobalBalanceBanner />
           {children}
