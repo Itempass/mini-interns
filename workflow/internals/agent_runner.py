@@ -11,7 +11,6 @@ import httpx
 from fastmcp import Client as MCPClient
 from fastmcp.client.transports import StreamableHttpTransport
 from fastapi import HTTPException
-from openai import OpenAI
 from jsonpath_ng import parse
 
 from agentlogger.src.client import save_log_entry
@@ -23,9 +22,7 @@ from mcp.types import Tool
 from shared.app_settings import load_app_settings
 from shared.config import settings
 from workflow.internals.output_processor import create_output_data, generate_summary
-from mcp_servers.tone_of_voice_mcpserver.src.services.openrouter_service import (
-    openrouter_service,
-)
+from shared.services.openrouterservice.client import chat as llm_chat
 from workflow.models import (
     CustomAgent,
     CustomAgentInstanceModel,
@@ -101,10 +98,7 @@ async def run_agent_step(
         instance.error_message = "OPENROUTER_API_KEY not found."
         return instance
 
-    llm_client = OpenAI(
-        base_url="https://openrouter.ai/api/v1",
-        api_key=settings.OPENROUTER_API_KEY,
-    )
+    # Using centralized OpenRouter chat via shared.services.openrouterservice.client
 
     mcp_clients: dict[str, MCPClient] = {}
     servers_info = []
@@ -199,10 +193,7 @@ async def run_agent_step(
 
     
     try:
-        # --- Balance Check ---
-        logger.info(f"Checking balance for user {user_id} before running agent step.")
-        user_client.check_user_balance(user_id)
-        logger.info(f"User {user_id} has sufficient balance.")
+        # Balance is checked inside the centralized LLM chat call
 
         max_cycles = 10  # A reasonable limit for agent execution cycles
         
@@ -222,9 +213,8 @@ async def run_agent_step(
             )
             
             logger.debug(f"Calling LLM with {len(instance.messages)} messages and {len(tools)} tools.")
-            response = await asyncio.to_thread(
-                llm_client.chat.completions.create,
-                model=agent_definition.model,
+            result = await llm_chat(
+                call_uuid=uuid.uuid4(),
                 messages=[
                     msg.model_dump(
                         exclude_none=True,
@@ -232,36 +222,39 @@ async def run_agent_step(
                     )
                     for msg in instance.messages
                 ],
+                model=agent_definition.model,
                 tools=tools,
                 tool_choice="auto" if tools else "none",
+                user_id=user_id,
+                step_name=agent_definition.name,
+                workflow_uuid=workflow_definition.uuid,
+                workflow_instance_uuid=workflow_instance_uuid,
             )
-            response_message = response.choices[0].message
-            instance.messages.append(
-                MessageModel.model_validate(response_message.model_dump())
-            )
+
+            response_message = result.response_message or {}
+            if response_message:
+                instance.messages.append(
+                    MessageModel.model_validate(response_message)
+                )
+            else:
+                # Fallback to assistant text if no structured message present
+                instance.messages.append(
+                    MessageModel(role="assistant", content=result.response_text or "")
+                )
 
             # Accumulate usage data
-            if response.usage:
-                cumulative_prompt_tokens += response.usage.prompt_tokens
-                cumulative_completion_tokens += response.usage.completion_tokens
-                cumulative_total_tokens += response.usage.total_tokens
-                # Cost retrieval would need a generation ID, which is available in the 'id' of the response.
-                # Assuming openrouter_service can be used here as well.
-                if response.id:
-                    try:
-                        # This assumes a similar setup as llm_runner and might need adjustment
-                        # if openrouter_service is not directly available here.
-                        # For now, let's assume we can fetch it.
-                        cost = await openrouter_service.get_generation_cost(response.id)
-                        cumulative_total_cost += cost
-                    except Exception as e:
-                        logger.error(f"Could not retrieve cost for generation {response.id}: {e}")
+            if result.total_tokens is not None:
+                cumulative_total_tokens += result.total_tokens or 0
+                cumulative_prompt_tokens += result.prompt_tokens or 0
+                cumulative_completion_tokens += result.completion_tokens or 0
+            if result.total_cost:
+                cumulative_total_cost += result.total_cost
 
 
-            if not response_message.tool_calls:
+            if not (response_message and response_message.get("tool_calls")):
                 logger.info("Agent finished execution loop.")
                 # The final message content is the output
-                final_content = response_message.content or "Agent provided no final answer."
+                final_content = (response_message.get("content") if response_message else None) or (result.response_text or "Agent provided no final answer.")
                 markdown_rep = f"{final_content}"
                 instance.output = await create_output_data(
                     markdown_representation=markdown_rep,
@@ -319,13 +312,7 @@ async def run_agent_step(
         instance.status = "failed"
         instance.error_message = str(e)
     finally:
-        # --- Cost Deduction ---
-        if cumulative_total_cost > 0:
-            logger.info(f"Deducting total cost of {cumulative_total_cost} from user {user_id}'s balance.")
-            try:
-                user_client.deduct_from_balance(user_id, cumulative_total_cost)
-            except Exception as e:
-                logger.error(f"Failed to deduct cost for user {user_id}: {e}", exc_info=True)
+        # Cost is deducted per LLM call via centralized billing; no final deduction here
 
         # This block ensures that we try to log the conversation even if an error occurs during the run.
         try:

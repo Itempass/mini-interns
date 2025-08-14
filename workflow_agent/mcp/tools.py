@@ -15,6 +15,7 @@ from mcp_servers.imap_mcpserver.src.imap_client.client import (
 from mcp_servers.imap_mcpserver.src.imap_client.internals.connection_manager import IMAPConnectionError
 from mcp_servers.imap_mcpserver.src.imap_client.models import EmailMessage
 from shared.config import settings
+from shared.services.openrouterservice.client import chat as llm_chat
 
 import workflow.agent_client as agent_client
 import workflow.client as workflow_client
@@ -461,45 +462,18 @@ async def update_step_mcp_tools(
     return updated_step.model_dump()
 
 
-async def _get_llm_response(prompt: str, model: str) -> str:
-    """
-    Makes a call to an LLM to get a response for a given prompt.
-    """
+async def _get_llm_response(prompt: str, model: str, user_id: UUID) -> str:
+    """Call centralized chat and return assistant text only."""
     try:
-        # Use a generic endpoint if possible, or configure based on model provider
-        # For this temporary solution, we can hardcode the OpenRouter endpoint
-        api_url = "https://openrouter.ai/api/v1/chat/completions"
-        api_key = settings.OPENROUTER_API_KEY
-
-        if not api_key:
-            logger.error("OpenRouter API key is not configured.")
-            return "Error: LLM service not configured."
-
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                api_url,
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": model,
-                    "messages": [{"role": "user", "content": prompt}],
-                },
-                timeout=60.0,
-            )
-            response.raise_for_status()
-            data = response.json()
-            return data["choices"][0]["message"]["content"]
-    except httpx.HTTPStatusError as e:
-        logger.error(
-            f"LLM API request failed with status {e.response.status_code}: {e.response.text}"
+        result = await llm_chat(
+            call_uuid=uuid4(),
+            messages=[{"role": "user", "content": prompt}],
+            model=model,
+            user_id=user_id,
         )
-        return f"Error: LLM request failed with status {e.response.status_code}."
+        return result.response_text or ""
     except Exception as e:
-        logger.error(
-            f"An unexpected error occurred during LLM request: {e}", exc_info=True
-        )
+        logger.error(f"Error during LLM request: {e}", exc_info=True)
         return "Error: An unexpected error occurred while contacting the LLM."
 
 
@@ -552,7 +526,8 @@ async def _process_single_label(label_name: str, sample_emails: List[EmailMessag
     # Generate a new description using the LLM
     prompt = _build_llm_prompt(sample_emails, label_name)
     # Use a dedicated, fast model for description generation
-    new_description = await _get_llm_response(prompt, "google/gemini-2.5-flash")
+    context = get_context_from_headers()
+    new_description = await _get_llm_response(prompt, "google/gemini-2.5-flash", context.user_id)
 
     if new_description.startswith("Error:"):
         logger.error(f"Could not generate description for {label_name}: {new_description}")
@@ -674,7 +649,7 @@ async def generate_label_description(label_name: str) -> str:
             )
 
         prompt = _build_llm_prompt(emails, label_name)
-        description = await _get_llm_response(prompt, "google/gemini-2.5-flash")
+        description = await _get_llm_response(prompt, "google/gemini-2.5-flash", context.user_id)
         if description.startswith("Error:"):
             return "Sorry, an error occurred while generating the description. Please try again later."
         return description

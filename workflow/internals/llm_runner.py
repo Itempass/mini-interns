@@ -11,13 +11,10 @@ from agentlogger.src.models import (
     LogEntry,
     Message as LoggerMessage,
 )
-from mcp_servers.tone_of_voice_mcpserver.src.services.openrouter_service import (
-    openrouter_service,
-)
+from shared.services.openrouterservice.client import chat as llm_chat
 from workflow.internals.output_processor import create_output_data, generate_summary
 from workflow.models import CustomLLM, CustomLLMInstanceModel, MessageModel, StepOutputData, WorkflowModel
 from shared.config import settings
-from user import client as user_client
 from user.exceptions import InsufficientBalanceError
 
 logger = logging.getLogger(__name__)
@@ -43,10 +40,6 @@ async def run_llm_step(
         logger.error("OPENROUTER_API_KEY not found. Cannot proceed.")
     
     try:
-        # --- Balance Check ---
-        logger.info(f"Checking balance for user {user_id} before running LLM step.")
-        user_client.check_user_balance(user_id)
-        logger.info(f"User {user_id} has sufficient balance.")
 
         logger.debug(f"LLM definition: {llm_definition.model_dump_json(indent=2)}")
         logger.debug(f"Resolved system prompt: {resolved_system_prompt}")
@@ -59,33 +52,30 @@ async def run_llm_step(
         ]
 
         logger.info(f"Calling OpenRouter for instance {instance.uuid} with model {llm_definition.model}")
-        # Use the OpenRouter service to get the LLM response
-        response_data = await openrouter_service.get_llm_response(
-            prompt="Proceed as instructed.",
-            system_prompt=resolved_system_prompt,
+        # Use centralized chat which performs balance check and deduction
+        result = await llm_chat(
+            call_uuid=uuid.uuid4(),
+            messages=[
+                msg.model_dump(exclude_none=True, include={"role", "content"})
+                for msg in instance.messages
+            ],
             model=llm_definition.model,
+            user_id=user_id,
+            step_name=llm_definition.name,
+            workflow_uuid=workflow_definition.uuid,
+            workflow_instance_uuid=workflow_instance_uuid,
         )
         logger.info(f"Received response from OpenRouter for instance {instance.uuid}")
-        logger.debug(f"Response data: {response_data}")
+        logger.debug(f"Response data: {result.raw_response}")
 
-        # Extract the content and other details from the response
-        response_content = response_data["choices"][0]["message"]["content"]
-        generation_id = response_data.get("id")
-        usage = response_data.get("usage", {})
-        prompt_tokens = usage.get("prompt_tokens")
-        completion_tokens = usage.get("completion_tokens")
-        total_tokens = usage.get("total_tokens")
-        
-        # Get the cost
-        total_cost = None
-        if generation_id:
-            try:
-                total_cost = await openrouter_service.get_generation_cost(generation_id)
-                if total_cost is not None and total_cost > 0:
-                    logger.info(f"Deducting {total_cost} from balance of user {user_id}.")
-                    user_client.deduct_from_balance(user_id, total_cost)
-            except Exception as e:
-                logger.error(f"Could not retrieve cost for generation {generation_id}: {e}")
+        # Extract the content and other details from the result
+        response_content = (
+            (result.response_message or {}).get("content") if result.response_message else None
+        ) or (result.response_text or "")
+        prompt_tokens = result.prompt_tokens
+        completion_tokens = result.completion_tokens
+        total_tokens = result.total_tokens
+        total_cost = result.total_cost
 
         # Add the response to the messages
         instance.messages.append(MessageModel(role="assistant", content=response_content))

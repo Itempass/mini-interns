@@ -2,19 +2,19 @@ import asyncio
 import json
 import logging
 import os
+import uuid
 from typing import List, Tuple, Optional
 from uuid import UUID
 
 from fastapi import HTTPException
 from fastmcp import Client as MCPClient
 from fastmcp.client.transports import StreamableHttpTransport
-from openai import OpenAI
 import httpx
 
 from shared.config import settings
 from workflow_agent.client.models import ChatMessage, HumanInputRequired
-from user import client as user_client
 from user.exceptions import InsufficientBalanceError
+from shared.services.openrouterservice.client import chat as llm_chat
 
 logger = logging.getLogger(__name__)
 
@@ -40,26 +40,7 @@ def _format_mcp_tools_for_openai(tools) -> list[dict]:
         formatted_tools.append(formatted_tool)
     return formatted_tools
 
-async def _get_generation_cost(generation_id: str) -> float:
-    """Retrieves the cost of a specific generation from OpenRouter."""
-    if not generation_id:
-        return 0.0
-    
-    try:
-        # A small delay can help ensure the generation data is available.
-        await asyncio.sleep(2)
-        async with httpx.AsyncClient() as client:
-            response = await client.get(
-                f"https://openrouter.ai/api/v1/generation?id={generation_id}",
-                headers={"Authorization": f"Bearer {settings.OPENROUTER_API_KEY}"}
-            )
-            response.raise_for_status()
-            data = response.json()
-            logger.info(f"WORKFLOW_AGENT: Received cost data for generation {generation_id}: {json.dumps(data)}")
-            return data.get("data", {}).get("total_cost", 0.0)
-    except Exception as e:
-        logger.error(f"Failed to retrieve cost for generation {generation_id}: {e}")
-        return 0.0
+    # Cost handled by centralized chat; helper removed
 
 async def run_agent_turn(
     conversation: List[ChatMessage], user_id: UUID, workflow_uuid: UUID
@@ -81,10 +62,7 @@ async def run_agent_turn(
         conversation.append(ChatMessage(role="assistant", content=error_message))
         return conversation, None, usage_stats, generation_id
 
-    llm_client = OpenAI(
-        base_url="https://openrouter.ai/api/v1",
-        api_key=settings.OPENROUTER_API_KEY,
-    )
+    # Using centralized OpenRouter chat via shared.services.openrouterservice.client
 
     last_message = conversation[-1]
 
@@ -192,15 +170,6 @@ async def run_agent_turn(
         elif last_message.role == "user" or last_message.role == "tool":
             # STATE: User sent a message OR tools have finished. Call LLM for the next step.
             logger.info("Agent is calling LLM.")
-            
-            # --- Balance Check ---
-            try:
-                logger.info(f"Checking balance for user {user_id} before running workflow agent.")
-                user_client.check_user_balance(user_id)
-                logger.info(f"User {user_id} has sufficient balance.")
-            except InsufficientBalanceError as e:
-                logger.warning(f"Blocking workflow agent for user {user_id} due to insufficient balance.")
-                raise HTTPException(status_code=403, detail=str(e))
 
             available_tools = await mcp_client.list_tools()
             formatted_tools = _format_mcp_tools_for_openai(available_tools)
@@ -209,31 +178,35 @@ async def run_agent_turn(
                 {"role": "system", "content": SYSTEM_PROMPT}
             ] + [msg.model_dump(exclude_none=True, include={"role", "content", "tool_calls", "tool_call_id"}) for msg in conversation]
             
-            response = await asyncio.to_thread(
-                llm_client.chat.completions.create,
-                model="google/gemini-2.5-pro",
-                messages=messages_for_llm,
-                tools=formatted_tools,
-                tool_choice="auto" if formatted_tools else "none",
-            )
-            response_message = response.choices[0].message
-            conversation.append(ChatMessage.model_validate(response_message.model_dump()))
+            try:
+                result = await llm_chat(
+                    call_uuid=uuid.uuid4(),
+                    messages=messages_for_llm,
+                    model="google/gemini-2.5-pro",
+                    tools=formatted_tools,
+                    tool_choice="auto" if formatted_tools else "none",
+                    user_id=user_id,
+                )
+            except InsufficientBalanceError as e:
+                logger.warning(f"Blocking workflow agent for user {user_id} due to insufficient balance.")
+                raise HTTPException(status_code=403, detail=str(e))
+
+            response_message = result.response_message or {}
+            if response_message:
+                conversation.append(ChatMessage.model_validate(response_message))
+            else:
+                conversation.append(ChatMessage(role="assistant", content=result.response_text or ""))
             
             # Capture usage stats and generation ID
-            if response.usage:
+            if result.total_tokens is not None:
                 usage_stats = {
-                    "prompt_tokens": response.usage.prompt_tokens,
-                    "completion_tokens": response.usage.completion_tokens,
-                    "total_tokens": response.usage.total_tokens,
+                    "prompt_tokens": result.prompt_tokens,
+                    "completion_tokens": result.completion_tokens,
+                    "total_tokens": result.total_tokens,
                 }
-            generation_id = response.id
+            generation_id = result.generation_id
 
-            # --- Cost Deduction ---
-            if generation_id:
-                cost = await _get_generation_cost(generation_id)
-                if cost > 0:
-                    logger.info(f"Deducting cost of {cost} from user {user_id}'s balance for workflow agent turn.")
-                    user_client.deduct_from_balance(user_id, cost)
+            # Cost is deducted inside centralized chat
 
         # If the last message is from the assistant without tool calls, we do nothing.
         # The turn is considered complete.
