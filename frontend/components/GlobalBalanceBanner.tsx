@@ -7,6 +7,7 @@ const GlobalBalanceBanner: React.FC = () => {
   const [authMode, setAuthMode] = useState<'auth0' | 'password' | 'none'>('none');
   const [user, setUser] = useState<UserProfile | null>(null);
   const pathname = usePathname();
+  const shouldSkip = pathname === '/login' || pathname.startsWith('/auth-client');
 
   const load = async () => {
     const mode = await getClientAuthMode();
@@ -20,12 +21,14 @@ const GlobalBalanceBanner: React.FC = () => {
   };
 
   useEffect(() => {
+    if (shouldSkip) return;
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pathname]);
+  }, [pathname, shouldSkip]);
 
   useEffect(() => {
     const onVisibility = () => {
+      if (shouldSkip) return;
       if (document.visibilityState === 'visible') {
         load();
       }
@@ -33,9 +36,9 @@ const GlobalBalanceBanner: React.FC = () => {
     document.addEventListener('visibilitychange', onVisibility);
     return () => document.removeEventListener('visibilitychange', onVisibility);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [shouldSkip]);
 
-  if (authMode !== 'auth0' || !user || typeof user.balance !== 'number' || user.balance >= 2) {
+  if (shouldSkip || authMode !== 'auth0' || !user || typeof user.balance !== 'number' || user.balance >= 2) {
     return null;
   }
 
