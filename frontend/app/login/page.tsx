@@ -24,6 +24,7 @@ export default async function LoginPage() {
             <p className="mt-2 text-sm text-gray-600">You will be redirected to our secure login provider.</p>
             <Link
                 href="/auth-client/login"
+                prefetch={false}
                 className="inline-block w-full px-4 py-3 text-sm font-semibold text-white bg-gray-900 border border-transparent rounded-lg shadow-sm hover:bg-black focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-900 transition-all duration-200"
             >
                 Continue to Login
