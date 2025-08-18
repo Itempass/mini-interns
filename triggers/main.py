@@ -2,6 +2,7 @@ import logging
 import time
 import requests
 import asyncio
+import uuid
 from imap_tools import MailBox, A
 from shared.app_settings import load_app_settings
 from shared.redis.keys import RedisKeys
@@ -23,7 +24,7 @@ from mcp_servers.imap_mcpserver.src.imap_client.internals.connection_manager imp
 )
 import user.client as user_client
 from shared.security.encryption import decrypt_value
-from shared.services.openrouter_service import openrouter_service
+from shared.services.openrouterservice.client import chat as llm_chat
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -228,17 +229,37 @@ If the email does not match:
             user_prompt = f"EMAIL THREAD:\n\n{thread_context}"
 
             try:
-                response_json = await openrouter_service.get_json_response(
-                    system_prompt=system_prompt,
-                    user_prompt=user_prompt,
-                    model=trigger.trigger_model
+                result = await llm_chat(
+                    call_uuid=uuid.uuid4(),
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                    model=trigger.trigger_model,
+                    response_format_json=True,
+                    user_id=user.uuid,
+                    step_name=f"trigger:{workflow.name}",
+                    workflow_uuid=workflow.uuid,
                 )
-                if not response_json.get("continue_processing"):
-                    logger.info(f"LLM decided not to trigger workflow for email from '{msg.from_}'. Reason: {response_json.get('reason', 'No reason provided.')}")
+                try:
+                    response_json = json.loads(result.response_text or "{}")
+                except json.JSONDecodeError:
+                    logger.error("LLM returned non-JSON response for trigger evaluation.")
                     continue
-                logger.info(f"LLM decided to trigger workflow for email from '{msg.from_}'. Reason: {response_json.get('reason', 'No reason provided.')}")
+
+                if not response_json.get("continue_processing"):
+                    logger.info(
+                        f"LLM decided not to trigger workflow for email from '{msg.from_}'. Reason: {response_json.get('reason', 'No reason provided.')}"
+                    )
+                    continue
+                logger.info(
+                    f"LLM decided to trigger workflow for email from '{msg.from_}'. Reason: {response_json.get('reason', 'No reason provided.')}"
+                )
             except Exception as e:
-                logger.error(f"Error processing LLM trigger prompt for workflow '{workflow.name}': {e}", exc_info=True)
+                logger.error(
+                    f"Error processing LLM trigger prompt for workflow '{workflow.name}': {e}",
+                    exc_info=True,
+                )
                 continue
 
         # If all checks pass, we have a match.

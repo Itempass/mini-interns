@@ -95,7 +95,8 @@ async def determine_user_tone_of_voice(user_uuid: UUID):
                 tone_profile = await analyze_tone_for_language(
                     language_emails=emails_for_analysis,
                     user_email=user_email,
-                    language=language
+                    language=language,
+                    user_id=user_uuid,
                 )
                 
                 if tone_profile:

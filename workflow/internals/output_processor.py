@@ -8,16 +8,19 @@ from pydantic import BaseModel
 from workflow.internals import database as db
 from workflow.internals.pydantic_utils import generate_simplified_json_schema
 from workflow.models import StepOutputData
-from mcp_servers.tone_of_voice_mcpserver.src.services.openrouter_service import (
-    openrouter_service,
-)
+from shared.services.openrouterservice.client import chat as llm_chat
+import uuid
+from user import client as user_client
 from shared.config import settings
 
 logger = logging.getLogger(__name__)
 
 
 async def generate_summary(
-    raw_data: Any, markdown_representation: Optional[str] = None
+    raw_data: Any,
+    markdown_representation: Optional[str] = None,
+    *,
+    user_id: UUID,
 ) -> str:
     """
     Generates a concise, one-line summary of the given data using an LLM.
@@ -54,13 +57,18 @@ async def generate_summary(
         return "No data provided."
 
     try:
-        summary = await openrouter_service.get_llm_response(
-            prompt=data_content,
-            system_prompt=instruction,
-            model="google/gemini-flash-1.5",
+        result = await llm_chat(
+            call_uuid=uuid.uuid4(),
+            messages=[
+                {"role": "system", "content": instruction},
+                {"role": "user", "content": data_content},
+            ],
+            model="google/gemini-2.5-flash-lite",
+            user_id=user_id,
+            step_name="generate_summary",
         )
-        # Post-process to ensure it's a single line
-        return summary.strip().split('\n')[0]
+        text = (result.response_text or "").strip()
+        return text.split('\n')[0] if text else "No summary available."
     except Exception as e:
         logger.error(f"Error generating summary with LLM: {e}")
         # Fallback to a simple, non-LLM summary in case of an error

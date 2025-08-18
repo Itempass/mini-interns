@@ -232,15 +232,17 @@ async def run_agent_step(
             )
 
             response_message = result.response_message or {}
+            logger.debug(
+                "AGENT_DEBUG: Received response_message keys=%s", 
+                list(response_message.keys()) if isinstance(response_message, dict) else type(response_message)
+            )
             if response_message:
-                instance.messages.append(
-                    MessageModel.model_validate(response_message)
-                )
+                response_message_model = MessageModel.model_validate(response_message)
+                instance.messages.append(response_message_model)
             else:
                 # Fallback to assistant text if no structured message present
-                instance.messages.append(
-                    MessageModel(role="assistant", content=result.response_text or "")
-                )
+                response_message_model = MessageModel(role="assistant", content=result.response_text or "")
+                instance.messages.append(response_message_model)
 
             # Accumulate usage data
             if result.total_tokens is not None:
@@ -262,7 +264,12 @@ async def run_agent_step(
                 )
                 break
 
-            tool_calls = response_message.tool_calls
+            tool_calls = getattr(response_message_model, "tool_calls", None)
+            logger.debug(
+                "AGENT_DEBUG: tool_calls type=%s, count=%s", 
+                type(tool_calls).__name__, 
+                len(tool_calls) if tool_calls else 0
+            )
             tool_results_coroutines: list[Coroutine] = []
             tool_call_details_map: dict[int, Any] = {}
 
@@ -272,9 +279,16 @@ async def run_agent_step(
             resolved_tool_calls = tool_calls
 
             for i, tool_call in enumerate(resolved_tool_calls):
+                try:
+                    logger.debug(
+                        "AGENT_DEBUG: tool_call[%s] type=%s keys=%s", 
+                        i, 
+                        type(tool_call).__name__, 
+                        list(tool_call.keys()) if isinstance(tool_call, dict) else dir(tool_call)
+                    )
+                except Exception:
+                    pass
                 tool_call_details_map[i] = tool_call
-                function_name = tool_call.function.name
-                
                 tool_results_coroutines.append(
                     _handle_mcp_tool_call(tool_call, mcp_clients)
                 )
@@ -283,11 +297,13 @@ async def run_agent_step(
 
             for i, result_content in enumerate(tool_results):
                 tool_call = tool_call_details_map[i]
+                tool_call_id = getattr(tool_call, "id", None)
+                tool_name = getattr(tool_call.function, "name", None) if hasattr(tool_call, "function") else None
                 instance.messages.append(
                     MessageModel(
-                        tool_call_id=tool_call.id,
+                        tool_call_id=tool_call_id,
                         role="tool",
-                        name=tool_call.function.name,
+                        name=tool_name,
                         content=result_content,
                     )
                 )
@@ -420,16 +436,21 @@ async def _resolve_tool_arguments(tool_calls: list, user_id: str) -> list:
 
 async def _handle_mcp_tool_call(tool_call, mcp_clients: dict[str, MCPClient]) -> str:
     """Handles a standard tool call to an MCP server."""
-    full_tool_name = tool_call.function.name
     try:
+        full_tool_name = (
+            tool_call["function"]["name"] if isinstance(tool_call, dict) else tool_call.function.name
+        )
         server_name, short_tool_name = full_tool_name.split("-", 1)
         if server_name not in mcp_clients:
             return f"Error: Server '{server_name}' is not available."
 
         client = mcp_clients[server_name]
-        function_args = json.loads(tool_call.function.arguments)
+        arguments_json = (
+            tool_call["function"].get("arguments", "{}") if isinstance(tool_call, dict) else getattr(tool_call.function, "arguments", "{}")
+        )
+        function_args = json.loads(arguments_json)
         result = await client.call_tool(short_tool_name, function_args)
         return "\n".join(item.text for item in result.content)
     except Exception as e:
-        logger.error(f"Error calling tool {full_tool_name}: {e}", exc_info=True)
-        return f"Error executing tool: {e}" 
+        logger.error(f"Error calling tool: {e}", exc_info=True)
+        return f"Error executing tool: {e}"

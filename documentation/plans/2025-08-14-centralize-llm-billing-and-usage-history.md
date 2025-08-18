@@ -12,7 +12,7 @@
 
 ---
 
-### Phase 1: Centralize OpenRouter calls (no behavior change) and standardize return type
+### Phase 1: Centralize OpenRouter calls with in-function billing and standardize return type
 0) Create `shared/services/openrouterservice/` package:
    - Files:
      - `shared/services/openrouterservice/models.py` → defines `LLMCallResult`
@@ -20,7 +20,8 @@
      - `shared/services/openrouterservice/__init__.py` → exports public API
    - Leave `shared/services/openrouter_service.py` as a thin compatibility shim (optional) or plan to remove later.
 1) Add a single entry point in `shared/services/openrouterservice/client.py`:
-   - `chat(messages, model, temperature=None, max_tokens=None, tools=None, tool_choice=None, call_uuid: UUID) -> LLMCallResult`
+   - `chat(*, call_uuid: UUID, messages, model, user_id: UUID, temperature=None, max_tokens=None, tools=None, tool_choice=None, response_format_json: bool = False, step_name=None, workflow_uuid=None, workflow_instance_uuid=None) -> LLMCallResult`
+   - Billing occurs inside `chat`: balance check before the call; after receiving a `generation_id`, retrieve cost from OpenRouter and deduct user balance.
    - Introduce a unified `LLMCallResult` model returned by all LLM calls that includes:
      - identity/context: `uuid` (new per-call unique ID), `user_id`, `model`, `provider`, `generation_id`, `step_name`, `workflow_uuid`, `workflow_instance_uuid`
      - timestamps: `start_time`, `end_time`
@@ -35,11 +36,10 @@
    - `prompt_optimizer/llm_client.py`
    - `workflow_agent/mcp/tools.py`
 3) Remove/replace the duplicate service in `mcp_servers/tone_of_voice_mcpserver/src/services/openrouter_service.py`.
-4) Add a feature flag to quickly toggle back if needed.
 
 Acceptance:
-- All OpenRouter calls flow through `openrouter_service.chat` and return `LLMCallResult`.
-- No balance or logging behavior changes yet; `total_cost` may be unset in Phase 1.
+- All OpenRouter calls flow through the centralized `chat` and return `LLMCallResult`.
+- Billing is enforced inside `chat` (balance check and deduction). `total_cost` is included when available. No `usage_history` persistence yet.
 
 ---
 
@@ -84,39 +84,21 @@ Acceptance:
 
 ---
 
-### Phase 3: Centralized billing flow (opt-in, incremental rollout)
-1) Add `chat_with_billing` to `openrouter_service.py`:
-   - Signature: `chat_with_billing(messages, model, user_id, temperature=None, max_tokens=None, tools=None, tool_choice=None) -> LLMCallResult`.
-   - Flow:
-     - `user_client.check_user_balance(user_id)`
-     - Call `chat(...)`
-      - Extract `generation_id` and token usage → get cost from OpenRouter
-     - In a single DB transaction:
-       - Deduct user balance (optionally conditional update `balance >= cost`)
-       - `INSERT` into `usage_history` (idempotent on `generation_id`)
-       - Return an `LLMCallResult` populated with `generation_id`, token counts, `total_cost`, and the per-call `uuid`.
-2) Roll out gradually behind a feature flag:
-   - First: `workflow/internals/llm_runner.py`
-   - Then: `workflow/internals/agent_runner.py`
-   - Then: `workflow_agent/client/internals/agent_runner.py`
-   - Then: `prompt_optimizer/llm_client.py`
-   - Finally: `workflow_agent/mcp/tools.py`
-
-Acceptance:
-- Selected subsystems use `chat_with_billing` and produce `usage_history` rows while deducting balances.
+### Phase 3: (Removed)
+Billing is implemented directly inside the centralized `chat` in Phase 1. No separate wrapper or feature flag rollout is needed.
 
 ---
 
-### Phase 4: Frontend wiring
+### Phase 3: Frontend wiring
 1) Add client methods to call `/usage/history` and `/usage/summary`.
 2) Create/adjust the “Usage History” view to use new endpoints; leave agentlogger costs as fallback until validated.
 
 Acceptance:
-- Usage History can be toggled to use the new endpoints and shows accurate totals.
+- Usage History can be switched to use the new endpoints and shows accurate totals.
 
 ---
 
-### Phase 5: Cleanup and safeguards
+### Phase 4: Cleanup and safeguards
 1) Remove remaining direct POSTs to `openrouter.ai` and direct `OpenAI(base_url=...)` usage.
 2) Adopt conditional deduction in DB (race-safe) and raise on affected-rows=0.
 3) Ensure `generation_id`-based idempotency for retries.
@@ -126,7 +108,7 @@ Acceptance:
 
 ---
 
-### Phase 6: Backfill and deprecation (optional)
+### Phase 5: Backfill and deprecation (optional)
 1) Optional backfill: project agentlogger cost-bearing logs into `usage_history` to avoid a visual reset of totals.
 2) Optionally re-implement `/agentlogger/logs/costs` to read from `usage_history`, or deprecate after a transition period.
 
@@ -135,7 +117,7 @@ Acceptance:
 
 ---
 
-### Phase 7: Tests and observability
+### Phase 6: Tests and observability
 1) Unit tests:
    - DAO idempotency and range queries.
    - Billing success, retry, insufficient funds.
@@ -147,12 +129,11 @@ Acceptance:
 
 ---
 
-### Phase 8: Rollout plan
-1) Feature flag for `chat_with_billing` per subsystem.
-2) Canary enable on one runner; validate rows/balances.
-3) Gradually enable across all LLM call sites; monitor error rates and totals.
+### Phase 7: Rollout plan
+1) Canary enable on one runner; validate rows/balances.
+2) Gradually enable across all LLM call sites; monitor error rates and totals.
 
 Acceptance:
-- Smooth rollout with quick rollback if necessary; no regressions in user experience.
+- Smooth rollout; no regressions in user experience.
 
 

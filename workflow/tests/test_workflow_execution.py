@@ -256,7 +256,7 @@ async def test_agent_tool_use_with_data_pointer(test_db, monkeypatch):
     mock_llm_output_content = json.dumps({"messageId": message_id_to_test})
     mock_get_llm_response = AsyncMock(return_value=mock_llm_output_content)
     monkeypatch.setattr(
-        "workflow.internals.llm_runner.openrouter_service.get_llm_response",
+        "workflow.internals.llm_runner.llm_chat",
         mock_get_llm_response
     )
 

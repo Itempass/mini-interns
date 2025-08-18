@@ -2,13 +2,16 @@ import logging
 import random
 from collections import defaultdict
 from typing import List, Dict, Optional, Any
+from uuid import UUID
 
-from ..services.openrouter_service import openrouter_service
+import uuid
+from shared.services.openrouterservice.client import chat as llm_chat
+from user import client as user_client
 
 logger = logging.getLogger(__name__)
 
 
-async def analyze_tone_for_language(language_emails: List[Dict], user_email: str, language: str) -> Optional[str]:
+async def analyze_tone_for_language(language_emails: List[Dict], user_email: str, language: str, user_id: UUID) -> Optional[str]:
     """
     Analyzes the user's tone of voice for a single language and returns only the profile string.
     """
@@ -63,11 +66,17 @@ async def analyze_tone_for_language(language_emails: List[Dict], user_email: str
         
         # Generate a baseline AI response (the "bad" example)
         baseline_prompt = f"Based on the following email thread, write a reply."
-        baseline_response = await openrouter_service.get_llm_response(
-            prompt=context_str, 
-            system_prompt=baseline_prompt, 
-            model="google/gemini-2.5-flash"
+        result = await llm_chat(
+            call_uuid=uuid.uuid4(),
+            messages=[
+                {"role": "system", "content": baseline_prompt},
+                {"role": "user", "content": context_str},
+            ],
+            model="google/gemini-2.5-flash",
+            user_id=user_id,
+            step_name="tone_of_voice_baseline",
         )
+        baseline_response = result.response_text or ""
         
         few_shot_examples.append({
             "context": context_str,
@@ -107,16 +116,22 @@ async def analyze_tone_for_language(language_emails: List[Dict], user_email: str
     )
 
     # Call LLM to get the final tone profile for the language
-    tone_analysis_result = await openrouter_service.get_llm_response(
-        prompt=examples_str,
-        system_prompt=tone_system_prompt,
-        model="google/gemini-2.5-flash"
+    result = await llm_chat(
+        call_uuid=uuid.uuid4(),
+        messages=[
+            {"role": "system", "content": tone_system_prompt},
+            {"role": "user", "content": examples_str},
+        ],
+        model="google/gemini-2.5-flash",
+        user_id=user_id,
+        step_name="tone_of_voice_final",
     )
+    tone_analysis_result = result.response_text or ""
     
     return tone_analysis_result
 
 
-async def _analyze_tone_of_voice(emails: List[Dict], user_email: str) -> Dict:
+async def _analyze_tone_of_voice(emails: List[Dict], user_email: str, user_id: UUID) -> Dict:
     """
     Analyzes the user's tone of voice from a list of emails.
     """
@@ -180,11 +195,17 @@ async def _analyze_tone_of_voice(emails: List[Dict], user_email: str) -> Dict:
             
             # Generate a baseline AI response (the "bad" example)
             baseline_prompt = f"Based on the following email thread, write a reply."
-            baseline_response = await openrouter_service.get_llm_response(
-                prompt=context_str, 
-                system_prompt=baseline_prompt, 
-                model="google/gemini-2.5-flash"
+            result = await llm_chat(
+                call_uuid=uuid.uuid4(),
+                messages=[
+                    {"role": "system", "content": baseline_prompt},
+                    {"role": "user", "content": context_str},
+                ],
+                model="google/gemini-2.5-flash",
+                user_id=user_id,
+                step_name="tone_of_voice_baseline",
             )
+            baseline_response = result.response_text or ""
             
             few_shot_examples.append({
                 "context": context_str,
@@ -224,11 +245,17 @@ async def _analyze_tone_of_voice(emails: List[Dict], user_email: str) -> Dict:
         )
 
         # Call LLM to get the final tone profile for the language
-        tone_analysis_result = await openrouter_service.get_llm_response(
-            prompt=examples_str,
-            system_prompt=tone_system_prompt,
-            model="google/gemini-2.5-flash"
+        result = await llm_chat(
+            call_uuid=uuid.uuid4(),
+            messages=[
+                {"role": "system", "content": tone_system_prompt},
+                {"role": "user", "content": examples_str},
+            ],
+            model="google/gemini-2.5-flash",
+            user_id=user_id,
+            step_name="tone_of_voice_final",
         )
+        tone_analysis_result = result.response_text or ""
         final_tone_profile[lang] = {
             "profile": tone_analysis_result, 
             "examples_used": len(few_shot_examples),

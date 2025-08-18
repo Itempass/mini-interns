@@ -67,7 +67,11 @@ async def run_agent_turn(
     last_message = conversation[-1]
 
     # Pre-emptively check for human input requests to avoid creating an unnecessary MCP connection.
-    if last_message.role == "assistant" and last_message.tool_calls:
+    if last_message.role == "assistant" and getattr(last_message, "tool_calls", None):
+        logger.debug(
+            "WF_AGENT_DEBUG: Pre-check tool_calls count=%s", 
+            len(last_message.tool_calls) if last_message.tool_calls else 0
+        )
         for tool_call in last_message.tool_calls:
             if tool_call['function']['name'] == 'feature_request':
                 logger.info("Human input required for feature_request. Bypassing MCP connection.")
@@ -99,10 +103,14 @@ async def run_agent_turn(
     mcp_client = MCPClient(transport)
 
     async with mcp_client:
-        if last_message.role == "assistant" and last_message.tool_calls:
+        if last_message.role == "assistant" and getattr(last_message, "tool_calls", None):
             # STATE: LLM requested tool execution.
             logger.info("Agent is executing tools.")
             tool_calls = last_message.tool_calls
+            logger.debug(
+                "WF_AGENT_DEBUG: Executing tool_calls count=%s", 
+                len(tool_calls) if tool_calls else 0
+            )
 
             # Enforce per-turn cap: execute first N, return error for the rest.
             max_calls = max(0, int(getattr(settings, 'WORKFLOW_AGENT_MAX_PARALLEL_TOOL_CALLS', 5)))

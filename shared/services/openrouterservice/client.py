@@ -117,6 +117,39 @@ async def chat(
             response.raise_for_status()
             data = response.json()
 
+        # Debug logging to understand response structure
+        try:
+            logger.debug(
+                "LLM_DEBUG: OpenRouter response keys=%s, usage_keys=%s",
+                list(data.keys()),
+                list((data.get("usage", {}) or {}).keys()),
+            )
+            choices_dbg = data.get("choices", [])
+            if choices_dbg:
+                first_msg = choices_dbg[0].get("message", {})
+                logger.debug(
+                    "LLM_DEBUG: First message keys=%s, has_tool_calls=%s",
+                    list(first_msg.keys()),
+                    "tool_calls" in first_msg,
+                )
+                if first_msg.get("tool_calls"):
+                    try:
+                        tc = first_msg["tool_calls"]
+                        logger.debug(
+                            "LLM_DEBUG: tool_calls len=%s, first_tool_keys=%s", 
+                            len(tc), 
+                            list((tc[0] if isinstance(tc, list) and tc else {}).keys())
+                        )
+                        if tc and isinstance(tc[0], dict) and tc[0].get("function"):
+                            logger.debug(
+                                "LLM_DEBUG: first_tool.function keys=%s",
+                                list(tc[0]["function"].keys()),
+                            )
+                    except Exception as _e:
+                        logger.debug("LLM_DEBUG: error probing tool_calls: %s", _e)
+        except Exception as _e:
+            logger.debug("LLM_DEBUG: error logging response structure: %s", _e)
+
         usage = data.get("usage", {}) or {}
         choices = data.get("choices", [])
         first_message = choices[0].get("message") if choices else None
